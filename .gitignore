@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-verify
+.env
+.env.local
+*.log
+.vercel
+.DS_Store
+<<<<<<< HEAD
+
+.vercel
+.env*
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510

@@ -1,0 +1,127 @@
+@import "./styles/tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg) var(--gradient-glow) no-repeat;
+  background-attachment: fixed;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}
+
+button {
+  transition: transform var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+input,
+textarea {
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-dim);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+  vertical-align: -2px;
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-6);
+}
+
+<<<<<<< HEAD
+/*
+ * Wrapper de conteúdo de todas as telas (ver App.tsx). Centraliza e
+ * limita a largura num único lugar, em vez de cada componente carregar
+ * o próprio `max-width` — assim o teto escala por breakpoint
+ * (--content-max em tokens.css) e telas grandes não ficam com uma
+ * coluna estreita colada à esquerda.
+ */
+.app-shell__content {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+@media (min-width: 1600px) {
+  .app-shell__main {
+    padding: var(--space-7) var(--space-6);
+  }
+}
+
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+@media (max-width: 720px) {
+  .app-shell {
+    flex-direction: column;
+  }
+
+  .app-shell__main {
+    padding: var(--space-4);
+  }
+}

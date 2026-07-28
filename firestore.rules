@@ -1,0 +1,92 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Cada usuário só lê/escreve o próprio perfil. Admin (isAdmin == true
+    // no PRÓPRIO doc) também pode ler/atualizar qualquer perfil — é o
+    // que sustenta a tela Admin (lista de usuários + troca de plano),
+    // sem precisar de Admin SDK/Cloud Function pra isso no MVP.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Regras de precificação são privadas por usuário.
+    match /pricing_rules/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Cache de preços: qualquer usuário autenticado pode ler (é o que
+    // acelera a próxima consulta pra todo mundo), mas só o servidor
+    // (Admin SDK, via api/_lib/firestoreAdmin.ts) pode escrever — o
+    // Admin SDK ignora Security Rules, então isso é só pra bloquear
+    // escrita direta do client.
+    match /market_prices/{document} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Catálogos e cálculos de margem (Fase 3+): cada usuário só acessa
+    // os próprios documentos.
+    match /catalogs/{catalogId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+
+    match /margin_calculations/{calcId} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+
+    // Histórico de uploads (PDF/CSV processados): cada usuário só vê e
+    // grava o próprio histórico. Escrito direto pelo client (não pelo
+    // Admin SDK), por isso a regra de fato importa aqui.
+    match /catalog_uploads/{uploadId} {
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+
+    // Tokens OAuth do Mercado Livre: só o Admin SDK (server, via
+    // scripts/ml-oauth-setup.mjs e api/_lib/mlAuth.ts) lê/escreve — o
+    // Admin SDK ignora Security Rules, então isso só bloqueia acesso
+    // direto do client (onde o client_secret nunca deveria chegar).
+    match /ml_oauth/{document} {
+      allow read, write: if false;
+    }
+
+    // Biblioteca administrável de catálogos (Fase Planos): qualquer
+    // usuário autenticado pode ler um catálogo se for admin OU se o
+    // próprio plano estiver em `plans` do documento — o filtro por plano
+    // é reforçado aqui, não só no client (`listSharedCatalogsForPlan`).
+    // Só admin escreve (upload, atribuição de plano, exclusão).
+    match /shared_catalogs/{catalogId} {
+      allow read: if request.auth != null && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+        resource.data.plans.hasAny([get(/databases/$(database)/documents/users/$(request.auth.uid)).data.plan])
+      );
+      allow write: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Contador de buscas do dia (Fase Planos — enforcement de cota por
+    // plano). Doc ID é "{uid}_{yyyymmdd}" (ver usageQuota.ts); o próprio
+    // ID já garante isolamento por usuário, sem precisar de campo extra.
+    match /usage_daily/{docId} {
+      allow read, write: if request.auth != null && docId.split('_')[0] == request.auth.uid;
+    }
+
+    // Chave SerpApi própria do usuário (BYOK, ver userSecrets.ts).
+    // Deliberadamente SEM override de admin — é credencial do usuário,
+    // não dado de gestão de plano (diferente de `users`).
+    match /user_secrets/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Nega tudo que não foi listado explicitamente acima.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
