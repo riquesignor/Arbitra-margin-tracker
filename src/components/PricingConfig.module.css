@@ -1,0 +1,638 @@
+/* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
+.container {
+  width: 100%;
+}
+
+/* --- Header --- */
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.headerMain {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+
+.subtitle {
+  color: var(--color-text-muted);
+  max-width: 52ch;
+  line-height: 1.6;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.headerCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  flex-shrink: 0;
+}
+
+.headerCardRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.headerCardStrong {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.headerCardDotSquare {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.headerCardDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+/* --- Stats --- */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 900px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+}
+
+.statCardLabel {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.statCardValue {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.statCardValueOf {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--color-text-dim);
+}
+
+.statCardFoot {
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Layout de duas colunas --- */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.main,
+.aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Cartão genérico --- */
+
+.card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* Card "Meta" — destaque visual porque é o número que o sistema otimiza (ver Session 2 do critique de design). */
+.cardAccent {
+  composes: card;
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.cardHeaderIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated-2);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.cardHeaderIconAccent {
+  composes: cardHeaderIcon;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.cardHeaderTitle {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cardHeaderMeta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.cardRows {
+  padding: var(--space-2) var(--space-5);
+}
+
+/* --- Linhas de regra --- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowLabel {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.9rem;
+  min-width: 0;
+}
+
+.rowTag {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.rowComputed {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.rowUnit {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--color-text-dim);
+}
+
+.numberInput {
+  width: 84px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: var(--space-2);
+  font-family: var(--font-mono);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.numberInput:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* --- Toggle switch --- */
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switchTrack {
+  position: absolute;
+  inset: 0;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.switchTrack::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--color-text-dim);
+  border-radius: 50%;
+  transition: transform var(--duration-base) var(--ease-out),
+    background var(--duration-base) var(--ease-out);
+}
+
+.switch input:checked + .switchTrack {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+}
+
+.switch input:checked + .switchTrack::before {
+  transform: translateX(14px);
+  background: var(--color-accent);
+}
+
+/* --- Footer do card de impostos --- */
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.savedHint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.resetButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.resetButton:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-dim);
+}
+
+/* --- Aside: preview ao vivo --- */
+
+.previewBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+.previewTag {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-text-dim);
+  background: var(--color-bg-hover);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.previewName {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.previewMeta {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-dim);
+}
+
+.costBar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.costSegment {
+  height: 100%;
+  transition: width var(--duration-base) var(--ease-out);
+}
+
+.segProduct {
+  background: var(--color-text-dim);
+}
+
+.segFees {
+  background: var(--color-accent);
+}
+
+.segShipping {
+  background: var(--color-warning);
+}
+
+.segTaxes {
+  background: var(--color-danger);
+}
+
+.segProfit {
+  background: var(--color-success);
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.legendDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legendValue {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.previewResult {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.previewMarginUp {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--color-success);
+}
+
+.previewMarginDown {
+  composes: previewMarginUp;
+  color: var(--color-danger);
+}
+
+.previewResultText {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.previewResultSub {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: curva de sensibilidade --- */
+
+.chartBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+}
+
+.curve {
+  width: 100%;
+  height: 96px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.curveLineTarget {
+  stroke: var(--color-success);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.curveLineZero {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+.curvePath {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.curveAxis {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-text-dim);
+}
+
+.chartCaption {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: impacto no catálogo --- */
+
+.stackBar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.stackRecomendado {
+  height: 100%;
+  background: var(--color-success);
+}
+
+.stackRevisar {
+  height: 100%;
+  background: var(--color-warning);
+}
+
+.stackEvitar {
+  height: 100%;
+  background: var(--color-danger);
+}
+
+.histogram {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  align-items: end;
+  height: 116px;
+}
+
+.histCol {
+  display: grid;
+  grid-template-rows: 14px 1fr 14px;
+  gap: var(--space-2);
+  height: 100%;
+  justify-items: center;
+}
+
+.histValue {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-text-muted);
+}
+
+.histTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.histFill {
+  display: block;
+  width: 100%;
+  background: var(--color-accent-dim);
+  border-top: 2px solid var(--color-accent);
+}
+
+.histFillNegative {
+  composes: histFill;
+  background: var(--color-danger-dim);
+  border-top-color: var(--color-danger);
+}
+
+.histLabel {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--color-text-dim);
+}

@@ -1,0 +1,121 @@
+:root {
+  /* --- Tipografia --- */
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  /* --- Raios --- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* --- Espaçamento --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* --- Transições --- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 0.15s;
+  --duration-base: 0.25s;
+
+  /*
+   * Largura máxima do conteúdo (ver `.app-shell__content` em index.css).
+   * Cresce por breakpoint em vez de ficar travada em 1180px: num monitor
+   * 27" (2560px lógico ~1440-1920px de viewport) o conteúdo travado
+   * deixava uma faixa morta enorme à direita. Além do teto, o conteúdo
+   * é centralizado — assim a sobra vira margem simétrica, não um vazio
+   * de um lado só.
+   */
+  --content-max: 1180px;
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --content-max: 1440px;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --content-max: 1680px;
+  }
+}
+
+/*
+ * Paleta v2 — preto + um único acento (azul-aço desaturado), sem
+ * gradiente teal→ciano. Cores semânticas (sucesso/alerta/perigo) usam
+ * tons abafados, não neon — a ideia é ler como ferramenta financeira
+ * séria (tipo terminal), não como produto de IA genérico.
+ *
+ * `--gradient-accent` continua existindo como variável (vários
+ * componentes já usam `background: var(--gradient-accent)`) mas agora
+ * aponta pra uma cor sólida — nenhum componente precisa mudar.
+ */
+:root,
+[data-theme="dark"] {
+  --color-bg: #09090b;
+  --color-bg-elevated: #131316;
+  --color-bg-elevated-2: #1a1a1e;
+  --color-bg-hover: #202024;
+  --color-border: #27272c;
+  --color-border-soft: #1c1c20;
+  --color-text: #eaeaec;
+  --color-text-muted: #9a9aa2;
+  --color-text-dim: #66666e;
+
+  --color-accent: #5b7fa6;
+  --color-accent-dim: rgba(91, 127, 166, 0.16);
+  --gradient-accent: #5b7fa6;
+  --gradient-glow: radial-gradient(55% 55% at 30% 10%, rgba(91, 127, 166, 0.07), transparent 70%);
+
+  --color-success: #5b9a6f;
+  --color-success-dim: rgba(91, 154, 111, 0.16);
+  --color-warning: #c99a3e;
+  --color-warning-dim: rgba(201, 154, 62, 0.16);
+  --color-danger: #b85c56;
+  --color-danger-dim: rgba(184, 92, 86, 0.16);
+
+  --color-on-accent: #06090c;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow-accent: 0 0 0 1px rgba(91, 127, 166, 0.3), 0 8px 20px rgba(91, 127, 166, 0.1);
+}
+
+/* Modo claro — branco/preto, mesmo acento (versão levemente mais escura pra manter contraste em fundo claro). */
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-bg-elevated: #f7f7f8;
+  --color-bg-elevated-2: #f0f0f2;
+  --color-bg-hover: #e9e9ec;
+  --color-border: #dcdce0;
+  --color-border-soft: #ececef;
+  --color-text: #0a0a0c;
+  --color-text-muted: #55555e;
+  --color-text-dim: #86868f;
+
+  --color-accent: #3f5f80;
+  --color-accent-dim: rgba(63, 95, 128, 0.1);
+  --gradient-accent: #3f5f80;
+  --gradient-glow: none;
+
+  --color-success: #327049;
+  --color-warning: #97701f;
+  --color-danger: #9c3f39;
+  --color-success-dim: rgba(50, 112, 73, 0.1);
+  --color-warning-dim: rgba(151, 112, 31, 0.1);
+  --color-danger-dim: rgba(156, 63, 57, 0.1);
+
+  --color-on-accent: #ffffff;
+
+  --shadow-sm: 0 1px 2px rgba(20, 20, 25, 0.06);
+  --shadow-md: 0 8px 24px rgba(20, 20, 25, 0.08);
+  --shadow-glow-accent: 0 0 0 1px rgba(63, 95, 128, 0.25), 0 8px 20px rgba(63, 95, 128, 0.08);
+}

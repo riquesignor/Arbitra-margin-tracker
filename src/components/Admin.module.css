@@ -1,0 +1,845 @@
+/* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
+.container {
+  width: 100%;
+}
+
+/* --- Header --- */
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.headerMain {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.title {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+
+.subtitle {
+  color: var(--color-text-muted);
+  max-width: 52ch;
+  line-height: 1.6;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.headerCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  flex-shrink: 0;
+}
+
+.headerCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.headerCardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headerCardLabel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.headerCardValue {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.error {
+  margin-bottom: var(--space-4);
+  color: var(--color-danger);
+  font-size: 0.9rem;
+}
+
+/* --- Stats row --- */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+@media (max-width: 900px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+}
+
+.statCardLabel {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.statCardValue {
+  font-family: var(--font-display);
+  font-size: 1.85rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.statCardFoot {
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- Layout de duas colunas --- */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.main,
+.aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Cartão genérico com header numerado --- */
+
+.card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cardWarning {
+  composes: card;
+  border-color: var(--color-warning);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.cardHeaderNumber {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  flex-shrink: 0;
+}
+
+.cardHeaderTitle {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cardHeaderMeta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.cardBody {
+  padding: var(--space-5);
+}
+
+/* --- Seção 01: publicar catálogo --- */
+
+.uploadRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  background: var(--color-bg);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.uploadRowDisabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.uploadIconBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.uploadText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.uploadTitle {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.uploadHint {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+}
+
+.fileInput {
+  display: none;
+}
+
+.button {
+  flex-shrink: 0;
+  background: var(--gradient-accent);
+  color: var(--color-on-accent);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.uploadButton {
+  composes: button;
+  margin-left: auto;
+}
+
+.draft {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.draftInfo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.draftActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.planChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.planChip,
+.planChipActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.planChip {
+  background: var(--color-bg-elevated-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.planChip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.planChipActive {
+  composes: planChip;
+  background: var(--color-accent-dim);
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+}
+
+.linkButton {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.linkButton:hover {
+  color: var(--color-text);
+}
+
+.hintSmall {
+  color: var(--color-text-dim);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+/* --- Seção 02: biblioteca compartilhada (tabela) --- */
+
+.catalogHeadRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 200px 40px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+}
+
+.catalogRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px 200px 40px;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.catalogRow:last-child {
+  border-bottom: none;
+}
+
+.catalogCellFile {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.catalogCellCount {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+}
+
+.catalogCellPlans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.tableEmpty {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+}
+
+/* --- Seção 03: contas e permissões --- */
+
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.filterInputWrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-dim);
+}
+
+.filterInputWrap:focus-within {
+  border-color: var(--color-accent);
+}
+
+.filterInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  font-family: var(--font-body);
+}
+
+.filterInput:focus {
+  outline: none;
+}
+
+.filterInput::placeholder {
+  color: var(--color-text-dim);
+}
+
+.userHeadRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 148px 104px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+}
+
+/* Lista de usuários: cada linha vem envolvida num .userBlock pra caber
+   o painel de detalhe expansível embaixo, sem quebrar o :last-child
+   acima (que passaria a bater sempre, já que .userRow vira filho
+   único). Border fica no bloco, não na linha. */
+.userBlock {
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.userBlock:last-child {
+  border-bottom: none;
+}
+
+.userRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 148px 104px;
+  gap: var(--space-4);
+  align-items: center;
+  padding: var(--space-4) var(--space-5);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.userCellAccount {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.userCellEmailWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.expandButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.expandButton:hover {
+  color: var(--color-accent);
+}
+
+.keyBadge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.userCellEmail {
+  color: var(--color-text);
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userCellUid {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userCellSince {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+}
+
+.detailPanel {
+  padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 18px + var(--space-2));
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.detailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin-bottom: var(--space-1);
+}
+
+.detailMetaItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.detailCatalogRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: 0.78rem;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.detailCatalogRow:first-of-type {
+  border-top: none;
+}
+
+.select {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* --- Aside: contas por plano --- */
+
+.planBars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5);
+}
+
+.planBar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.planBarHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.planBarValue {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+}
+
+.planBarTrack {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.planBarFill {
+  display: block;
+  height: 100%;
+  background: var(--gradient-accent);
+}
+
+.planBarFoot {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: novas contas (chart) --- */
+
+.chartWrap {
+  padding: var(--space-5);
+}
+
+.chart {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-2);
+  align-items: end;
+  height: 132px;
+}
+
+.chartBarCol {
+  display: grid;
+  grid-template-rows: 16px 1fr 16px;
+  gap: var(--space-2);
+  height: 100%;
+  justify-items: center;
+}
+
+.chartBarValue {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.chartBarTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.chartBarFill {
+  display: block;
+  width: 100%;
+  background: var(--color-accent-dim);
+  border-top: 2px solid var(--color-accent);
+}
+
+.chartBarLabel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: precisa de atenção --- */
+
+.attentionRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--color-warning);
+}
+
+.attentionDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* --- Aside: planos --- */
+
+.planList {
+  display: flex;
+  flex-direction: column;
+}
+
+.planItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.planItem:last-child {
+  border-bottom: none;
+}
+
+.planItemHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.planItemName {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.planItemPrice {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.planItemDesc {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+/* --- Estado sem acesso admin --- */
+
+.deniedCard {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 480px;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-accent);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}

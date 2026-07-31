@@ -1,0 +1,682 @@
+/* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
+.container {
+  width: 100%;
+}
+
+/* --- Estado sem Firebase configurado (inalterado, só tokens) --- */
+
+.deniedContainer {
+  max-width: 480px;
+}
+
+.deniedTitle {
+  font-size: 1.6rem;
+  margin-bottom: var(--space-5);
+}
+
+.deniedCard {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-on-accent);
+}
+
+.hint {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.code {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+/* --- Estado visitante (login / criar conta) --- */
+
+.loggedOutLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: var(--space-7);
+  align-items: center;
+  padding: var(--space-6) 0;
+}
+
+@media (max-width: 900px) {
+  .loggedOutLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pitch {
+  max-width: 46ch;
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.pitchTitle {
+  font-size: 2.3rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin-bottom: var(--space-4);
+}
+
+.pitchSubtitle {
+  color: var(--color-text-muted);
+  line-height: 1.65;
+  font-size: 0.95rem;
+  margin: 0 0 var(--space-6);
+}
+
+.benefits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.benefitRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.benefitIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.benefitTitle {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.benefitText {
+  display: block;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+  max-width: 42ch;
+}
+
+.authCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-md);
+}
+
+.tabRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-2);
+}
+
+.tab,
+.tabActive {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+
+.tabActive {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.input {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.92rem;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.primaryButton {
+  background: var(--gradient-accent);
+  color: var(--color-on-accent);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.authHint {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+.errorText {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* --- Estado logado --- */
+
+.header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding-bottom: var(--space-5);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.headerMain {
+  min-width: 0;
+}
+
+.title {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+
+.subtitle {
+  color: var(--color-text-muted);
+  max-width: 52ch;
+  line-height: 1.6;
+  font-size: 0.92rem;
+  margin: 0;
+}
+
+.headerCard {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated);
+  flex-shrink: 0;
+}
+
+.headerCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.headerCardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headerCardLabel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.headerCardValue {
+  font-size: 0.85rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerCardLogout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.headerCardLogout:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.main,
+.aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.cardHeaderIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.cardHeaderTitle {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cardHeaderMeta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.statusPill {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 3px 10px;
+  flex-shrink: 0;
+}
+
+.statusPillOk {
+  composes: statusPill;
+  background: var(--color-success-dim);
+  color: var(--color-success);
+}
+
+.statusPillWarning {
+  composes: statusPill;
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+}
+
+/* Texto curto explicando quando um card de chave opcional (ex: RapidAPI)
+   é necessário — fica entre o cardHeader e os steps numerados. */
+.cardIntro {
+  padding: var(--space-4) var(--space-5) 0;
+  color: var(--color-text-dim);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.stepRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.stepNumber {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  flex-shrink: 0;
+}
+
+.stepText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stepTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stepDesc {
+  font-size: 0.83rem;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+  max-width: 60ch;
+}
+
+.cardBody {
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.linkButton {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.linkButton:hover {
+  color: var(--color-text);
+}
+
+.linkButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.keyActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.smallHint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+}
+
+.successText {
+  color: var(--color-success);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* --- Uso diário --- */
+
+.usageBig {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.usageBigNumber {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.usageBigLabel {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.usageChart {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 6px;
+  align-items: end;
+  height: 140px;
+}
+
+.usageBarCol {
+  display: grid;
+  grid-template-rows: 1fr 16px;
+  gap: var(--space-2);
+  height: 100%;
+  justify-items: center;
+}
+
+.usageBarTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.usageBarTrackToday {
+  composes: usageBarTrack;
+  border-color: var(--color-accent);
+}
+
+.usageBarFill {
+  display: block;
+  width: 100%;
+  background: var(--color-bg-hover);
+  border-top: 2px solid var(--color-text-dim);
+}
+
+.usageBarFillToday {
+  composes: usageBarFill;
+  background: var(--color-accent-dim);
+  border-top: 2px solid var(--color-accent);
+}
+
+.usageBarLabel {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--color-text-dim);
+}
+
+.usageBarLabelToday {
+  composes: usageBarLabel;
+  color: var(--color-accent);
+}
+
+.usageCaption {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: seu plano / dados da conta --- */
+
+.planName {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+
+.planPrice {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--color-accent);
+}
+
+.planDesc {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--color-text-dim);
+}
+
+.planHeaderBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+}
+
+.infoRows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.infoRowsFlush {
+  composes: infoRows;
+  border-top: none;
+}
+
+.infoRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.infoRow:last-child {
+  border-bottom: none;
+}
+
+.infoRowLabel {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  flex-shrink: 0;
+}
+
+.infoRowValue {
+  font-size: 0.82rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.infoRowValueMono {
+  composes: infoRowValue;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+}
+
+.signOutRow {
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+}
