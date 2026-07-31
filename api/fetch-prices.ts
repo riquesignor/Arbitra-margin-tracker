@@ -1,4 +1,5 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes";
+<<<<<<< HEAD
 import type {
   CatalogItemQuery,
   MarketplaceId,
@@ -34,14 +35,28 @@ const DIRECT_PROVIDER_MARKETPLACE: Record<DirectProvider, MarketplaceId> = {
 function isDirectProvider(p: SearchProviderId): p is DirectProvider {
   return p === "rapidapi_amazon" || p === "mercadolivre_direct";
 }
+=======
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "./_lib/types";
+import { getCachedPrices, writeCachedPrices } from "./_lib/cache";
+import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/registry";
+import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider";
+import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth";
+
+const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 interface RequestBody {
   marketplaces?: string[];
   items?: CatalogItemQuery[];
+<<<<<<< HEAD
   /** BYOK — chave própria do usuário (SerpApi OU RapidAPI, depende de `provider`). */
   apiKey?: string;
   /** Qual API de busca usar — default "serpapi" pra manter compatibilidade. */
   provider?: string;
+=======
+  /** BYOK — chave SerpApi própria do usuário, ver src/lib/userSecrets.ts. */
+  apiKey?: string;
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 function isValidMarketplaces(value: unknown): value is MarketplaceId[] {
@@ -60,6 +75,7 @@ function isValidItems(value: unknown): value is CatalogItemQuery[] {
   );
 }
 
+<<<<<<< HEAD
 function isValidProvider(value: unknown): value is SearchProviderId {
   return typeof value === "string" && (VALID_PROVIDERS as string[]).includes(value);
 }
@@ -85,6 +101,24 @@ function isValidProvider(value: unknown): value is SearchProviderId {
  * Cache (`market_prices`) é por provider+marketplace: o mesmo SKU pode
  * estar em cache pra "serpapi/amazon" e não pra "rapidapi_amazon/amazon"
  * (fontes diferentes, preços podem divergir) — ver cache.ts.
+=======
+/**
+ * POST /api/fetch-prices
+ * Body: { marketplaces: MarketplaceId[], items: {sku, name}[], apiKey? }
+ * Resposta: { [marketplace]: { [sku]: MarketplacePriceResult } }
+ *
+ * Aceita VÁRIOS marketplaces numa chamada só (contrato mudou de
+ * `marketplace: string` singular pra `marketplaces: string[]` — ver
+ * docs/architecture-review.md item 15). Marketplaces que compartilham o
+ * provider Google Shopping/SerpApi (hoje: amazon + mercadolivre) fazem
+ * UMA busca por produto cobrindo todos eles de uma vez, em vez de uma
+ * busca por produto POR marketplace — selecionar os dois já buscava o
+ * MESMO produto duas vezes na SerpApi antes desse fix, dobrando a cota
+ * gasta à toa. Cache (`market_prices`) continua por marketplace: o
+ * mesmo SKU pode estar em cache pra Amazon e não pra Mercado Livre (ou
+ * vice-versa), então hits/misses são calculados independentemente antes
+ * de decidir o que precisa buscar de novo.
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "POST") {
@@ -114,6 +148,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     res.status(400).json({ error: "items deve ser um array não vazio de {sku, name}" });
     return;
   }
+<<<<<<< HEAD
   if (body.provider !== undefined && !isValidProvider(body.provider)) {
     res.status(400).json({ error: `provider inválido: ${VALID_PROVIDERS.join(" | ")}` });
     return;
@@ -175,6 +210,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     }
     return;
   }
+=======
+
+  const marketplaces = body.marketplaces;
+  const items = body.items;
+
+  console.log(`[fetch-prices] uid=${uid} marketplaces=${marketplaces.join("+")} items=${items.length}`);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
   try {
     // 1) Cache por marketplace — hits/misses independentes (ver doc acima).
@@ -185,7 +227,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     await Promise.all(
       marketplaces.map(async (marketplace) => {
         const cached = await getCachedPrices(
+<<<<<<< HEAD
           provider,
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
           marketplace,
           items.map((i) => i.sku)
         );
@@ -210,6 +255,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
       if (missItems.length > 0) {
         const matchers = GOOGLE_SHOPPING_MATCHERS.filter((g) => sharedMarketplaces.includes(g.marketplace));
+<<<<<<< HEAD
         // Mesmo grupo de marketplaces, upstream diferente: busca por
         // texto (SerpApi/Shopping) ou por foto (Google Lens) — ver
         // comentário no topo do arquivo.
@@ -217,6 +263,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           provider === "google_lens_products"
             ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
             : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+=======
+        const fresh = await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);
@@ -233,9 +282,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // esse marketplace, mesmo o que não era miss dele agora — só
           // adianta cache pra próxima consulta.
           try {
+<<<<<<< HEAD
             await writeCachedPrices(provider, marketplace, fresh[marketplace] ?? {});
           } catch (cacheErr) {
             console.error(`writeCachedPrices(${provider}/${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
+=======
+            await writeCachedPrices(marketplace, fresh[marketplace] ?? {});
+          } catch (cacheErr) {
+            console.error(`writeCachedPrices(${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
           }
         }
       }
@@ -250,6 +305,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       if (misses.length === 0) continue;
 
       const missItems = items.filter((i) => misses.includes(i.sku));
+<<<<<<< HEAD
       const registeredProvider = getProvider(marketplace);
       const fresh = await registeredProvider.fetchPrices(missItems, body.apiKey);
       responseByMarketplace[marketplace] = { ...responseByMarketplace[marketplace], ...fresh };
@@ -258,6 +314,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         await writeCachedPrices(provider, marketplace, fresh);
       } catch (cacheErr) {
         console.error(`writeCachedPrices(${provider}/${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
+=======
+      const provider = getProvider(marketplace);
+      const fresh = await provider.fetchPrices(missItems, body.apiKey);
+      responseByMarketplace[marketplace] = { ...responseByMarketplace[marketplace], ...fresh };
+
+      try {
+        await writeCachedPrices(marketplace, fresh);
+      } catch (cacheErr) {
+        console.error(`writeCachedPrices(${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       }
     }
 

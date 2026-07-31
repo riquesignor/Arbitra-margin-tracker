@@ -10,6 +10,7 @@
 
 export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
 
+<<<<<<< HEAD
 /**
  * Qual API de busca resolve o preço — eixo independente de
  * MarketplaceId, escolhido pelo usuário na tela Dashboard (ver
@@ -24,6 +25,8 @@ export type SearchProviderId =
   | "mercadolivre_direct"
   | "google_lens_products";
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 export type Screen = "dashboard" | "pricing" | "results" | "account" | "admin";
 
 /**
@@ -51,8 +54,11 @@ export interface CatalogRow {
 export interface CatalogItemQuery {
   sku: string;
   name: string;
+<<<<<<< HEAD
   /** Ver mesmo campo em api/_lib/types.ts — URL pública temporária da foto do produto. */
   imageUrl?: string;
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 export interface MarketplacePriceResult {

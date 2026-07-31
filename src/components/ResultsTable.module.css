@@ -1,3 +1,7 @@
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
 .container {
   width: 100%;
@@ -99,14 +103,45 @@
 }
 
 .card {
+<<<<<<< HEAD
+=======
+=======
+.container {
+  max-width: 1180px;
+}
+
+.title {
+  font-size: 1.6rem;
+  margin-bottom: var(--space-5);
+}
+
+.summaryRow {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.card {
+  flex: 1;
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
+<<<<<<< HEAD
   padding: var(--space-4) var(--space-5);
   min-width: 0;
+=======
+<<<<<<< HEAD
+  padding: var(--space-4) var(--space-5);
+  min-width: 0;
+=======
+  padding: var(--space-4);
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .cardIcon {
@@ -121,6 +156,10 @@
   flex-shrink: 0;
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .cardText {
   min-width: 0;
 }
@@ -133,10 +172,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+<<<<<<< HEAD
+=======
+=======
+.cardValue {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 500;
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .cardLabel {
   color: var(--color-text-dim);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-family: var(--font-mono);
   font-size: 0.68rem;
   letter-spacing: 0.07em;
@@ -154,10 +206,21 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+<<<<<<< HEAD
+=======
+=======
+  font-size: 0.8rem;
+  margin-top: var(--space-1);
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .controls {
   display: flex;
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
@@ -180,10 +243,22 @@
 
 .searchWrap:focus-within {
   border-color: var(--color-accent);
+<<<<<<< HEAD
+=======
+=======
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .searchInput {
   flex: 1;
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   min-width: 0;
   background: none;
   border: none;
@@ -225,6 +300,30 @@
 .filterButtonActive {
   composes: filterButton;
   background: var(--color-accent-dim);
+<<<<<<< HEAD
+=======
+=======
+  min-width: 180px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+}
+
+.filterButton {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.filterButtonActive {
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
@@ -238,10 +337,22 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text-muted);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   padding: var(--space-2) var(--space-4);
   font-size: 0.82rem;
   cursor: pointer;
   flex-shrink: 0;
+<<<<<<< HEAD
+=======
+=======
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.85rem;
+  cursor: pointer;
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .exportButton:hover {
@@ -251,6 +362,10 @@
 
 .countHint {
   color: var(--color-text-dim);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-family: var(--font-mono);
   font-size: 0.72rem;
   margin: 0;
@@ -263,6 +378,13 @@
 .tableWrap {
   width: 100%;
   overflow-x: auto;
+<<<<<<< HEAD
+=======
+=======
+  font-size: 0.78rem;
+  margin: 0 0 var(--space-3);
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .table {
@@ -274,6 +396,10 @@
 .table th {
   text-align: left;
   color: var(--color-text-dim);
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-family: var(--font-mono);
   font-weight: 400;
   font-size: 0.68rem;
@@ -293,6 +419,20 @@
   padding-right: var(--space-5);
 }
 
+<<<<<<< HEAD
+=======
+=======
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .productHeader {
   width: 32%;
 }
@@ -320,6 +460,10 @@
 }
 
 .table td {
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   padding: var(--space-4);
   border-bottom: 1px solid var(--color-border-soft);
   font-family: var(--font-mono);
@@ -340,24 +484,53 @@
 
 .table tbody tr:hover td {
   background: var(--color-bg-hover);
+<<<<<<< HEAD
+=======
+=======
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .productCell {
   max-width: 320px;
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-family: var(--font-body);
 }
 
 .productName {
   font-size: 0.85rem;
+<<<<<<< HEAD
+=======
+=======
+}
+
+.productName {
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .marketCell {
   font-family: var(--font-body);
 }
 
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .marginValue {
   display: block;
   margin-top: 4px;
@@ -368,7 +541,14 @@
 .badge {
   font-family: var(--font-body);
   font-size: 0.75rem;
+<<<<<<< HEAD
   font-weight: 600;
+=======
+<<<<<<< HEAD
+  font-weight: 600;
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   border-radius: var(--radius-sm);
   padding: 2px 8px;
   white-space: nowrap;
@@ -389,6 +569,18 @@
   color: var(--color-danger);
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+.empty {
+  color: var(--color-text-dim);
+  padding: var(--space-6) 0;
+  text-align: center;
+}
+
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .productLink {
   display: inline-flex;
   align-items: center;
@@ -412,6 +604,10 @@
   margin-top: 2px;
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .empty {
   color: var(--color-text-dim);
   padding: var(--space-7) var(--space-5);
@@ -421,13 +617,27 @@
 
 /* --- Paginação --- */
 
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .pagination {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-4);
+<<<<<<< HEAD
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--color-border-soft);
+=======
+<<<<<<< HEAD
+  padding: var(--space-4) var(--space-5);
+  border-top: 1px solid var(--color-border-soft);
+=======
+  margin-top: var(--space-5);
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .pageButton {

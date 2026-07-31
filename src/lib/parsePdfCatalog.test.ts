@@ -62,6 +62,7 @@ describe("extractRows", () => {
 
     expect(rows[0].supplierPrice).toBeCloseTo(199.99, 2);
   });
+<<<<<<< HEAD
 
   it("aceita preço inteiro sem centavos quando prefixado por R$ (regressão: catálogo real sem decimais)", () => {
     const { rows } = extractRows(["VIDEOGAME SONY POR R$ 3800"]);
@@ -83,4 +84,6 @@ describe("extractRows", () => {
     expect(rows).toHaveLength(0);
     expect(skippedAmbiguous).toBe(0);
   });
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 });

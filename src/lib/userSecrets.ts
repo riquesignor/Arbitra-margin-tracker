@@ -10,6 +10,7 @@ const COLLECTION = "user_secrets";
  * tem override de admin na security rule (ver firestore.rules).
  *
  * Por quê BYOK: a cota da SerpApi (env `SERPAPI_KEY`, ver
+<<<<<<< HEAD
  * googleShoppingProvider.ts) seria compartilhada entre TODOS os
  * usuários sem chave própria — free tier é 250 buscas/mês E só 50/hora
  * de throughput (serpapi.com/pricing), e um catálogo de porte médio já
@@ -17,6 +18,13 @@ const COLLECTION = "user_secrets";
  * compartilhada entre marketplaces (1 chamada por produto, não por
  * produto×marketplace). Cada usuário com a própria chave passa a ter
  * cota isolada, dimensionada pela própria conta SerpApi dele — não pelo
+=======
+ * googleShoppingProvider.ts) é compartilhada entre TODOS os usuários
+ * sem chave própria — free tier é ~250 buscas/mês, e um catálogo de
+ * porte médio já consome isso sozinho (linhas × marketplaces
+ * selecionados). Cada usuário com a própria chave passa a ter cota
+ * isolada, dimensionada pela própria conta SerpApi dele — não pelo
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
  * limite arbitrário do app.
  */
 export async function getUserSerpApiKey(userId: string | null): Promise<string | null> {
@@ -35,6 +43,7 @@ export async function getUserSerpApiKey(userId: string | null): Promise<string |
   }
 }
 
+<<<<<<< HEAD
 /**
  * Chave RapidAPI própria do usuário — mesmo padrão BYOK da SerpApi
  * acima, guardada no mesmo doc `user_secrets/{uid}` (campo separado,
@@ -81,10 +90,17 @@ export async function saveUserSerpApiKey(userId: string, key: string): Promise<v
   );
   batch.set(doc(db, "users", userId), { hasSerpApiKey: true }, { merge: true });
   await batch.commit();
+=======
+export async function saveUserSerpApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, setDoc } = await import("firebase/firestore");
+  await setDoc(doc(db, COLLECTION, userId), { serpApiKey: key.trim(), updatedAt: Date.now() });
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 export async function deleteUserSerpApiKey(userId: string): Promise<void> {
   const db = await getFirebaseDb();
+<<<<<<< HEAD
   const { doc, writeBatch } = await import("firebase/firestore");
   const batch = writeBatch(db);
   // `set` com `merge: true` (não `delete` do doc inteiro nem `update`,
@@ -121,4 +137,8 @@ export async function deleteUserRapidApiKey(userId: string): Promise<void> {
   batch.set(doc(db, COLLECTION, userId), { rapidApiKey: null }, { merge: true });
   batch.set(doc(db, "users", userId), { hasRapidApiKey: false }, { merge: true });
   await batch.commit();
+=======
+  const { doc, deleteDoc } = await import("firebase/firestore");
+  await deleteDoc(doc(db, COLLECTION, userId));
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }

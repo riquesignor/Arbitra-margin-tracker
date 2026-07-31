@@ -1,5 +1,9 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import {
   Percent,
   Truck,
@@ -12,6 +16,14 @@ import {
 } from "lucide-react";
 import type { CatalogRow, MarketplaceId, MarketplacePriceResult, PricingRules } from "../types";
 import { calculateMargin, calculateMargins, DEFAULT_PRICING_RULES, median } from "../lib/marginCalculator";
+<<<<<<< HEAD
+=======
+=======
+import { Percent, Truck, Receipt, Target, RotateCcw, FlaskConical } from "lucide-react";
+import type { CatalogRow, MarketplaceId, MarketplacePriceResult, PricingRules } from "../types";
+import { calculateMargin, DEFAULT_PRICING_RULES } from "../lib/marginCalculator";
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import styles from "./PricingConfig.module.css";
 
 interface Props {
@@ -33,6 +45,10 @@ const FALLBACK_PRICE: MarketplacePriceResult = {
   confidence: 1,
 };
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 // Faixas do histograma "Impacto no catálogo" (limite superior de cada
 // faixa, em fração de margem). O último bucket é aberto pra cima.
 const HISTOGRAM_BUCKETS: { label: string; max: number }[] = [
@@ -50,6 +66,11 @@ const CURVE_FROM = -0.3;
 const CURVE_TO = 0.4;
 const CURVE_STEPS = 13;
 
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 function pctToInput(rate: number): string {
   return String(Math.round(rate * 1000) / 10);
 }
@@ -57,9 +78,18 @@ function inputToPct(value: string): number {
   const n = Number(value);
   return Number.isFinite(n) ? n / 100 : 0;
 }
+<<<<<<< HEAD
 function brl(value: number): string {
   return `R$ ${value.toFixed(2).replace(".", ",")}`;
 }
+=======
+<<<<<<< HEAD
+function brl(value: number): string {
+  return `R$ ${value.toFixed(2).replace(".", ",")}`;
+}
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -112,6 +142,10 @@ export default function PricingConfig({ rules, onChange, catalogRows, pricesByMa
     return { previewRow: FALLBACK_ROW, previewPrice: FALLBACK_PRICE, isRealData: false };
   }, [catalogRows, pricesByMarket]);
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   // Catálogo inteiro recalculado com as regras ATUAIS — é o que alimenta
   // as stats do topo e o card "Impacto no catálogo". Mesmo cálculo que
   // App.tsx usa pra tela de Resultados (calculateMargins), então os
@@ -127,11 +161,22 @@ export default function PricingConfig({ rules, onChange, catalogRows, pricesByMa
   const marketplacePrice = preview.marketplacePrice || 1; // evita divisão por zero no rollup
   const profit = preview.marketplacePrice - preview.totalCost;
 
+<<<<<<< HEAD
+=======
+=======
+  const preview = calculateMargin(previewRow, previewPrice, rules);
+  const marketplacePrice = preview.marketplacePrice || 1; // evita divisão por zero no rollup
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const costSegments = [
     { label: "Produto", value: preview.supplierPrice, className: styles.segProduct },
     { label: "Taxas", value: preview.feesCost, className: styles.segFees },
     { label: "Frete", value: preview.shippingCost, className: styles.segShipping },
     { label: "Impostos", value: preview.taxesCost, className: styles.segTaxes },
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     { label: "Lucro", value: Math.max(0, profit), className: styles.segProfit },
   ];
 
@@ -603,6 +648,196 @@ export default function PricingConfig({ rules, onChange, catalogRows, pricesByMa
             </div>
           </motion.section>
         </aside>
+<<<<<<< HEAD
+=======
+=======
+  ];
+
+  return (
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Precificação</h1>
+        <p className={styles.subtitle}>
+          Ajuste as regras de margem. Tudo recalcula na hora, sem buscar preço de novo.
+        </p>
+      </div>
+
+      <motion.section className={`${styles.section} ${styles.sectionAccent}`} {...sections(0)}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.sectionIcon}>
+            <Target size={14} />
+          </span>
+          Meta — o número que o sistema otimiza
+        </div>
+        <div className={styles.row}>
+          <span className={styles.rowLabel}>Margem alvo</span>
+          <input
+            className={styles.numberInput}
+            type="number"
+            step="1"
+            value={pctToInput(rules.targetMarginPct)}
+            onChange={(e) => onChange({ ...rules, targetMarginPct: inputToPct(e.target.value) })}
+          />
+          <span>%</span>
+        </div>
+        <div className={styles.row}>
+          <span className={styles.rowLabel}>Preço mínimo (floor)</span>
+          <span>R$</span>
+          <input
+            className={styles.numberInput}
+            type="number"
+            step="1"
+            value={rules.priceFloor}
+            onChange={(e) => onChange({ ...rules, priceFloor: Number(e.target.value) || 0 })}
+          />
+        </div>
+      </motion.section>
+
+      <motion.section className={styles.previewPanel} {...sections(0.02)}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.sectionIcon}>
+            <FlaskConical size={14} />
+          </span>
+          Preview ao vivo
+          {!isRealData && <span className={styles.previewTag}>exemplo ilustrativo</span>}
+        </div>
+        <div className={styles.previewRowInfo}>
+          <span className={styles.previewName}>{previewRow.name}</span>
+          <span className={styles.previewMeta}>
+            Custo R$ {preview.supplierPrice.toFixed(2)} · Venda R$ {preview.marketplacePrice.toFixed(2)}
+          </span>
+        </div>
+
+        <div className={styles.costBar}>
+          {costSegments.map((seg) => (
+            <div
+              key={seg.label}
+              className={`${styles.costSegment} ${seg.className}`}
+              style={{ width: `${Math.max(0, Math.min(100, (seg.value / marketplacePrice) * 100))}%` }}
+              title={`${seg.label}: R$ ${seg.value.toFixed(2)}`}
+            />
+          ))}
+        </div>
+        <div className={styles.costLegend}>
+          {costSegments.map((seg) => (
+            <span key={seg.label} className={styles.costLegendItem}>
+              <span className={`${styles.costDot} ${seg.className}`} /> {seg.label} R${" "}
+              {seg.value.toFixed(2)}
+            </span>
+          ))}
+        </div>
+
+        <div className={styles.previewResult}>
+          <span className={preview.marginPct >= 0 ? styles.previewMarginUp : styles.previewMarginDown}>
+            Margem: {(preview.marginPct * 100).toFixed(1)}%
+          </span>
+          <span className={styles.previewMeta}>
+            Custo total R$ {preview.totalCost.toFixed(2)} · Meta {(rules.targetMarginPct * 100).toFixed(0)}%
+          </span>
+        </div>
+      </motion.section>
+
+      <motion.section className={styles.section} {...sections(0.05)}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.sectionIcon}>
+            <Percent size={14} />
+          </span>
+          Taxas de marketplace
+        </div>
+        {rules.marketplaceFees.map((fee) => (
+          <div className={styles.row} key={fee.id}>
+            <Toggle checked={fee.enabled} onChange={(v) => updateFee(fee.id, { enabled: v })} />
+            <span
+              className={styles.rowLabel}
+              title={
+                fee.enabled
+                  ? "Ativada: entra no custo total do cálculo de margem."
+                  : "Desativada: essa taxa NÃO entra no custo total — margem fica maior do que seria na prática."
+              }
+            >
+              {fee.name}
+            </span>
+            <input
+              className={styles.numberInput}
+              type="number"
+              step="0.1"
+              value={pctToInput(fee.rate)}
+              onChange={(e) => updateFee(fee.id, { rate: inputToPct(e.target.value) })}
+            />
+            <span>%</span>
+          </div>
+        ))}
+      </motion.section>
+
+      <motion.section className={styles.section} {...sections(0.08)}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.sectionIcon}>
+            <Truck size={14} />
+          </span>
+          Frete por faixa de custo
+        </div>
+        {rules.shippingTiers.map((tier) => (
+          <div className={styles.row} key={tier.id}>
+            <span className={styles.rowLabel}>
+              {tier.label}
+              <br />
+              <span className={styles.rowLabelSub}>faixa fixa — só o valor do frete é editável</span>
+            </span>
+            <span>R$</span>
+            <input
+              className={styles.numberInput}
+              type="number"
+              step="0.5"
+              value={tier.cost}
+              onChange={(e) => updateTier(tier.id, { cost: Number(e.target.value) || 0 })}
+            />
+          </div>
+        ))}
+      </motion.section>
+
+      <motion.section className={styles.section} {...sections(0.11)}>
+        <div className={styles.sectionTitle}>
+          <span className={styles.sectionIcon}>
+            <Receipt size={14} />
+          </span>
+          Impostos
+        </div>
+        {rules.taxRates.map((tax) => (
+          <div className={styles.row} key={tax.id}>
+            <Toggle checked={tax.enabled} onChange={(v) => updateTax(tax.id, { enabled: v })} />
+            <span
+              className={styles.rowLabel}
+              title={
+                tax.enabled
+                  ? "Ativado: entra no custo total do cálculo de margem."
+                  : "Desativado: esse imposto NÃO entra no custo total — margem fica maior do que seria na prática."
+              }
+            >
+              {tax.label} ({tax.state})
+            </span>
+            <input
+              className={styles.numberInput}
+              type="number"
+              step="0.1"
+              value={pctToInput(tax.rate)}
+              onChange={(e) => updateTax(tax.id, { rate: inputToPct(e.target.value) })}
+            />
+            <span>%</span>
+          </div>
+        ))}
+      </motion.section>
+
+      <div className={styles.footer}>
+        <p className={styles.savedHint}>Alterações são salvas automaticamente.</p>
+        <button
+          type="button"
+          className={styles.resetButton}
+          onClick={() => onChange(DEFAULT_PRICING_RULES)}
+        >
+          <RotateCcw size={13} /> Restaurar padrão
+        </button>
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       </div>
     </div>
   );

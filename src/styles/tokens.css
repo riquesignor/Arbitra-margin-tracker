@@ -24,6 +24,10 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 0.15s;
   --duration-base: 0.25s;
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
   /*
    * Largura máxima do conteúdo (ver `.app-shell__content` em index.css).
@@ -46,6 +50,11 @@
   :root {
     --content-max: 1680px;
   }
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 /*

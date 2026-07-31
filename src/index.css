@@ -94,6 +94,10 @@ textarea {
   padding: var(--space-6);
 }
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /*
  * Wrapper de conteúdo de todas as telas (ver App.tsx). Centraliza e
  * limita a largura num único lugar, em vez de cada componente carregar
@@ -113,6 +117,11 @@ textarea {
   }
 }
 
+<<<<<<< HEAD
+=======
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 @media (max-width: 720px) {
   .app-shell {
     flex-direction: column;

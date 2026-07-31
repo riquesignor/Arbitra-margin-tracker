@@ -43,6 +43,7 @@ exige `vercel dev` ou deploy — `npm run dev` puro sempre cai no mock
 client-side (ver `priceApi.ts` — campo `source` mostra "servidor" ou
 "direto no navegador").
 
+<<<<<<< HEAD
 ### Seleção de provider e marketplace
 
 Antes do upload, a Dashboard mostra dois níveis de escolha:
@@ -62,6 +63,16 @@ A seleção completa (provider + marketplaces) entra na chave de
 deduplicação do histórico (`catalog_uploads`): reenviar o mesmo arquivo
 com uma escolha diferente conta como um processamento novo — inclusive
 trocar só o provider, já que o preço pode divergir entre fontes.
+=======
+### Seleção de marketplace
+
+Antes do upload, a Dashboard mostra chips pra escolher quais marketplaces
+comparar (Mercado Livre e/ou Amazon). Default: os dois marcados — ambos
+vêm da mesma fonte real (Google Shopping via SerpApi, ver abaixo) quando
+rodando com servidor. A seleção também entra na chave de deduplicação do
+histórico (`catalog_uploads`): reenviar o mesmo arquivo com um conjunto
+diferente de marketplaces conta como um processamento novo.
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 ### Busca de preço real — Google Shopping via SerpApi
 
@@ -75,6 +86,7 @@ manual, sem garantia de aprovação rápida).
 Por isso a busca real hoje (`api/_lib/providers/googleShoppingProvider.ts`)
 usa a [SerpApi](https://serpapi.com/) (engine `google_shopping`,
 `google_domain=google.com.br`): cadastro só com email — **sem cartão de
+<<<<<<< HEAD
 crédito** — e free tier de 250 buscas/mês **e 50 buscas/hora**
 (throughput — os dois limites são independentes, ver
 [serpapi.com/pricing](https://serpapi.com/pricing)). Uma única busca por
@@ -83,6 +95,13 @@ nome de produto já retorna resultados de várias lojas ao mesmo tempo
 campo `source` do resultado pra saber qual linha corresponde a qual
 marketplace selecionado — **uma chamada por produto, não por
 produto×marketplace** (ver bloco de busca compartilhada abaixo).
+=======
+crédito** — e free tier de ~250 buscas/mês. Uma única busca por nome de
+produto já retorna resultados de várias lojas ao mesmo tempo (Amazon,
+Mercado Livre, Magazine Luiza, etc.); o provider filtra pelo campo
+`source` do resultado pra saber qual linha corresponde a qual
+marketplace selecionado.
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 Confiança é calculada por similaridade de texto (`textSimilarity.ts`),
 não um valor fixo, e o `matchedTitle` retornado aparece no link da
@@ -99,6 +118,7 @@ comum. `api/_lib/providers/googleShoppingProvider.ts` não lê mais
 `process.env.SERPAPI_KEY` — só aceita a chave que vem no request
 (`user_secrets/{uid}`, ver `userSecrets.ts`).
 
+<<<<<<< HEAD
 **Busca compartilhada entre marketplaces**: marcar Amazon + Mercado
 Livre juntos NÃO dobra o consumo — a mesma resposta da SerpApi (que já
 traz várias lojas) é repartida entre os dois, uma chamada por produto
@@ -114,6 +134,15 @@ devolve HTTP 429 pros dois casos (mês OU hora esgotados), sem
 diferenciar no status. Se aparecer 429, confira o consumo em
 [serpapi.com/manage-api-key](https://serpapi.com/manage-api-key) antes
 de assumir que é bug.
+=======
+**Limitação de cota ainda existente (por usuário agora, não mais
+global)**: se você marcar Amazon + Mercado Livre juntos, o mesmo produto
+é buscado 2x na SerpApi (uma chamada por marketplace) — não há
+compartilhamento da mesma resposta entre os dois ainda. O cache
+Firestore (`market_prices`, TTL 2h, compartilhado entre todos os
+usuários) e a dedup do histórico de upload amenizam bastante no
+reprocessamento.
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 #### Setup (uma vez, gratuito, por usuário)
 
@@ -134,6 +163,7 @@ um dia quiser voltar pra essa via (dado mais preciso, direto da fonte,
 sem depender de terceiro), os passos estão documentados no histórico do
 projeto; é só trocar o registro em `registry.ts`.
 
+<<<<<<< HEAD
 ### Busca de preço real — Amazon direto via RapidAPI
 
 Alternativa a SerpApi quando ela estiver sem cota (429) e você só
@@ -218,6 +248,8 @@ campo `expiresAt` dessa coleção (console ou `gcloud firestore fields
 ttls update`) ou rodar uma limpeza manual — pendente, aceitável na fase
 de teste, não em produção com volume real.
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 ### Histórico de catálogos processados
 
 Upload salva automaticamente no Firestore (`catalog_uploads`) se você
@@ -333,6 +365,7 @@ firestore.rules       # regras de segurança (deploy via firebase-tools)
   conferir os resultados antes de confiar neles pra decisão de preço.
 - **SerpApi é dado de terceiro, sem SLA**: é scraping-as-a-service do
   Google Shopping, não uma API oficial dos marketplaces — pode mudar de
+<<<<<<< HEAD
   formato ou ficar instável sem aviso. Cota grátis é 250 buscas/mês e
   50/hora (throughput) — ver nota na seção acima sobre qual dos dois
   costuma bater primeiro e como diagnosticar um HTTP 429.
@@ -350,5 +383,10 @@ firestore.rules       # regras de segurança (deploy via firebase-tools)
   temporária em `catalog_images` (Firestore) não são apagados sozinhos
   ainda — configurar TTL policy nativa antes de usar com volume real
   (ver seção acima).
+=======
+  formato ou ficar instável sem aviso. Cota grátis (~250 buscas/mês) é
+  compartilhada entre Amazon e Mercado Livre (uma busca por marketplace
+  selecionado, sem cache cruzado ainda — ver nota na seção acima).
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 #   a m a z o n _  
  

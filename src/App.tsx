@@ -114,7 +114,14 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div
             key={screen}
+<<<<<<< HEAD
             className="app-shell__content"
+=======
+<<<<<<< HEAD
+            className="app-shell__content"
+=======
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -6 }}
@@ -143,7 +150,15 @@ export default function App() {
                 source={source}
               />
             )}
+<<<<<<< HEAD
             {screen === "account" && <Account user={user} profile={profile} />}
+=======
+<<<<<<< HEAD
+            {screen === "account" && <Account user={user} profile={profile} />}
+=======
+            {screen === "account" && <Account user={user} />}
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
             {screen === "admin" && <Admin profile={profile} />}
           </motion.div>
         </AnimatePresence>

@@ -12,8 +12,19 @@ import {
   ShoppingBag,
   Search,
   Calculator,
+<<<<<<< HEAD
   Library,
   Camera,
+=======
+<<<<<<< HEAD
+  Library,
+=======
+  Radio,
+  Clock,
+  Library,
+  Gauge,
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 } from "lucide-react";
 import type {
   CatalogRow,
@@ -21,7 +32,10 @@ import type {
   MarketplaceId,
   MarketplacePriceResult,
   PricingRules,
+<<<<<<< HEAD
   SearchProviderId,
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 } from "../types";
 import { parseCatalogFile } from "../lib/parseCatalog";
 import { getPdfPageCount, parsePdfCatalogFile, type PageRange } from "../lib/parsePdfCatalog";
@@ -36,7 +50,11 @@ import {
 } from "../lib/catalogHistory";
 import { listSharedCatalogsForPlan, type SharedCatalog } from "../lib/sharedCatalogs";
 import { getTodayUsage, addTodayUsage } from "../lib/usageQuota";
+<<<<<<< HEAD
 import { getUserSerpApiKey, getUserRapidApiKey } from "../lib/userSecrets";
+=======
+import { getUserSerpApiKey } from "../lib/userSecrets";
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import styles from "./Dashboard.module.css";
@@ -46,8 +64,11 @@ type SourceType = "csv" | "pdf";
 interface ParseOutcome {
   rows: CatalogRow[];
   skippedAmbiguous: number;
+<<<<<<< HEAD
   /** Só preenchido quando o parse rodou em modo imagem (PDF) — ver processFile. */
   imagesBySku?: Record<string, string>;
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -67,6 +88,7 @@ const AVAILABLE_MARKETPLACES: {
   { id: "amazon", label: "Amazon", note: "real com servidor", icon: ShoppingBag },
 ];
 
+<<<<<<< HEAD
 // Qual API resolve o preço — eixo INDEPENDENTE de marketplace (ver
 // SearchProviderId em ../types e o comentário em api/fetch-prices.ts).
 // SerpApi cobre os dois marketplaces numa busca só; os providers
@@ -120,6 +142,8 @@ const SEARCH_PROVIDERS: {
 // ver api/_lib/providers/googleLensProvider.ts.
 const IMAGE_MODE_PROVIDER: SearchProviderId = "google_lens_products";
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 const STEP_ICONS = [UploadCloud, Search, Calculator];
 
 // Tamanho do lote de busca — catálogos grandes são processados em
@@ -157,20 +181,28 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
   const [dragActive, setDragActive] = useState(false);
 
   // Escolha de marketplace — evita processar um marketplace que o
+<<<<<<< HEAD
   // usuário não pediu. Default: os dois marcados (SerpApi cobre os dois
   // numa busca só). Ao trocar de provider pra um "direto" (RapidAPI
   // Amazon, Mercado Livre público), fica travado no único marketplace
   // que aquele provider cobre — ver selectProvider.
+=======
+  // usuário não pediu. Default: os dois marcados (ambos vêm da mesma
+  // fonte real hoje — Google Shopping via SerpApi).
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const [selectedMarketplaces, setSelectedMarketplaces] = useState<MarketplaceId[]>([
     "mercadolivre",
     "amazon",
   ]);
 
+<<<<<<< HEAD
   // Qual API usar pra essa busca — ver SEARCH_PROVIDERS acima. Escolhido
   // por busca, não fixo por conta (pedido explícito: "hoje quero amazon
   // aí amanhã uso a de mercado livre e depois a serp").
   const [searchProvider, setSearchProvider] = useState<SearchProviderId>("serpapi");
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
   const [pageFrom, setPageFrom] = useState(1);
@@ -194,10 +226,13 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
   // app, e por isso não entra no enforcement de `usage_daily` abaixo.
   const [serpApiKey, setSerpApiKey] = useState<string | null>(null);
 
+<<<<<<< HEAD
   // BYOK — chave RapidAPI própria (Amazon direto). Mesma lógica da
   // SerpApi acima, provider diferente.
   const [rapidApiKey, setRapidApiKey] = useState<string | null>(null);
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   // Progresso real da busca (item 8+9 do roadmap) — preenchido só
   // durante state === "fetching", em lotes de CHUNK_SIZE produtos.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -212,6 +247,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
 
   useEffect(() => {
     if (!userId) {
+<<<<<<< HEAD
       setRapidApiKey(null);
       return;
     }
@@ -220,6 +256,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
 
   useEffect(() => {
     if (!userId) {
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       setUploadHistory([]);
       return;
     }
@@ -266,6 +304,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
 
   const plan = getPlan(profile?.plan);
 
+<<<<<<< HEAD
   const activeProvider = SEARCH_PROVIDERS.find((p) => p.id === searchProvider)!;
   // Chave exigida pelo provider ativo — "mercadolivre_direct" não pede
   // nenhuma (endpoint público), os outros dois pedem a própria (BYOK).
@@ -277,12 +316,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   function toggleMarketplace(id: MarketplaceId) {
     setSelectedMarketplaces((prev) =>
       prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
     );
   }
 
+<<<<<<< HEAD
   /**
    * Troca de provider — providers "diretos" (RapidAPI Amazon, Mercado
    * Livre público) só cobrem 1 marketplace fixo cada, então travam
@@ -302,6 +344,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
     }
   }
 
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   function loadHistoryRecord(record: CatalogUploadRecord) {
     setHistoryInfo(null);
     setSkippedInfo(null);
@@ -367,6 +411,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       sourceType: SourceType;
       pageRange: PageRange | null;
       marketplaces: MarketplaceId[];
+<<<<<<< HEAD
     },
     imagesBySku?: Record<string, string>
   ) {
@@ -376,11 +421,21 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
     // público). Sem usuário logado ou sem a chave que ESSE provider
     // exige, a busca nem começa: bloqueia aqui, num único ponto, em vez
     // de deixar a API de terceiro falhar lá na frente com erro genérico.
+=======
+    }
+  ) {
+    // BYOK obrigatório — não existe mais chave compartilhada do
+    // servidor (ver googleShoppingProvider.ts). Sem usuário logado ou
+    // sem chave própria cadastrada em Conta, a busca nem começa: bloqueia
+    // aqui, num único ponto, em vez de deixar a SerpApi falhar lá na
+    // frente com um erro genérico.
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     if (!userId) {
       setState("error");
       setError("Faça login (ou crie uma conta) em Conta antes de buscar preço.");
       return;
     }
+<<<<<<< HEAD
     if (!hasRequiredKey) {
       setState("error");
       setError(
@@ -396,6 +451,11 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         "Não consegui extrair/subir nenhuma foto deste PDF (recorte ou upload falhou pra todo " +
           "mundo) — troque pra SerpApi/RapidAPI, que buscam por texto, ou tente reprocessar."
       );
+=======
+    if (!serpApiKey) {
+      setState("error");
+      setError("Cadastre sua chave SerpApi em Conta antes de buscar preço (veja o card \"Sua chave SerpApi\").");
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       return;
     }
 
@@ -420,6 +480,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       for (let i = 0; i < rows.length; i += CHUNK_SIZE) chunks.push(rows.slice(i, i + CHUNK_SIZE));
 
       for (const chunk of chunks) {
+<<<<<<< HEAD
         const chunkItems = chunk.map((r) => ({
           sku: r.sku,
           name: r.name,
@@ -431,6 +492,10 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
           activeProviderKey,
           searchProvider
         );
+=======
+        const chunkItems = chunk.map((r) => ({ sku: r.sku, name: r.name }));
+        const fetched = await fetchMultipleMarketplacePrices(meta.marketplaces, chunkItems, serpApiKey);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
         for (const marketplace of meta.marketplaces) {
           const { results: prices, source } = fetched[marketplace];
@@ -505,13 +570,18 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         return;
       }
 
+<<<<<<< HEAD
       const { rows, skippedAmbiguous, imagesBySku } = await parse();
+=======
+      const { rows, skippedAmbiguous } = await parse();
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       if (skippedAmbiguous > 0) {
         setSkippedInfo(
           `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) ` +
             "por ambiguidade (mais de um preço detectado na mesma linha, provável mescla de colunas)."
         );
       }
+<<<<<<< HEAD
       await finishWithRows(
         rows,
         {
@@ -523,6 +593,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         },
         imagesBySku
       );
+=======
+      await finishWithRows(rows, {
+        fileName: file.name,
+        fileHash,
+        sourceType,
+        pageRange,
+        marketplaces: selectedMarketplaces,
+      });
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     } catch (err) {
       setState("error");
       setError(err instanceof Error ? err.message : String(err));
@@ -536,21 +615,32 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
     setSkippedInfo(null);
 
     const { file, sourceType, pageRange } = lastUpload;
+<<<<<<< HEAD
     const withImages = sourceType === "pdf" && searchProvider === IMAGE_MODE_PROVIDER;
     const parse = (): Promise<ParseOutcome> =>
       sourceType === "pdf"
         ? parsePdfCatalogFile(file, pageRange ?? undefined, { withImages, userId: userId ?? undefined })
+=======
+    const parse = (): Promise<ParseOutcome> =>
+      sourceType === "pdf"
+        ? parsePdfCatalogFile(file, pageRange ?? undefined)
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         : parseCatalogFile(file).then((rows) => ({ rows, skippedAmbiguous: 0 }));
 
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
+<<<<<<< HEAD
       const { rows, skippedAmbiguous, imagesBySku } = await parse();
+=======
+      const { rows, skippedAmbiguous } = await parse();
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       if (skippedAmbiguous > 0) {
         setSkippedInfo(
           `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) por ambiguidade.`
         );
       }
+<<<<<<< HEAD
       await finishWithRows(
         rows,
         {
@@ -562,6 +652,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         },
         imagesBySku
       );
+=======
+      await finishWithRows(rows, {
+        fileName: file.name,
+        fileHash,
+        sourceType,
+        pageRange,
+        marketplaces: selectedMarketplaces,
+      });
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     } catch (err) {
       setState("error");
       setError(err instanceof Error ? err.message : String(err));
@@ -569,6 +668,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
   }
 
   async function handleCsv(file: File) {
+<<<<<<< HEAD
     if (searchProvider === IMAGE_MODE_PROVIDER) {
       setError(
         "\"Busca por imagem\" precisa de foto do produto — catálogo .csv não tem. " +
@@ -576,6 +676,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       );
       return;
     }
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     await processFile(
       file,
       () => parseCatalogFile(file).then((rows) => ({ rows, skippedAmbiguous: 0 })),
@@ -603,6 +705,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
     const pageRange: PageRange = { from: pageFrom, to: pageTo };
     setPendingPdf(null);
     setPdfPageCount(null);
+<<<<<<< HEAD
     const withImages = searchProvider === IMAGE_MODE_PROVIDER;
     await processFile(
       file,
@@ -614,6 +717,9 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       "pdf",
       pageRange
     );
+=======
+    await processFile(file, () => parsePdfCatalogFile(file, pageRange), "pdf", pageRange);
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   }
 
   function handleFile(file: File) {
@@ -637,6 +743,10 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className={styles.header}>
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         <div className={styles.headerMain}>
           <span className={styles.eyebrow}>Arbitragem de preços</span>
           <h1 className={styles.title}>Bancada de precificação</h1>
@@ -648,9 +758,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         <div className={styles.headerCard}>
           <span className={styles.headerCardRow}>
             <span className={`${styles.headerCardDot} ${styles.dotSuccess}`} />
+<<<<<<< HEAD
             fonte <b className={styles.headerCardStrong}>{activeProvider.label}</b>
           </span>
           {userId && activeProvider.needsKey === "serpApiKey" && serpApiKey && todayUsage !== null && (
+=======
+            fonte <b className={styles.headerCardStrong}>Google Shopping · SerpApi</b>
+          </span>
+          {userId && serpApiKey && todayUsage !== null && (
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
             <span className={styles.headerCardRow}>
               <span className={`${styles.headerCardDot} ${styles.dotAccent}`} />
               plano <b className={styles.headerCardStrong}>{plan.name}</b> · {todayUsage} busca(s)
@@ -665,7 +781,11 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <span className={styles.cardHeaderNumber}>01</span>
+<<<<<<< HEAD
               <h2 className={styles.cardHeaderTitle}>Qual API usar</h2>
+=======
+              <h2 className={styles.cardHeaderTitle}>Onde comparar</h2>
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
               <span className={styles.cardHeaderMeta}>
                 {selectedMarketplaces.length} marketplace(s)
                 {marketplaceLabels ? ` · ${marketplaceLabels}` : ""}
@@ -673,6 +793,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
             </div>
             <div className={styles.cardBody}>
               <div className={styles.marketplaceGrid}>
+<<<<<<< HEAD
                 {SEARCH_PROVIDERS.map((p) => {
                   const active = searchProvider === p.id;
                   const Icon = p.icon;
@@ -682,6 +803,17 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                       type="button"
                       className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
                       onClick={() => selectProvider(p.id)}
+=======
+                {AVAILABLE_MARKETPLACES.map((m) => {
+                  const active = selectedMarketplaces.includes(m.id);
+                  const Icon = m.icon;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
+                      onClick={() => toggleMarketplace(m.id)}
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                     >
                       <span
                         className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
@@ -689,8 +821,13 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                         <Icon size={15} />
                       </span>
                       <span className={styles.marketplaceCardText}>
+<<<<<<< HEAD
                         <span className={styles.marketplaceCardLabel}>{p.label}</span>
                         <span className={styles.marketplaceCardNote}>{p.note}</span>
+=======
+                        <span className={styles.marketplaceCardLabel}>{m.label}</span>
+                        <span className={styles.marketplaceCardNote}>{m.note}</span>
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                       </span>
                       {active && (
                         <span className={styles.marketplaceCardCheck}>
@@ -701,6 +838,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                   );
                 })}
               </div>
+<<<<<<< HEAD
 
               {(searchProvider === "serpapi" || searchProvider === "google_lens_products") && (
                 <div className={styles.subGroup}>
@@ -738,6 +876,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                   </div>
                 </div>
               )}
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
             </div>
           </section>
 
@@ -784,6 +924,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                       />
                     </label>
                   </div>
+<<<<<<< HEAD
                   {searchProvider === IMAGE_MODE_PROVIDER && (
                     <p className={styles.warningNote}>
                       <Camera size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
@@ -791,6 +932,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                       antes de buscar. Mais lento que busca por texto.
                     </p>
                   )}
+=======
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                   <div className={styles.pageRangeActions}>
                     <button
                       className={styles.button}
@@ -845,7 +988,11 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
               )}
             </div>
 
+<<<<<<< HEAD
             {(state !== "idle" || error || historyInfo || skippedInfo || !userId || !hasRequiredKey) && (
+=======
+            {(state !== "idle" || error || historyInfo || skippedInfo || !userId || !serpApiKey) && (
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
               <div className={styles.cardFooter}>
                 {state === "parsing" && (
                   <p className={styles.status}>
@@ -892,14 +1039,22 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                     {skippedInfo}
                   </p>
                 )}
+<<<<<<< HEAD
                 {(!userId || !hasRequiredKey) && (
+=======
+                {(!userId || !serpApiKey) && (
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                   <p className={styles.warningNote}>
                     <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
                     {!userId
                       ? "Faça login ou crie uma conta em Conta pra poder buscar preço."
+<<<<<<< HEAD
                       : activeProvider.needsKey === "serpApiKey"
                         ? "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."
                         : "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."}
+=======
+                      : "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."}
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                   </p>
                 )}
               </div>
@@ -996,6 +1151,7 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
               </span>
             </div>
             <div className={styles.prereqRow}>
+<<<<<<< HEAD
               <span className={hasRequiredKey ? styles.prereqIcon : styles.prereqIconWarning}>
                 {hasRequiredKey ? <Check size={11} strokeWidth={3} /> : <AlertCircle size={11} />}
               </span>
@@ -1013,6 +1169,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                     : hasRequiredKey
                       ? "cadastrada"
                       : "grátis — cadastre em Conta"}
+=======
+              <span className={serpApiKey ? styles.prereqIcon : styles.prereqIconWarning}>
+                {serpApiKey ? <Check size={11} strokeWidth={3} /> : <AlertCircle size={11} />}
+              </span>
+              <span>
+                <span className={styles.prereqLabel}>Chave SerpApi própria</span>
+                <span className={styles.prereqSub}>
+                  {serpApiKey ? "cadastrada" : "grátis, só email — cadastre em Conta"}
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                 </span>
               </span>
             </div>
@@ -1079,6 +1244,290 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
           )}
         </aside>
       </div>
+<<<<<<< HEAD
+=======
+=======
+        <span className={styles.eyebrow}>Arbitragem de preços</span>
+        <h1 className={styles.title}>Dashboard</h1>
+        <p className={styles.subtitle}>
+          Envie um catálogo (.csv ou .pdf com SKU/nome/custo) e escolha onde buscar o preço de
+          mercado. Login + chave SerpApi própria (em Conta) são obrigatórios pra buscar preço —
+          sem isso dá pra escolher marketplace e enviar o arquivo, mas a busca fica bloqueada.
+        </p>
+      </div>
+
+      {userId && uploadHistory.length > 0 && (
+        <div className={styles.kpiRow}>
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiIcon}>
+              <History size={15} />
+            </span>
+            <div>
+              <div className={styles.kpiValue}>{uploadHistory.length}</div>
+              <div className={styles.kpiLabel}>Catálogos processados</div>
+            </div>
+          </div>
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiIcon}>
+              <Clock size={15} />
+            </span>
+            <div>
+              <div className={styles.kpiValue}>
+                {lastRun ? new Date(lastRun.uploadedAt).toLocaleDateString("pt-BR") : "—"}
+              </div>
+              <div className={styles.kpiLabel}>Última busca</div>
+            </div>
+          </div>
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiIcon}>
+              <Radio size={15} />
+            </span>
+            <div>
+              <div className={styles.kpiValue}>{uniqueMarketplaces.size || "—"}</div>
+              <div className={styles.kpiLabel}>Marketplaces usados</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={styles.marketplaceSelector}>
+        {AVAILABLE_MARKETPLACES.map((m) => {
+          const active = selectedMarketplaces.includes(m.id);
+          const Icon = m.icon;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              className={active ? styles.marketplaceChipActive : styles.marketplaceChip}
+              onClick={() => toggleMarketplace(m.id)}
+            >
+              <Icon size={14} />
+              {active && <Check size={13} />}
+              {m.label}
+              <span className={styles.marketplaceChipNote}>({m.note})</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className={styles.liveNote}>
+        <Radio size={11} /> Preço buscado via Google Shopping (SerpApi) quando o servidor está
+        disponível — ver card &quot;Fonte do preço&quot; nos Resultados.
+      </p>
+      {userId && serpApiKey && todayUsage !== null && (
+        <p className={styles.liveNote}>
+          <Gauge size={11} /> Plano {plan.name} — {todayUsage} busca(s) hoje com sua chave SerpApi
+        </p>
+      )}
+      {(!userId || !serpApiKey) && (
+        <p className={styles.warningNote}>
+          <AlertCircle size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+          {!userId
+            ? "Faça login ou crie uma conta em Conta pra poder buscar preço."
+            : "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."}
+        </p>
+      )}
+
+      <div className={styles.steps}>
+        {STEPS.map((step, i) => {
+          const Icon = STEP_ICONS[i];
+          return (
+            <motion.div
+              key={step.label}
+              className={styles.step}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: i * 0.06, ease: [0.16, 1, 0.3, 1] }}
+            >
+              <div className={styles.stepHeader}>
+                <span className={styles.stepIcon}>
+                  <Icon size={14} />
+                </span>
+                <span className={styles.stepNumber}>0{i + 1}</span>
+              </div>
+              <div className={i === activeStep ? styles.stepLabelActive : styles.stepLabel}>
+                {step.label}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {pendingPdf ? (
+        <motion.div
+          className={styles.pageRangePanel}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className={styles.pageRangeHeader}>
+            <FileText size={16} />
+            <span>
+              {pendingPdf.name} · {pdfPageCount} páginas
+            </span>
+          </div>
+          <div className={styles.pageRangeInputs}>
+            <label>
+              Página inicial
+              <input
+                type="number"
+                min={1}
+                max={pdfPageCount ?? 1}
+                value={pageFrom}
+                onChange={(e) => setPageFrom(Number(e.target.value) || 1)}
+              />
+            </label>
+            <label>
+              Página final
+              <input
+                type="number"
+                min={1}
+                max={pdfPageCount ?? 1}
+                value={pageTo}
+                onChange={(e) => setPageTo(Number(e.target.value) || 1)}
+              />
+            </label>
+          </div>
+          <div className={styles.pageRangeActions}>
+            <button className={styles.button} type="button" onClick={() => void handleProcessPdf()}>
+              Processar páginas {pageFrom}–{pageTo}
+            </button>
+            <button
+              className={styles.linkButton}
+              type="button"
+              onClick={() => {
+                setPendingPdf(null);
+                setPdfPageCount(null);
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </motion.div>
+      ) : (
+        <label
+          className={dragActive ? `${styles.dropzone} ${styles.dropzoneActive}` : styles.dropzone}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+        >
+          <span className={styles.dropzoneLabel}>
+            <span className={styles.dropIcon}>
+              <UploadCloud size={22} strokeWidth={2} />
+            </span>
+            <span className={styles.button}>Escolher arquivo</span>
+            <span className={styles.dropzoneHint}>.csv ou .pdf — arraste ou clique</span>
+          </span>
+          <input
+            className={styles.fileInput}
+            type="file"
+            accept=".csv,.pdf"
+            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+          />
+        </label>
+      )}
+
+      {state === "parsing" && (
+        <p className={styles.status}>
+          <Loader2 size={14} className="spin" /> Lendo catálogo…
+        </p>
+      )}
+      {state === "fetching" && (
+        <div className={styles.progressWrap}>
+          <p className={styles.status}>
+            <Loader2 size={14} className="spin" /> Buscando preço ({marketplaceLabels})
+            {progress ? ` — ${progress.done}/${progress.total} produtos` : "…"}
+          </p>
+          {progress && progress.total > 0 && (
+            <div className={styles.progressTrack}>
+              <div
+                className={styles.progressFill}
+                style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {error && (
+        <p className={styles.error}>
+          <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+          {error}
+        </p>
+      )}
+      {historyInfo && (
+        <p className={styles.status}>
+          <History size={14} /> {historyInfo}{" "}
+          <button className={styles.linkButton} type="button" onClick={() => void handleForceReprocess()}>
+            Reprocessar mesmo assim
+          </button>
+        </p>
+      )}
+      {skippedInfo && (
+        <p className={styles.warningNote}>
+          <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+          {skippedInfo}
+        </p>
+      )}
+
+      <a className={styles.sampleLink} href="/sample-catalog.csv" download>
+        <Download size={13} /> Download exemplo
+      </a>
+
+      {userId && profile && !libraryLoading && libraryCatalogs.length > 0 && (
+        <div className={styles.historyPanel}>
+          <div className={styles.historyTitle}>
+            <Library size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+            Biblioteca do plano {plan.name}
+          </div>
+          {libraryCatalogs.map((catalog) => (
+            <button
+              key={catalog.id}
+              type="button"
+              className={styles.historyRow}
+              onClick={() => void processSharedCatalog(catalog)}
+            >
+              <span className={styles.historyName}>
+                <FileText size={13} /> {catalog.fileName}
+              </span>
+              <span className={styles.historyMeta}>{catalog.rows.length} produtos</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {userId && !historyLoading && uploadHistory.length > 0 && (
+        <div className={styles.historyPanel}>
+          <div className={styles.historyTitle}>Catálogos recentes</div>
+          {uploadHistory.slice(0, 10).map((record) => {
+            const foundCount = record.results.length;
+            const failed = foundCount === 0;
+            return (
+              <button
+                key={record.id}
+                type="button"
+                className={styles.historyRow}
+                onClick={() => loadHistoryRecord(record)}
+              >
+                <span className={styles.historyName}>
+                  <FileText size={13} /> {record.fileName}
+                </span>
+                <span className={failed ? styles.historyMetaFailed : styles.historyMeta}>
+                  {failed
+                    ? `0 de ${record.rows.length} produtos com preço — sem cache, reprocessa`
+                    : `${foundCount} de ${record.rows.length} produtos com preço`}{" "}
+                  · {(record.marketplaces ?? []).join(" + ") || "—"}
+                </span>
+                <span className={styles.historyDate}>
+                  {new Date(record.uploadedAt).toLocaleString("pt-BR")}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+>>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
+>>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     </motion.div>
   );
 }
