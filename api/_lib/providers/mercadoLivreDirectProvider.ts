@@ -1,6 +1,6 @@
-import type { CatalogItemQuery, MarketplacePriceResult } from "../types";
-import { mapWithConcurrency } from "../concurrency";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity";
+import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
+import { mapWithConcurrency } from "../concurrency.js";
+import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
 
 const ENDPOINT = "https://api.mercadolibre.com/sites/MLB/search";
 const CONCURRENCY = 3;

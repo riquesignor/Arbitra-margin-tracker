@@ -1,6 +1,6 @@
 import { getAuth } from "firebase-admin/auth";
-import { getAdminApp } from "./firestoreAdmin";
-import type { ApiRequest } from "./httpTypes";
+import { getAdminApp } from "./firestoreAdmin.js";
+import type { ApiRequest } from "./httpTypes.js";
 
 export class UnauthorizedError extends Error {}
 

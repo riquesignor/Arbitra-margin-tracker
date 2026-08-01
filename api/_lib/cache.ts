@@ -1,5 +1,5 @@
-import type { MarketplaceId, MarketplacePriceResult, SearchProviderId } from "./types";
-import { getAdminDb } from "./firestoreAdmin";
+import type { MarketplaceId, MarketplacePriceResult, SearchProviderId } from "./types.js";
+import { getAdminDb } from "./firestoreAdmin.js";
 
 const TTL_MS = 2 * 60 * 60 * 1000; // 2h — mesmo TTL do master prompt
 const COLLECTION = "market_prices";

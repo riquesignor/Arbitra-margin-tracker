@@ -1,5 +1,5 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types";
-import type { ServerPriceProvider } from "./types";
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
+import type { ServerPriceProvider } from "./types.js";
 
 function hashString(input: string): number {
   let hash = 5381;

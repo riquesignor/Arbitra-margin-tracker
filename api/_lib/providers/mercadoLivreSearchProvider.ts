@@ -1,6 +1,6 @@
-import type { CatalogItemQuery, MarketplacePriceResult } from "../types";
-import type { ServerPriceProvider } from "./types";
-import { getMlAccessToken } from "../mlAuth";
+import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
+import type { ServerPriceProvider } from "./types.js";
+import { getMlAccessToken } from "../mlAuth.js";
 
 const SEARCH_URL = "https://api.mercadolibre.com/sites/MLB/search";
 const CONCURRENCY = 5;

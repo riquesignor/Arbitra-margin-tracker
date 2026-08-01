@@ -1,4 +1,4 @@
-import { getAdminDb } from "./firestoreAdmin";
+import { getAdminDb } from "./firestoreAdmin.js";
 
 const REFRESH_BUFFER_MS = 60_000;
 

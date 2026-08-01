@@ -1,7 +1,7 @@
-import type { CatalogItemQuery, MarketplacePriceResult } from "../types";
-import { mapWithConcurrency } from "../concurrency";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity";
-import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider";
+import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
+import { mapWithConcurrency } from "../concurrency.js";
+import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
+import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 const CONCURRENCY = 2; // mesma cota SerpApi da busca por texto — ver googleShoppingProvider.ts

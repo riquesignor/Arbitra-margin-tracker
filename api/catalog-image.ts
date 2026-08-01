@@ -1,5 +1,5 @@
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes";
-import { getAdminDb } from "./_lib/firestoreAdmin";
+import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import { getAdminDb } from "./_lib/firestoreAdmin.js";
 
 const COLLECTION = "catalog_images";
 

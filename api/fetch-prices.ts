@@ -1,17 +1,17 @@
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes";
+import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type {
   CatalogItemQuery,
   MarketplaceId,
   MarketplacePriceResult,
   SearchProviderId,
-} from "./_lib/types";
-import { getCachedPrices, writeCachedPrices } from "./_lib/cache";
-import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/registry";
-import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider";
-import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider";
-import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider";
-import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider";
-import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth";
+} from "./_lib/types.js";
+import { getCachedPrices, writeCachedPrices } from "./_lib/cache.js";
+import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/registry.js";
+import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider.js";
+import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
+import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
+import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
+import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
 const VALID_PROVIDERS: SearchProviderId[] = [

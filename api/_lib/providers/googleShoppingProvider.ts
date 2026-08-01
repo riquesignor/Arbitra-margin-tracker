@@ -1,6 +1,6 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types";
-import { mapWithConcurrency } from "../concurrency";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity";
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
+import { mapWithConcurrency } from "../concurrency.js";
+import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de

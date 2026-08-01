@@ -1,6 +1,6 @@
-import type { MarketplaceId } from "../types";
-import type { ServerPriceProvider } from "./types";
-import { GOOGLE_SHOPPING_MATCHERS } from "./googleShoppingProvider";
+import type { MarketplaceId } from "../types.js";
+import type { ServerPriceProvider } from "./types.js";
+import { GOOGLE_SHOPPING_MATCHERS } from "./googleShoppingProvider.js";
 
 const registry = new Map<MarketplaceId, ServerPriceProvider>();
 

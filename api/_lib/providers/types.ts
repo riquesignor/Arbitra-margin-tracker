@@ -1,4 +1,4 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types";
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
 
 /**
  * Espelha src/lib/marketplaces/types.ts no lado servidor. Recebe
