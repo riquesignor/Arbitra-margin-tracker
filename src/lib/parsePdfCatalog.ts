@@ -39,6 +39,7 @@ interface PdfjsPage {
 interface PdfjsTextItem {
   str?: string;
   transform?: number[];
+  width?: number;
 }
 
 /**
@@ -73,6 +74,11 @@ export async function getPdfPageCount(file: File): Promise<number> {
 interface PositionedText {
   text: string;
   x: number;
+  /** Largura renderizada do item (pdfjs `TextItem.width`) — usada pra
+   * saber onde ele TERMINA (x + width) e decidir se o próximo item é
+   * continuação da mesma palavra/número ou uma palavra nova (ver
+   * juntarTextoAdaptativo). */
+  width: number;
   y: number;
 }
 
@@ -84,14 +90,25 @@ interface PositionedLine {
 
 const Y_TOLERANCE = 3;
 
+// Alguns PDFs (geradores/templates que quebram um número em runs de
+// fonte diferentes) partem um único token em vários itens de texto
+// CONTÍGUOS, sem espaço real entre eles (gap ≈ 0pt) — ex: "13,50" virou
+// os itens "1" (termina em x=162.77) e "3,50" (começa em x=162.77,
+// gap=0). A versão antiga sempre juntava itens da mesma linha com um
+// espaço fixo, o que produzia "1 3,50" e quebrava o preço de novo (ver
+// fix da regex acima). Threshold escolhido com dado real: gap de
+// continuação de token = 0pt; menor gap de PALAVRA real observado (ex:
+// "Unid.CX:" → "13,50") = ~2.8pt. 1.5pt fica seguro entre os dois.
+const SAME_TOKEN_GAP_THRESHOLD = 1.5;
+
 /**
  * Agrupa itens de texto (posicionados em x/y) em linhas, na ordem
- * visual — versão com posição Y da linha (não só o texto), usada pelo
- * modo imagem pra recortar a faixa da página correspondente a cada
- * linha (ver cropRowBand). Substituiu uma versão anterior que só
- * devolvia `string[]` (sem posição) — todo call site já usa esta.
+ * visual, mantendo os ITENS BRUTOS de cada linha (não só o texto
+ * final) — necessário pra detecção de colunas em catálogos em grade
+ * (ver extractGridBlocks), que precisa saber o X de cada item
+ * individual, não só o texto já concatenado.
  */
-function groupIntoLinesWithY(items: PositionedText[]): PositionedLine[] {
+function groupItemsIntoLines(items: PositionedText[]): PositionedText[][] {
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const lines: PositionedText[][] = [];
 
@@ -104,16 +121,31 @@ function groupIntoLinesWithY(items: PositionedText[]): PositionedLine[] {
     }
   }
 
-  return lines
-    .map((line) => ({
-      text: line
-        .sort((a, b) => a.x - b.x)
-        .map((i) => i.text)
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim(),
-      y: line[0].y,
-    }))
+  return lines.map((line) => [...line].sort((a, b) => a.x - b.x));
+}
+
+/** Junta os itens (já ordenados por X) de uma linha em texto, inserindo espaço só entre PALAVRAS de verdade (ver SAME_TOKEN_GAP_THRESHOLD). */
+function joinLineText(sortedLine: PositionedText[]): string {
+  let text = "";
+  let prevEndX: number | null = null;
+  for (const item of sortedLine) {
+    if (prevEndX != null && item.x - prevEndX > SAME_TOKEN_GAP_THRESHOLD) {
+      text += " ";
+    }
+    text += item.text;
+    prevEndX = item.x + item.width;
+  }
+  return text.replace(/\s+/g, (m) => (m.length > 1 ? " " : m)).trim();
+}
+
+/**
+ * Versão com posição Y da linha (não só o texto), usada pelo modo
+ * imagem pra recortar a faixa da página correspondente a cada linha
+ * (ver cropRowBand).
+ */
+function groupIntoLinesWithY(items: PositionedText[]): PositionedLine[] {
+  return groupItemsIntoLines(items)
+    .map((line) => ({ text: joinLineText(line), y: line[0].y }))
     .filter((l) => l.text);
 }
 
@@ -162,6 +194,15 @@ function extractPriceGroup(match: RegExpMatchArray): string {
 }
 // SKU: código tipo "SKU-001", "REF12345" ou sequência de 4+ dígitos
 const SKU_PATTERN = /\b([A-Z]{2,}[-\s]?\d{2,}|\d{4,})\b/;
+// Label explícito de código de produto usado por catálogos em grade
+// (ver extractGridBlocks) — "MODELO: BMG-50", às vezes sem espaço antes
+// dos dois pontos ou com dois-pontos ausente.
+const MODEL_LABEL_PATTERN = /MODELO:?\s*(.+)/i;
+// Versão SEM captura gulosa, só pra CONTAR quantas vezes o label
+// aparece numa linha (ver detecção de cabeçalho de grade) — o `(.+)` de
+// MODEL_LABEL_PATTERN é ilimitado à direita, então com flag global ele
+// devora a linha inteira na 1ª ocorrência e nunca acha uma 2ª.
+const MODEL_LABEL_COUNT_PATTERN = /MODELO:?/gi;
 // Acima disso, o "nome" quase certamente é lixo de mais de uma coluna
 // mesclada, não um nome de produto real.
 const MAX_PLAUSIBLE_NAME_LENGTH = 120;
@@ -292,6 +333,195 @@ export function extractRows(lines: string[]): ExtractResult {
   return { rows: rows.map(({ lineIndex: _lineIndex, ...row }) => row), skippedAmbiguous };
 }
 
+// ── Catálogo em GRADE (cartões) ──────────────────────────────────────
+//
+// Alguns catálogos (ex: fornecedores que exportam de um site pra PDF)
+// não têm 1 produto por linha — têm N produtos por PÁGINA, em cartões
+// lado a lado (ex: grade 3x3), cada cartão com "MODELO: <código>" no
+// topo, foto, nome, bullets de característica, e "NPCS/CX Unid.CX:
+// preço" no rodapé. `extractRowsIndexed` (1 linha = 1 produto) não dá
+// conta disso — o nome fica numa linha, o preço em outra, bem abaixo,
+// e a mesma linha Y da página tem 2-3 produtos diferentes lado a lado.
+//
+// Detecção: se alguma linha da página tem 2+ ocorrências de
+// MODEL_LABEL_PATTERN, é uma "linha de cabeçalho" de grade — o X de
+// cada ocorrência marca o INÍCIO de uma coluna (cartão). Página sem
+// nenhuma linha assim usa o modo linha-única de sempre (sem mudança de
+// comportamento pra catálogos em tabela).
+
+// Gap mínimo (pt) entre o fim de um item e o começo do próximo pra
+// considerar FRONTEIRA DE COLUNA (cartão novo), não só um espaço normal
+// dentro do mesmo cartão. Dado real: maior gap intra-cartão observado
+// (label→valor, ex: "60PCS/CX" → "Unid.CX:") ≈ 39pt; menor gap
+// inter-cartão observado ≈ 80pt. 55pt fica seguro no meio.
+const COLUMN_GAP_THRESHOLD = 55;
+// Margem (pt) somada acima da linha "MODELO:" e abaixo da última linha
+// da grade, pra não cortar o topo/rodapé do cartão nem vazar pro rodapé
+// de navegação da página (ex: "VOLTAR", "Fale Conosco").
+const ROW_BAND_MARGIN = 20;
+const PAGE_FOOTER_MARGIN = 55;
+
+interface GridColumn {
+  xMin: number;
+  xMax: number;
+}
+
+interface GridRowBand {
+  yTop: number;
+  yBottom: number;
+}
+
+/** Agrupa os X de início de coluna (um por ocorrência de MODEL_LABEL_PATTERN em cada linha-cabeçalho) em colunas canônicas da página — linhas diferentes têm um pequeno desvio de X entre si, then clusteriza com tolerância. */
+function detectColumns(headerLinesItems: PositionedText[][], pageWidth: number): GridColumn[] | null {
+  const columnStartXs: number[] = [];
+
+  for (const lineItems of headerLinesItems) {
+    // Fronteira de coluna = gap grande entre o fim de um item e o
+    // início do próximo (ver COLUMN_GAP_THRESHOLD). O primeiro item da
+    // linha sempre começa uma coluna.
+    let prevEndX: number | null = null;
+    for (const item of lineItems) {
+      if (prevEndX == null || item.x - prevEndX > COLUMN_GAP_THRESHOLD) {
+        columnStartXs.push(item.x);
+      }
+      prevEndX = item.x + item.width;
+    }
+  }
+
+  if (columnStartXs.length === 0) return null;
+
+  columnStartXs.sort((a, b) => a - b);
+  const clustered: number[] = [];
+  for (const x of columnStartXs) {
+    const last = clustered[clustered.length - 1];
+    if (last == null || x - last > 25) clustered.push(x);
+    // Se estiver perto de um cluster existente, ignora (já representado).
+  }
+
+  if (clustered.length < 2) return null; // grade precisa de 2+ colunas
+
+  // ⚠️ NÃO usar o ponto médio entre âncoras como fronteira: o rótulo
+  // "MODELO:" fica na borda ESQUERDA do cartão, mas o conteúdo (preço,
+  // "Unid.CX:") se estende bem mais pra direita, com frequência
+  // ULTRAPASSANDO o ponto médio até a próxima coluna — mesmo ainda
+  // pertencendo ao cartão atual (dado real: cartão de ~187pt de largura,
+  // mas o valor do preço só some por volta de +150pt da própria âncora,
+  // enquanto o ponto médio pra coluna vizinha cai em ~+94pt, cortando
+  // o preço no meio e jogando ele pra coluna errada). A fronteira certa
+  // fica perto do INÍCIO da PRÓXIMA coluna, não do meio do caminho.
+  // MARGIN pequena porque a própria âncora varia ±1-3pt entre linhas
+  // (jitter de posição do PDF) — sem ela, um item alinhado bem rente à
+  // âncora podia cair fora por 1pt.
+  const MARGIN = 10;
+  return clustered.map((xStart, i) => ({
+    xMin: i === 0 ? 0 : Math.max(0, xStart - MARGIN),
+    xMax: i === clustered.length - 1 ? pageWidth : clustered[i + 1] - MARGIN,
+  }));
+}
+
+export interface GridBlock {
+  sku: string;
+  name: string;
+  supplierPrice: number;
+  /** Bounding box do cartão em espaço PDF — usado pro recorte de imagem (ver cropGridBlock). */
+  yTop: number;
+  yBottom: number;
+  xMin: number;
+  xMax: number;
+}
+
+/** Acha, entre as linhas locais de UM cartão, a que contém o preço — prioriza linha com "Unid" (rótulo padrão desse tipo de catálogo) pra não confundir com preço promocional tipo "5CXS: 27,60". */
+function findPriceInBlockLines(lines: PositionedLine[]): number | null {
+  const withUnid = lines.filter((l) => /unid/i.test(l.text) && PRICE_PATTERN.test(l.text));
+  const candidates = withUnid.length > 0 ? withUnid : lines.filter((l) => PRICE_PATTERN.test(l.text));
+  if (candidates.length === 0) return null;
+
+  const match = candidates[0].text.match(PRICE_PATTERN);
+  if (!match) return null;
+  const price = parseCurrency(extractPriceGroup(match));
+  return price > 0 ? price : null;
+}
+
+/**
+ * Extrai produtos de uma página em GRADE (ver comentário acima). Devolve
+ * `null` se a página não parecer uma grade (sem linha de cabeçalho com
+ * 2+ "MODELO:") — nesse caso o chamador cai pro modo linha-única normal.
+ */
+/** Exportado pra teste unitário direto com dados reais de x/y/width extraídos de PDF real — ver parsePdfCatalog.test.ts. */
+export function extractGridBlocks(
+  items: PositionedText[],
+  pageWidth: number
+): { blocks: GridBlock[]; skippedAmbiguous: number } | null {
+  const lines = groupItemsIntoLines(items);
+
+  const headerLines = lines.filter((lineItems) => {
+    const text = joinLineText(lineItems);
+    const matches = text.match(MODEL_LABEL_COUNT_PATTERN);
+    return matches && matches.length >= 2;
+  });
+
+  if (headerLines.length === 0) return null;
+
+  const columns = detectColumns(headerLines, pageWidth);
+  if (!columns) return null;
+
+  const headerYs = headerLines.map((l) => l[0].y).sort((a, b) => b - a); // desc: topo da página primeiro
+  const rowHeights = headerYs.slice(0, -1).map((y, i) => y - headerYs[i + 1]);
+  const avgRowHeight = rowHeights.length > 0 ? rowHeights.reduce((a, b) => a + b, 0) / rowHeights.length : 250;
+
+  const rowBands: GridRowBand[] = headerYs.map((y, i) => ({
+    yTop: y + ROW_BAND_MARGIN,
+    yBottom: i === headerYs.length - 1 ? Math.max(PAGE_FOOTER_MARGIN, y - avgRowHeight) : headerYs[i + 1] + ROW_BAND_MARGIN,
+  }));
+
+  const blocks: GridBlock[] = [];
+  let skippedAmbiguous = 0;
+
+  for (const row of rowBands) {
+    for (const col of columns) {
+      const blockItems = items.filter(
+        (it) => it.x >= col.xMin && it.x < col.xMax && it.y <= row.yTop && it.y >= row.yBottom
+      );
+      if (blockItems.length === 0) continue;
+
+      const blockLines = groupIntoLinesWithY(blockItems);
+      const modelLine = blockLines.find((l) => MODEL_LABEL_PATTERN.test(l.text));
+      if (!modelLine) continue; // pedaço de cartão sem "MODELO:" nesse recorte — provavelmente vazio/ruído
+
+      const modelMatch = modelLine.text.match(MODEL_LABEL_PATTERN);
+      const skuRaw = modelMatch?.[1]?.trim() ?? "";
+      const skuCleanMatch = skuRaw.match(SKU_PATTERN);
+      const sku = skuCleanMatch ? skuCleanMatch[1] : skuRaw;
+      if (!sku) continue;
+
+      const price = findPriceInBlockLines(blockLines);
+      if (price == null) {
+        skippedAmbiguous++;
+        continue;
+      }
+
+      const nameLines = blockLines.filter(
+        (l) => l !== modelLine && !l.text.startsWith("•") && !PRICE_PATTERN.test(l.text) && !/^\d+\s?PCS\/CX$/i.test(l.text.trim())
+      );
+      let name = nameLines
+        .map((l) => l.text)
+        .join(" ")
+        .trim();
+      // Nome baixado do PDF vem vazio quando o nome/descrição do
+      // produto está "gravado" na própria foto (gráfico), não como
+      // texto real — comum nesse tipo de catálogo. Cai pro SKU como
+      // identificador (melhor que descartar o produto inteiro; a busca
+      // por FOTO, se ativada, ainda funciona nesse caso).
+      if (!name) name = sku;
+      if (name.length > MAX_PLAUSIBLE_NAME_LENGTH) name = name.slice(0, MAX_PLAUSIBLE_NAME_LENGTH).trim();
+
+      blocks.push({ sku, name, supplierPrice: price, yTop: row.yTop, yBottom: row.yBottom, xMin: col.xMin, xMax: col.xMax });
+    }
+  }
+
+  return { blocks, skippedAmbiguous };
+}
+
 // Resolução de renderização pro modo imagem — alta o bastante pra o
 // Google Lens reconhecer o produto, sem gerar canvas gigante (a foto é
 // recomprimida/redimensionada de qualquer forma antes do upload, ver
@@ -354,6 +584,39 @@ function cropRowBand(
   return cropped;
 }
 
+/**
+ * Versão do recorte pra catálogo em GRADE (ver extractGridBlocks) — usa
+ * o bounding box do CARTÃO inteiro (linha de coluna X + banda de linha
+ * Y), não uma faixa de linha única. Mais preciso que cropRowBand nesse
+ * caso: o bloco já sabe exatamente onde o cartão começa/termina nos
+ * dois eixos, não precisa adivinhar altura fixa.
+ */
+function cropGridBlock(
+  canvas: HTMLCanvasElement,
+  viewport: PdfjsViewport,
+  scale: number,
+  block: Pick<GridBlock, "yTop" | "yBottom" | "xMin" | "xMax">
+): HTMLCanvasElement {
+  const pageHeightPdf = viewport.height / scale;
+  const toPixelY = (yPdf: number) => (pageHeightPdf - yPdf) * scale;
+
+  const sy = Math.max(0, Math.round(toPixelY(block.yTop)));
+  const syBottom = Math.min(canvas.height, Math.round(toPixelY(block.yBottom)));
+  const sh = Math.max(1, syBottom - sy);
+
+  const sx = Math.max(0, Math.round(block.xMin * scale));
+  const sxRight = Math.min(canvas.width, Math.round(block.xMax * scale));
+  const sw = Math.max(1, sxRight - sx);
+
+  const cropped = document.createElement("canvas");
+  cropped.width = sw;
+  cropped.height = sh;
+  const ctx = cropped.getContext("2d");
+  if (!ctx) throw new PdfParseError("Não consegui recortar a imagem (contexto 2d indisponível).");
+  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return cropped;
+}
+
 export interface ParsePdfOptions {
   /**
    * Ativa o modo imagem: renderiza cada página e recorta/sobe (Firestore,
@@ -404,16 +667,56 @@ export async function parsePdfCatalogFile(
   for (let pageNum = from; pageNum <= to; pageNum++) {
     const page = await doc.getPage(pageNum);
     const content = await page.getTextContent();
+    // scale:1 só pra pegar a largura da página em pt — não renderiza
+    // nada, é barato o bastante pra chamar sempre (mesmo fora do modo
+    // imagem), precisa pra detecção de coluna da grade.
+    const pageWidthPdf = page.getViewport({ scale: 1 }).width;
 
     const items: PositionedText[] = content.items
-      .filter((item): item is Required<Pick<PdfjsTextItem, "str" | "transform">> =>
-        Boolean(item.str?.trim() && item.transform)
+      .filter(
+        (item): item is Required<Pick<PdfjsTextItem, "str" | "transform">> & Pick<PdfjsTextItem, "width"> =>
+          Boolean(item.str?.trim() && item.transform)
       )
       .map((item) => ({
         text: item.str,
         x: item.transform[4],
         y: item.transform[5],
+        width: item.width ?? 0,
       }));
+
+    // Catálogo em GRADE (N cartões por página, ver extractGridBlocks) é
+    // tentado primeiro; página sem esse padrão (sem 2+ "MODELO:" na
+    // mesma linha) cai pro modo linha-única de sempre, sem mudança de
+    // comportamento.
+    const grid = extractGridBlocks(items, pageWidthPdf);
+
+    let canvas: HTMLCanvasElement | null = null;
+    let viewport: PdfjsViewport | null = null;
+    const ensureCanvas = async () => {
+      if (!canvas || !viewport) {
+        ({ canvas, viewport } = await renderPageToCanvas(page, IMAGE_RENDER_SCALE));
+      }
+      return { canvas, viewport };
+    };
+
+    if (grid) {
+      skippedAmbiguous += grid.skippedAmbiguous;
+      rows.push(...grid.blocks.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
+
+      if (withImages && grid.blocks.length > 0) {
+        const { canvas: c, viewport: v } = await ensureCanvas();
+        await mapWithConcurrency(grid.blocks, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
+          try {
+            const cropped = cropGridBlock(c!, v!, IMAGE_RENDER_SCALE, block);
+            const url = await uploadCatalogImage(options!.userId!, block.sku, cropped);
+            imagesBySku[block.sku] = url;
+          } catch (err) {
+            console.warn(`Falha ao extrair/subir imagem do produto "${block.sku}":`, err);
+          }
+        });
+      }
+      continue;
+    }
 
     const pageLines = groupIntoLinesWithY(items);
     const { rows: pageRows, skippedAmbiguous: pageSkipped } = extractRowsIndexed(
@@ -424,20 +727,13 @@ export async function parsePdfCatalogFile(
     rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
 
     if (withImages && pageRows.length > 0) {
-      const { canvas, viewport } = await renderPageToCanvas(page, IMAGE_RENDER_SCALE);
+      const { canvas: c, viewport: v } = await ensureCanvas();
 
       await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
         try {
           const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
           const nextY = row.lineIndex < pageLines.length - 1 ? pageLines[row.lineIndex + 1].y : null;
-          const cropped = cropRowBand(
-            canvas,
-            viewport,
-            IMAGE_RENDER_SCALE,
-            pageLines[row.lineIndex].y,
-            prevY,
-            nextY
-          );
+          const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
           const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
           imagesBySku[row.sku] = url;
         } catch (err) {
