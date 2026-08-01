@@ -13,8 +13,21 @@ describe("extractRows", () => {
   it("gera sku sintético quando não acha um padrão de SKU na linha", () => {
     const { rows } = extractRows(["Caneta Azul BIC R$ 12,50"]);
 
-    expect(rows[0].sku).toBe("PDF-1");
+    expect(rows[0].sku).toMatch(/^PDF-/);
     expect(rows[0].name).toBe("Caneta Azul BIC");
+  });
+
+  it("sku sintético é determinístico por CONTEÚDO, não por posição — regressão: cache global colidia entre catálogos diferentes", () => {
+    // Mesmo produto, catálogos (chamadas) diferentes -> mesmo sku sintético
+    // (cache de preço deve ser reaproveitado, é o mesmo texto de produto).
+    const a = extractRows(["Caneta Azul BIC R$ 12,50"]);
+    const b = extractRows(["Lapis Preto Faber R$ 3,00", "Caneta Azul BIC R$ 12,50"]);
+    expect(a.rows[0].sku).toBe(b.rows[1].sku);
+
+    // Produtos DIFERENTES no mesmo catálogo -> skus diferentes (antes,
+    // ambos virariam "PDF-1"/"PDF-2" por posição e colidiriam entre
+    // uploads distintos).
+    expect(b.rows[0].sku).not.toBe(b.rows[1].sku);
   });
 
   it("ignora linha sem nenhum preço reconhecível (sem contar como ambígua)", () => {

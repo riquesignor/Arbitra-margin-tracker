@@ -155,6 +155,45 @@ const SKU_PATTERN = /\b([A-Z]{2,}[-\s]?\d{2,}|\d{4,})\b/;
 // mesclada, não um nome de produto real.
 const MAX_PLAUSIBLE_NAME_LENGTH = 120;
 
+/**
+ * Hash determinístico simples (djb2) — só precisa ser estável e barato,
+ * não criptográfico. Usado pra gerar SKU sintético a partir do NOME do
+ * produto (ver skuFor abaixo), não da posição da linha.
+ */
+function hashString(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 33 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+/**
+ * SKU sintético pro caso sem código explícito na linha (ver SKU_PATTERN).
+ * ⚠️ Regressão corrigida: a versão anterior gerava "PDF-1", "PDF-2"...
+ * por POSIÇÃO da linha. Como o cache de preço no servidor
+ * (api/_lib/cache.ts) é global por sku+provider+marketplace, sem
+ * namespace por catálogo/usuário, dois uploads DIFERENTES sem SKU
+ * explícito geravam os MESMOS ids ("PDF-1", "PDF-2"...) e um catálogo
+ * lia o cache (TTL 2h) deixado pelo outro — preço/produto errado sem
+ * relação nenhuma com o PDF atual. Agora o id deriva do CONTEÚDO
+ * (nome do produto): catálogos diferentes com produtos diferentes não
+ * colidem mais; o mesmo nome de produto continua reaproveitando cache
+ * de propósito (é o comportamento certo). `seen` desambigua o caso raro
+ * de nome duplicado DENTRO do mesmo catálogo, pra não sobrescrever
+ * `imagesBySku`.
+ */
+function skuFor(name: string, seen: Set<string>): string {
+  const base = `PDF-${hashString(name)}`;
+  let candidate = base;
+  let suffix = 2;
+  while (seen.has(candidate)) {
+    candidate = `${base}-${suffix++}`;
+  }
+  seen.add(candidate);
+  return candidate;
+}
+
 export interface ExtractResult {
   rows: CatalogRow[];
   skippedAmbiguous: number;
@@ -201,7 +240,7 @@ interface IndexedExtractResult {
  * público é só esta função com `lineIndex` removido, pra não mudar o
  * contrato testado em parsePdfCatalog.test.ts.
  */
-function extractRowsIndexed(lines: string[], syntheticSkuOffset = 0): IndexedExtractResult {
+function extractRowsIndexed(lines: string[], seenSyntheticSkus: Set<string> = new Set()): IndexedExtractResult {
   const rows: (CatalogRow & { lineIndex: number })[] = [];
   let skippedAmbiguous = 0;
 
@@ -222,7 +261,6 @@ function extractRowsIndexed(lines: string[], syntheticSkuOffset = 0): IndexedExt
 
     const withoutPrice = line.replace(priceMatch[0], "").trim();
     const skuMatch = withoutPrice.match(SKU_PATTERN);
-    const sku = skuMatch ? skuMatch[1] : `PDF-${syntheticSkuOffset + rows.length + 1}`;
     const name = (skuMatch ? withoutPrice.replace(skuMatch[0], "") : withoutPrice).trim();
 
     if (!name || name.length > MAX_PLAUSIBLE_NAME_LENGTH) {
@@ -230,6 +268,7 @@ function extractRowsIndexed(lines: string[], syntheticSkuOffset = 0): IndexedExt
       return;
     }
 
+    const sku = skuMatch ? skuMatch[1] : skuFor(name, seenSyntheticSkus);
     rows.push({ sku, name, supplierPrice: price, lineIndex });
   });
 
@@ -345,6 +384,11 @@ export async function parsePdfCatalogFile(
   const rows: CatalogRow[] = [];
   let skippedAmbiguous = 0;
   const imagesBySku: Record<string, string> = {};
+  // Compartilhado entre páginas do MESMO catálogo — garante SKU sintético
+  // único dentro deste upload; um novo Set por chamada de
+  // parsePdfCatalogFile já isola catálogos diferentes um do outro (ver
+  // skuFor acima).
+  const seenSyntheticSkus = new Set<string>();
 
   for (let pageNum = from; pageNum <= to; pageNum++) {
     const page = await doc.getPage(pageNum);
@@ -363,7 +407,7 @@ export async function parsePdfCatalogFile(
     const pageLines = groupIntoLinesWithY(items);
     const { rows: pageRows, skippedAmbiguous: pageSkipped } = extractRowsIndexed(
       pageLines.map((l) => l.text),
-      rows.length // offset — sku sintético "PDF-N" fica único entre páginas
+      seenSyntheticSkus
     );
     skippedAmbiguous += pageSkipped;
     rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
