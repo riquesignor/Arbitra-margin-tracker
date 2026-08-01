@@ -5,28 +5,13 @@ import {
   Package,
   TrendingUp,
   Percent,
-<<<<<<< HEAD
   ShieldAlert,
-=======
-<<<<<<< HEAD
-  ShieldAlert,
-=======
-  Radio,
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   ExternalLink,
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
   Download,
-<<<<<<< HEAD
   Search,
-=======
-<<<<<<< HEAD
-  Search,
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -126,14 +111,7 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
   const paginated = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   const totalProfitable = results.filter((r) => r.recommendation === "recomendado").length;
-<<<<<<< HEAD
   const totalToAvoid = results.filter((r) => r.recommendation === "evitar").length;
-=======
-<<<<<<< HEAD
-  const totalToAvoid = results.filter((r) => r.recommendation === "evitar").length;
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   // Mediana, não média — um único SKU com dado ruim (ex: extração de
   // PDF corrompida) não deve distorcer o KPI de destaque da tela.
   const medianMarginPct = median(results.map((r) => r.marginPct));
@@ -166,10 +144,6 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
 
   return (
     <div className={styles.container}>
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       <div className={styles.header}>
         <div className={styles.headerMain}>
           <span className={styles.eyebrow}>Catálogo analisado</span>
@@ -191,34 +165,17 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
           </span>
         </div>
       </div>
-<<<<<<< HEAD
-=======
-=======
-      <h1 className={styles.title}>Resultados</h1>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
       <div className={styles.summaryRow}>
         {[
           { icon: Package, value: String(results.length), label: "Total de SKUs" },
           { icon: TrendingUp, value: String(totalProfitable), label: "Recomendados" },
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
           {
             icon: Percent,
             value: `${(medianMarginPct * 100).toFixed(1).replace(".", ",")}%`,
             label: "Margem mediana",
           },
           { icon: ShieldAlert, value: String(totalToAvoid), label: "A evitar" },
-<<<<<<< HEAD
-=======
-=======
-          { icon: Percent, value: `${(medianMarginPct * 100).toFixed(1)}%`, label: "Margem mediana" },
-          { icon: Radio, value: source ? SOURCE_LABEL[source] : "—", label: "Fonte do preço" },
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         ].map((card, i) => (
           <motion.div
             key={card.label}
@@ -230,15 +187,7 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
             <span className={styles.cardIcon}>
               <card.icon size={16} />
             </span>
-<<<<<<< HEAD
             <div className={styles.cardText}>
-=======
-<<<<<<< HEAD
-            <div className={styles.cardText}>
-=======
-            <div>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
               <div className={styles.cardValue}>{card.value}</div>
               <div className={styles.cardLabel}>{card.label}</div>
             </div>
@@ -246,10 +195,6 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
         ))}
       </div>
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       <div className={styles.panel}>
         <div className={styles.controls}>
           <span className={styles.searchWrap}>
@@ -287,7 +232,6 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
         )}
 
         {filtered.length === 0 ? (
-<<<<<<< HEAD
           <p className={styles.empty}>
             {source === null
               ? "Nenhum resultado. Faça upload de um catálogo no Dashboard."
@@ -299,9 +243,6 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
                   "produtos com nome muito genérico também podem não achar match no Google Shopping."
                 : "Nenhum resultado com esse filtro ou busca — limpe o texto ou troque o status acima."}
           </p>
-=======
-          <p className={styles.empty}>Nenhum resultado. Faça upload de um catálogo no Dashboard.</p>
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -412,148 +353,6 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
           </div>
         )}
       </div>
-<<<<<<< HEAD
-=======
-=======
-      <div className={styles.controls}>
-        <input
-          className={styles.searchInput}
-          placeholder="Buscar por SKU ou produto"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        {(["todos", "recomendado", "revisar", "evitar"] as FilterOption[]).map((option) => (
-          <button
-            key={option}
-            type="button"
-            className={filter === option ? styles.filterButtonActive : styles.filterButton}
-            onClick={() => setFilter(option)}
-          >
-            {option === "todos" ? "Todos" : BADGE_LABEL[option]}
-          </button>
-        ))}
-        {filtered.length > 0 && (
-          <button className={styles.exportButton} type="button" onClick={handleExportCsv}>
-            <Download size={13} /> Exportar CSV
-          </button>
-        )}
-      </div>
-
-      {results.length > 0 && (
-        <p className={styles.countHint}>
-          Mostrando {filtered.length === 0 ? 0 : pageStart + 1}–
-          {Math.min(pageStart + PAGE_SIZE, filtered.length)} de {filtered.length}
-          {filtered.length !== results.length && ` (filtrado de ${results.length})`}
-        </p>
-      )}
-
-      {filtered.length === 0 ? (
-        <p className={styles.empty}>Nenhum resultado. Faça upload de um catálogo no Dashboard.</p>
-      ) : (
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>SKU</th>
-              <th className={styles.productHeader}>Produto</th>
-              <th>Marketplace</th>
-              {SORTABLE_COLUMNS.map((col) => (
-                <th key={col.key}>
-                  <button
-                    type="button"
-                    className={styles.sortButton}
-                    onClick={() => handleSort(col.key)}
-                  >
-                    {col.label}
-                    {sortKey === col.key ? (
-                      sortDir === "asc" ? (
-                        <ArrowUp size={11} />
-                      ) : (
-                        <ArrowDown size={11} />
-                      )
-                    ) : (
-                      <ArrowUpDown size={11} className={styles.sortIconIdle} />
-                    )}
-                  </button>
-                </th>
-              ))}
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.map((r, i) => (
-              <motion.tr
-                key={`${r.marketplace}-${r.sku}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: Math.min(i, 12) * 0.02, ease: [0.16, 1, 0.3, 1] }}
-              >
-                <td>{r.sku}</td>
-                <td className={styles.productCell} style={{ fontFamily: "var(--font-body)" }}>
-                  <div className={styles.productName} title={r.name}>
-                    {r.name}
-                  </div>
-                  {r.link ? (
-                    <a
-                      className={styles.productLink}
-                      href={r.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={r.matchedTitle ? `Encontrado como: ${r.matchedTitle}` : undefined}
-                    >
-                      <ExternalLink size={11} /> Ver anúncio
-                    </a>
-                  ) : (
-                    <span className={styles.noLink}>sem link (simulado)</span>
-                  )}
-                </td>
-                <td style={{ fontFamily: "var(--font-body)" }}>{MARKETPLACE_LABEL[r.marketplace]}</td>
-                <td>R$ {r.supplierPrice.toFixed(2)}</td>
-                <td>R$ {r.marketplacePrice.toFixed(2)}</td>
-                <td>
-                  <MarginBar
-                    marginPct={r.marginPct}
-                    targetMarginPct={targetMarginPct}
-                    recommendation={r.recommendation}
-                  />
-                  <span className={styles.marginValue}>{(r.marginPct * 100).toFixed(1)}%</span>
-                </td>
-                <td>{(r.confidence * 100).toFixed(0)}%</td>
-                <td>
-                  <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
-                    {BADGE_LABEL[r.recommendation]}
-                  </span>
-                </td>
-              </motion.tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      {pageCount > 1 && (
-        <div className={styles.pagination}>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={currentPage === 0}
-            onClick={() => setPage((p) => Math.max(0, p - 1))}
-          >
-            <ChevronLeft size={14} /> Anterior
-          </button>
-          <span className={styles.pageInfo}>
-            Página {currentPage + 1} de {pageCount}
-          </span>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={currentPage >= pageCount - 1}
-            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-          >
-            Próxima <ChevronRight size={14} />
-          </button>
-        </div>
-      )}
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     </div>
   );
 }

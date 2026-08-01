@@ -3,16 +3,12 @@ import { mapWithConcurrency } from "../concurrency";
 import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity";
 
 const ENDPOINT = "https://serpapi.com/search.json";
-<<<<<<< HEAD
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de
 // throughput, além das 250/mês (serpapi.com/pricing) — um catálogo de
 // 20+ produtos já processa perto desse teto, e 5 chamadas simultâneas
 // (valor anterior) só piorava o burst. 429 por throughput é sobre
 // VELOCIDADE, não sobre cota restante — sobra mês, mas estoura hora.
 const CONCURRENCY = 2;
-=======
-const CONCURRENCY = 5;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 interface SerpShoppingResult {
   title: string;
@@ -52,7 +48,6 @@ export const GOOGLE_SHOPPING_MATCHERS: MarketplaceMatcher[] = [
  * app OAuth com validação de titularidade (fricção tipo KYC via Mercado
  * Pago no DevCenter). SerpApi (ou a chave própria do usuário via BYOK,
  * ver userSecrets.ts): cadastro só com email, sem cartão, free tier
-<<<<<<< HEAD
  * 250 buscas/mês **e 50 buscas/hora** (throughput, os dois limites são
  * independentes — confirmado em serpapi.com/pricing) — e cobre QUALQUER
  * loja que apareça no Google Shopping numa única chamada, não só uma.
@@ -61,10 +56,6 @@ export const GOOGLE_SHOPPING_MATCHERS: MarketplaceMatcher[] = [
  * do teto, mesmo com cota mensal sobrando — por isso `CONCURRENCY`
  * abaixo é conservador, e por isso HTTP 429 não significa necessariamente
  * "acabou o mês" (ver tratamento de erro mais abaixo).
-=======
- * ~250 buscas/mês — e cobre QUALQUER loja que apareça no Google
- * Shopping numa única chamada, não só uma.
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
  *
  * **Busca compartilhada entre marketplaces** (ver
  * docs/architecture-review.md, item 15): uma mesma busca
@@ -101,7 +92,6 @@ export async function searchGoogleShoppingShared(
   const results = {} as Record<MarketplaceId, Record<string, MarketplacePriceResult>>;
   for (const { marketplace } of matchers) results[marketplace] = {};
 
-<<<<<<< HEAD
   // Rastreia falha SISTÊMICA (chave inválida, cota estourada, SerpApi
   // fora do ar) separado de "esse produto específico não achou match" —
   // a segunda é normal e fica silenciosa (só reduz taxa de match); a
@@ -111,8 +101,6 @@ export async function searchGoogleShoppingShared(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
     try {
       const url = new URL(ENDPOINT);
@@ -125,7 +113,6 @@ export async function searchGoogleShoppingShared(
 
       const response = await fetch(url.toString());
       if (!response.ok) {
-<<<<<<< HEAD
         errorCount++;
         // 429 na SerpApi especificamente é documentado como "sem busca
         // disponível" — cota mensal OU throughput por hora, os dois
@@ -138,19 +125,14 @@ export async function searchGoogleShoppingShared(
               "limite de 50 buscas/hora do plano free (os dois retornam o mesmo status). " +
               "Confira o consumo em serpapi.com/manage-api-key."
             : `SerpApi retornou HTTP ${response.status}`;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         console.warn(`SerpApi "${name}" (${sku}) retornou ${response.status}`);
         return;
       }
 
       const data = (await response.json()) as SerpShoppingResponse;
       if (data.error) {
-<<<<<<< HEAD
         errorCount++;
         lastApiError = data.error;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         console.warn(`SerpApi "${name}" (${sku}): ${data.error}`);
         return;
       }
@@ -191,16 +173,12 @@ export async function searchGoogleShoppingShared(
         };
       }
     } catch (err) {
-<<<<<<< HEAD
       errorCount++;
       lastApiError = err instanceof Error ? err.message : String(err);
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       console.error(`SerpApi (Google Shopping) falhou pra "${name}":`, err);
     }
   });
 
-<<<<<<< HEAD
   // Se TODO item do lote falhou por erro da própria SerpApi (chave
   // inválida, cota estourada, serviço fora do ar) — não "esse produto
   // específico não tem match em loja nenhuma", que é normal e fica
@@ -212,7 +190,5 @@ export async function searchGoogleShoppingShared(
     throw new Error(lastApiError);
   }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   return results;
 }

@@ -1,10 +1,7 @@
 import type { CatalogRow } from "../types";
 import { parseCurrency } from "./parseCatalog";
-<<<<<<< HEAD
 import { mapWithConcurrency } from "./concurrency";
 import { assertPubliclyReachable, uploadCatalogImage } from "./catalogImages";
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
 export class PdfParseError extends Error {}
 
@@ -23,7 +20,6 @@ interface PdfjsDocument {
   getPage: (n: number) => Promise<PdfjsPage>;
 }
 
-<<<<<<< HEAD
 interface PdfjsViewport {
   width: number;
   height: number;
@@ -38,10 +34,6 @@ interface PdfjsPage {
   getTextContent: () => Promise<{ items: PdfjsTextItem[] }>;
   getViewport: (params: { scale: number }) => PdfjsViewport;
   render: (params: PdfjsRenderContext) => { promise: Promise<void> };
-=======
-interface PdfjsPage {
-  getTextContent: () => Promise<{ items: PdfjsTextItem[] }>;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 interface PdfjsTextItem {
@@ -84,7 +76,6 @@ interface PositionedText {
   y: number;
 }
 
-<<<<<<< HEAD
 interface PositionedLine {
   text: string;
   /** Em espaço PDF (y cresce pra CIMA), não pixel de canvas. */
@@ -101,12 +92,6 @@ const Y_TOLERANCE = 3;
  * devolvia `string[]` (sem posição) — todo call site já usa esta.
  */
 function groupIntoLinesWithY(items: PositionedText[]): PositionedLine[] {
-=======
-const Y_TOLERANCE = 3;
-
-/** Agrupa itens de texto (posicionados em x/y) em linhas, na ordem visual. */
-function groupIntoLines(items: PositionedText[]): string[] {
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const sorted = [...items].sort((a, b) => b.y - a.y || a.x - b.x);
   const lines: PositionedText[][] = [];
 
@@ -120,18 +105,12 @@ function groupIntoLines(items: PositionedText[]): string[] {
   }
 
   return lines
-<<<<<<< HEAD
     .map((line) => ({
       text: line
-=======
-    .map((line) =>
-      line
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         .sort((a, b) => a.x - b.x)
         .map((i) => i.text)
         .join(" ")
         .replace(/\s+/g, " ")
-<<<<<<< HEAD
         .trim(),
       y: line[0].y,
     }))
@@ -170,16 +149,6 @@ function extractPriceGroup(match: RegExpMatchArray): string {
   }
   return raw;
 }
-=======
-        .trim()
-    )
-    .filter(Boolean);
-}
-
-// Preço: "R$ 1.234,56", "1234,56" ou "1234.56"
-const PRICE_PATTERN = /R?\$?\s?(\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2})/;
-const PRICE_PATTERN_GLOBAL = new RegExp(PRICE_PATTERN.source, "g");
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 // SKU: código tipo "SKU-001", "REF12345" ou sequência de 4+ dígitos
 const SKU_PATTERN = /\b([A-Z]{2,}[-\s]?\d{2,}|\d{4,})\b/;
 // Acima disso, o "nome" quase certamente é lixo de mais de uma coluna
@@ -189,7 +158,6 @@ const MAX_PLAUSIBLE_NAME_LENGTH = 120;
 export interface ExtractResult {
   rows: CatalogRow[];
   skippedAmbiguous: number;
-<<<<<<< HEAD
   /**
    * SKU → URL pública temporária da foto do produto (ver
    * catalogImages.ts) — só populado quando `parsePdfCatalogFile` é
@@ -198,8 +166,6 @@ export interface ExtractResult {
    * catálogo inteiro — ver extractRowImageBands).
    */
   imagesBySku?: Record<string, string>;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 /**
@@ -222,7 +188,6 @@ export interface ExtractResult {
  * extrai nada) continuam fora do escopo deste heurístico — precisariam
  * de parser de tabela real ou OCR.
  */
-<<<<<<< HEAD
 interface IndexedExtractResult {
   rows: (CatalogRow & { lineIndex: number })[];
   skippedAmbiguous: number;
@@ -258,53 +223,19 @@ function extractRowsIndexed(lines: string[], syntheticSkuOffset = 0): IndexedExt
     const withoutPrice = line.replace(priceMatch[0], "").trim();
     const skuMatch = withoutPrice.match(SKU_PATTERN);
     const sku = skuMatch ? skuMatch[1] : `PDF-${syntheticSkuOffset + rows.length + 1}`;
-=======
-/** Exportado pra teste unitário direto (sem precisar montar um PDF de verdade) — ver parsePdfCatalog.test.ts. */
-export function extractRows(lines: string[]): ExtractResult {
-  const rows: CatalogRow[] = [];
-  let skippedAmbiguous = 0;
-
-  for (const line of lines) {
-    const priceMatches = line.match(PRICE_PATTERN_GLOBAL);
-    if (!priceMatches || priceMatches.length === 0) continue;
-
-    if (priceMatches.length > 1) {
-      skippedAmbiguous++;
-      continue;
-    }
-
-    const priceMatch = line.match(PRICE_PATTERN);
-    if (!priceMatch) continue;
-
-    const price = parseCurrency(priceMatch[1]);
-    if (price <= 0) continue;
-
-    const withoutPrice = line.replace(priceMatch[0], "").trim();
-    const skuMatch = withoutPrice.match(SKU_PATTERN);
-    const sku = skuMatch ? skuMatch[1] : `PDF-${rows.length + 1}`;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     const name = (skuMatch ? withoutPrice.replace(skuMatch[0], "") : withoutPrice).trim();
 
     if (!name || name.length > MAX_PLAUSIBLE_NAME_LENGTH) {
       skippedAmbiguous++;
-<<<<<<< HEAD
       return;
     }
 
     rows.push({ sku, name, supplierPrice: price, lineIndex });
   });
-=======
-      continue;
-    }
-
-    rows.push({ sku, name, supplierPrice: price });
-  }
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
   return { rows, skippedAmbiguous };
 }
 
-<<<<<<< HEAD
 /** Exportado pra teste unitário direto (sem precisar montar um PDF de verdade) — ver parsePdfCatalog.test.ts. */
 export function extractRows(lines: string[]): ExtractResult {
   const { rows, skippedAmbiguous } = extractRowsIndexed(lines);
@@ -395,9 +326,6 @@ export async function parsePdfCatalogFile(
   range?: PageRange,
   options?: ParsePdfOptions
 ): Promise<ExtractResult> {
-=======
-export async function parsePdfCatalogFile(file: File, range?: PageRange): Promise<ExtractResult> {
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const doc = await loadDocument(file);
   const from = Math.max(1, range?.from ?? 1);
   const to = Math.min(doc.numPages, range?.to ?? doc.numPages);
@@ -406,7 +334,6 @@ export async function parsePdfCatalogFile(file: File, range?: PageRange): Promis
     throw new PdfParseError(`Intervalo de páginas inválido (${from}–${to})`);
   }
 
-<<<<<<< HEAD
   const withImages = Boolean(options?.withImages && options.userId);
   // Falha rápido e UMA vez, com motivo claro — sem isso, cada linha do
   // catálogo tentaria subir a própria foto e falharia pelo MESMO motivo
@@ -418,9 +345,6 @@ export async function parsePdfCatalogFile(file: File, range?: PageRange): Promis
   const rows: CatalogRow[] = [];
   let skippedAmbiguous = 0;
   const imagesBySku: Record<string, string> = {};
-=======
-  const allLines: string[] = [];
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
   for (let pageNum = from; pageNum <= to; pageNum++) {
     const page = await doc.getPage(pageNum);
@@ -436,7 +360,6 @@ export async function parsePdfCatalogFile(file: File, range?: PageRange): Promis
         y: item.transform[5],
       }));
 
-<<<<<<< HEAD
     const pageLines = groupIntoLinesWithY(items);
     const { rows: pageRows, skippedAmbiguous: pageSkipped } = extractRowsIndexed(
       pageLines.map((l) => l.text),
@@ -473,14 +396,6 @@ export async function parsePdfCatalogFile(file: File, range?: PageRange): Promis
   }
 
   if (rows.length === 0) {
-=======
-    allLines.push(...groupIntoLines(items));
-  }
-
-  const result = extractRows(allLines);
-
-  if (result.rows.length === 0) {
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     throw new PdfParseError(
       `Nenhum produto reconhecido nas páginas ${from}–${to}. Se o PDF for escaneado (imagem), ` +
         "este parser não funciona — precisaria de OCR. Se for texto real, o layout pode não bater " +
@@ -488,13 +403,9 @@ export async function parsePdfCatalogFile(file: File, range?: PageRange): Promis
     );
   }
 
-<<<<<<< HEAD
   return {
     rows,
     skippedAmbiguous,
     imagesBySku: withImages ? imagesBySku : undefined,
   };
-=======
-  return result;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }

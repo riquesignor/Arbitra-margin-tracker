@@ -10,7 +10,6 @@ export interface UserProfile {
   plan: PlanId;
   isAdmin: boolean;
   createdAt: number;
-<<<<<<< HEAD
   /**
    * Flag denormalizada — NUNCA a chave em si. `user_secrets/{uid}` não
    * tem (nem deve ter) override de admin na security rule, então não dá
@@ -22,8 +21,6 @@ export interface UserProfile {
   hasSerpApiKey?: boolean;
   /** Mesmo padrão de `hasSerpApiKey` acima, pra chave RapidAPI (Amazon direto). */
   hasRapidApiKey?: boolean;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 function fallbackProfile(uid: string, email: string | null): UserProfile {
@@ -54,11 +51,8 @@ export async function ensureUserProfile(uid: string, email: string | null): Prom
         plan: data.plan ?? DEFAULT_PLAN_ID,
         isAdmin: data.isAdmin ?? false,
         createdAt: data.createdAt ?? Date.now(),
-<<<<<<< HEAD
         hasSerpApiKey: data.hasSerpApiKey ?? false,
         hasRapidApiKey: data.hasRapidApiKey ?? false,
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       };
     }
 
@@ -98,11 +92,8 @@ export async function listAllUsers(): Promise<UserProfile[]> {
           plan: data.plan ?? DEFAULT_PLAN_ID,
           isAdmin: data.isAdmin ?? false,
           createdAt: data.createdAt ?? 0,
-<<<<<<< HEAD
           hasSerpApiKey: data.hasSerpApiKey ?? false,
           hasRapidApiKey: data.hasRapidApiKey ?? false,
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         };
       })
       .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? ""));

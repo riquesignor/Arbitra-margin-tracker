@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
 .container {
   width: 100%;
@@ -32,40 +28,16 @@
   text-transform: uppercase;
   color: var(--color-text-dim);
   margin-bottom: var(--space-3);
-<<<<<<< HEAD
-=======
-=======
-.container {
-  max-width: 680px;
-}
-
-.header {
-  margin-bottom: var(--space-6);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .title {
   font-size: 1.9rem;
-<<<<<<< HEAD
   letter-spacing: -0.02em;
   margin-bottom: var(--space-3);
-=======
-<<<<<<< HEAD
-  letter-spacing: -0.02em;
-  margin-bottom: var(--space-3);
-=======
-  margin-bottom: var(--space-2);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .subtitle {
   color: var(--color-text-muted);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   max-width: 52ch;
   line-height: 1.6;
   font-size: 0.92rem;
@@ -257,64 +229,11 @@
 
 /* --- Linhas de regra --- */
 
-<<<<<<< HEAD
-=======
-=======
-}
-
-.section {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.sectionTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
-}
-
-.sectionIcon {
-  display: flex;
-  color: var(--color-accent);
-}
-
-/* Card "Meta" — destaque visual porque é o número que o sistema otimiza (ver Session 2 do critique de design). */
-.sectionAccent {
-  border-color: var(--color-accent);
-  background: var(--color-accent-dim);
-}
-
-.sectionAccent .sectionTitle {
-  color: var(--color-accent);
-}
-
-.sectionAccent .sectionIcon {
-  color: var(--color-accent);
-}
-
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-<<<<<<< HEAD
   padding: var(--space-4) 0;
-=======
-<<<<<<< HEAD
-  padding: var(--space-4) 0;
-=======
-  padding: var(--space-3) 0;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   border-bottom: 1px solid var(--color-border-soft);
 }
 
@@ -324,10 +243,6 @@
 
 .rowLabel {
   flex: 1;
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -358,17 +273,6 @@
   font-family: var(--font-mono);
   font-size: 0.82rem;
   color: var(--color-text-dim);
-<<<<<<< HEAD
-=======
-=======
-  font-size: 0.9rem;
-}
-
-.rowLabelSub {
-  color: var(--color-text-dim);
-  font-size: 0.75rem;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .numberInput {
@@ -380,14 +284,7 @@
   padding: var(--space-2);
   font-family: var(--font-mono);
   text-align: right;
-<<<<<<< HEAD
   flex-shrink: 0;
-=======
-<<<<<<< HEAD
-  flex-shrink: 0;
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .numberInput:focus {
@@ -396,14 +293,7 @@
 }
 
 /* --- Toggle switch --- */
-<<<<<<< HEAD
 
-=======
-<<<<<<< HEAD
-
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .switch {
   position: relative;
   display: inline-block;
@@ -437,17 +327,8 @@
   top: 2px;
   background: var(--color-text-dim);
   border-radius: 50%;
-<<<<<<< HEAD
   transition: transform var(--duration-base) var(--ease-out),
     background var(--duration-base) var(--ease-out);
-=======
-<<<<<<< HEAD
-  transition: transform var(--duration-base) var(--ease-out),
-    background var(--duration-base) var(--ease-out);
-=======
-  transition: transform var(--duration-base) var(--ease-out), background var(--duration-base) var(--ease-out);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .switch input:checked + .switchTrack {
@@ -460,10 +341,6 @@
   background: var(--color-accent);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* --- Footer do card de impostos --- */
 
 .cardFooter {
@@ -477,23 +354,6 @@
 
 .savedHint {
   margin: 0;
-<<<<<<< HEAD
-=======
-=======
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: var(--space-3);
-  gap: var(--space-3);
-}
-
-.savedHint {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-size: 0.8rem;
   color: var(--color-text-dim);
 }
@@ -509,14 +369,7 @@
   font-size: 0.8rem;
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
-<<<<<<< HEAD
   flex-shrink: 0;
-=======
-<<<<<<< HEAD
-  flex-shrink: 0;
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .resetButton:hover {
@@ -524,10 +377,6 @@
   border-color: var(--color-text-dim);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* --- Aside: preview ao vivo --- */
 
 .previewBody {
@@ -535,88 +384,29 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-5);
-<<<<<<< HEAD
-=======
-=======
-/* --- Preview ao vivo --- */
-.previewPanel {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .previewTag {
   margin-left: auto;
-<<<<<<< HEAD
   font-family: var(--font-mono);
   font-size: 0.66rem;
-=======
-<<<<<<< HEAD
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-=======
-  font-size: 0.68rem;
-  text-transform: none;
-  letter-spacing: normal;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   color: var(--color-text-dim);
   background: var(--color-bg-hover);
   padding: 2px 8px;
   border-radius: 999px;
-<<<<<<< HEAD
   white-space: nowrap;
-=======
-<<<<<<< HEAD
-  white-space: nowrap;
-=======
-}
-
-.previewRowInfo {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .previewName {
   font-size: 0.9rem;
-<<<<<<< HEAD
   font-weight: 600;
   line-height: 1.4;
-=======
-<<<<<<< HEAD
-  font-weight: 600;
-  line-height: 1.4;
-=======
-  font-weight: 500;
-  color: var(--color-text);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .previewMeta {
   font-family: var(--font-mono);
-<<<<<<< HEAD
   font-size: 0.74rem;
   color: var(--color-text-dim);
-=======
-<<<<<<< HEAD
-  font-size: 0.74rem;
-  color: var(--color-text-dim);
-=======
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
-  white-space: nowrap;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .costBar {
@@ -625,18 +415,8 @@
   height: 10px;
   border-radius: 999px;
   overflow: hidden;
-<<<<<<< HEAD
   background: var(--color-bg);
   border: 1px solid var(--color-border);
-=======
-<<<<<<< HEAD
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-=======
-  background: var(--color-bg-hover);
-  margin-bottom: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .costSegment {
@@ -660,10 +440,6 @@
   background: var(--color-danger);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .segProfit {
   background: var(--color-success);
 }
@@ -683,38 +459,12 @@
 }
 
 .legendDot {
-<<<<<<< HEAD
-=======
-=======
-.costLegend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.costLegendItem {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-}
-
-.costDot {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   width: 8px;
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .legendValue {
   margin-left: auto;
   font-family: var(--font-mono);
@@ -728,44 +478,18 @@
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5);
-<<<<<<< HEAD
-=======
-=======
-.previewResult {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding-top: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   border-top: 1px solid var(--color-border-soft);
 }
 
 .previewMarginUp {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-family: var(--font-display);
   font-size: 1.9rem;
   line-height: 1;
   letter-spacing: -0.02em;
-<<<<<<< HEAD
-=======
-=======
-  font-family: var(--font-mono);
-  font-weight: 600;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   color: var(--color-success);
 }
 
 .previewMarginDown {
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   composes: previewMarginUp;
   color: var(--color-danger);
 }
@@ -912,12 +636,3 @@
   font-size: 0.62rem;
   color: var(--color-text-dim);
 }
-<<<<<<< HEAD
-=======
-=======
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--color-danger);
-}
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799

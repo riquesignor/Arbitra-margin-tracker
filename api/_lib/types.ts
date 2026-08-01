@@ -8,7 +8,6 @@
  */
 export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
 
-<<<<<<< HEAD
 /**
  * Qual API de busca resolve o preço — eixo INDEPENDENTE de MarketplaceId
  * (ver api/_lib/providers/registry.ts). Um marketplace pode ser buscado
@@ -47,11 +46,6 @@ export interface CatalogItemQuery {
    * reconhecida) e é pulado silenciosamente pela busca por imagem.
    */
   imageUrl?: string;
-=======
-export interface CatalogItemQuery {
-  sku: string;
-  name: string;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 export interface MarketplacePriceResult {

@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
 .container {
   width: 100%;
@@ -14,29 +10,11 @@
 }
 
 .deniedTitle {
-<<<<<<< HEAD
-=======
-=======
-.container {
-  max-width: 480px;
-}
-
-.title {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-size: 1.6rem;
   margin-bottom: var(--space-5);
 }
 
-<<<<<<< HEAD
 .deniedCard {
-=======
-<<<<<<< HEAD
-.deniedCard {
-=======
-.card {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -55,10 +33,6 @@
   align-items: center;
   justify-content: center;
   color: var(--color-on-accent);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .hint {
@@ -218,31 +192,13 @@
   color: var(--color-text-dim);
 }
 
-<<<<<<< HEAD
-=======
-=======
-  margin-bottom: var(--space-2);
-}
-
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .input {
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   color: var(--color-text);
-<<<<<<< HEAD
   padding: var(--space-3) var(--space-4);
   font-size: 0.92rem;
-=======
-<<<<<<< HEAD
-  padding: var(--space-3) var(--space-4);
-  font-size: 0.92rem;
-=======
-  padding: var(--space-3);
-  font-size: 0.9rem;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .input:focus {
@@ -255,25 +211,12 @@
   color: var(--color-on-accent);
   border: none;
   border-radius: var(--radius-md);
-<<<<<<< HEAD
   padding: var(--space-3) var(--space-5);
   font-size: 0.92rem;
-=======
-<<<<<<< HEAD
-  padding: var(--space-3) var(--space-5);
-  font-size: 0.92rem;
-=======
-  padding: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-weight: 600;
   cursor: pointer;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .primaryButton:disabled {
   opacity: 0.5;
   cursor: default;
@@ -284,22 +227,6 @@
   font-size: 0.8rem;
   line-height: 1.5;
   color: var(--color-text-dim);
-<<<<<<< HEAD
-=======
-=======
-.linkButton {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: var(--space-1) 0;
-}
-
-.linkButton:hover {
-  color: var(--color-accent);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .errorText {
@@ -308,10 +235,6 @@
   margin: 0;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* --- Estado logado --- */
 
 .header {
@@ -494,7 +417,6 @@
   color: var(--color-warning);
 }
 
-<<<<<<< HEAD
 /* Texto curto explicando quando um card de chave opcional (ex: RapidAPI)
    é necessário — fica entre o cardHeader e os steps numerados. */
 .cardIntro {
@@ -505,8 +427,6 @@
   margin: 0;
 }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .stepRow {
   display: flex;
   align-items: flex-start;
@@ -759,30 +679,4 @@
 .signOutRow {
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--color-border-soft);
-<<<<<<< HEAD
-=======
-=======
-.emailRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.hint {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.code {
-  display: block;
-  margin-top: var(--space-3);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--color-text-dim);
-  background: var(--color-bg);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }

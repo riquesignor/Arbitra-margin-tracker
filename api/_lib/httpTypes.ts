@@ -8,20 +8,14 @@ export interface ApiRequest {
   /** Node/Vercel normaliza chaves pra minúsculo (`authorization`, não `Authorization`). */
   headers?: Record<string, string | string[] | undefined>;
   body: unknown;
-<<<<<<< HEAD
   /** Query string parseada (ex: `?id=abc` → `{ id: "abc" }`) — usado por catalog-image.ts. */
   query?: Record<string, string | string[] | undefined>;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 export interface ApiResponse {
   status(code: number): ApiResponse;
   json(body: unknown): void;
-<<<<<<< HEAD
   /** Usado por catalog-image.ts pra servir a imagem com o Content-Type certo (não é JSON). */
   setHeader(name: string, value: string): ApiResponse;
   send(body: string | Buffer): void;
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }

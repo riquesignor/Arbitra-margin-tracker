@@ -1,8 +1,4 @@
-<<<<<<< HEAD
 import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult, SearchProviderId } from "../types";
-=======
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types";
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import { getProvider } from "./marketplaces/registry";
 import { getCurrentIdToken } from "./auth";
 
@@ -25,7 +21,6 @@ function emptyResult(marketplaces: MarketplaceId[]): Record<MarketplaceId, Fetch
   ) as Record<MarketplaceId, FetchPricesResult>;
 }
 
-<<<<<<< HEAD
 async function fallbackToLocalMock(
   marketplaces: MarketplaceId[],
   items: CatalogItemQuery[]
@@ -44,8 +39,6 @@ async function fallbackToLocalMock(
   return out;
 }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /**
  * Busca preço pra vários marketplaces numa chamada HTTP só (contrato
  * mudou de singular pra plural — ver docs/architecture-review.md item
@@ -55,7 +48,6 @@ async function fallbackToLocalMock(
  *
  * Tenta a Edge Function real (/api/fetch-prices) — só existe de verdade
  * rodando `vercel dev` ou deployado; `npm run dev` (Vite puro) não serve
-<<<<<<< HEAD
  * essa rota.
  *
  * Duas falhas MUITO diferentes, tratadas diferente de propósito:
@@ -72,51 +64,27 @@ async function fallbackToLocalMock(
  * resolve o preço — ver SearchProviderId em ../types e o comentário no
  * topo de api/fetch-prices.ts. `apiKey` é sempre a chave DO PROVIDER
  * escolhido (SerpApi ou RapidAPI) — Mercado Livre direto não usa chave.
-=======
- * essa rota, então localmente isso SEMPRE cai no catch abaixo, resolvendo
- * cada marketplace via provider mock registrado no client (mesmo
- * contrato de dados, sem chamada de rede real).
- *
- * A chamada ao servidor é atômica: ou responde 200 com todos os
- * marketplaces pedidos (source "server" pra todos), ou falha e cai no
- * fallback local pra todos — não existe hoje um cenário de sucesso
- * parcial dentro da mesma requisição.
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
  */
 export async function fetchMultipleMarketplacePrices(
   marketplaces: MarketplaceId[],
   items: CatalogItemQuery[],
-<<<<<<< HEAD
   apiKey?: string | null,
   provider?: SearchProviderId
-=======
-  apiKey?: string | null
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 ): Promise<Record<MarketplaceId, FetchPricesResult>> {
   if (items.length === 0 || marketplaces.length === 0) {
     return emptyResult(marketplaces);
   }
 
-<<<<<<< HEAD
   let response: Response;
   try {
     // Servidor exige Authorization: Bearer <idToken> (ver verifyAuth.ts).
     const idToken = await getCurrentIdToken();
     response = await fetch("/api/fetch-prices", {
-=======
-  try {
-    // Servidor exige Authorization: Bearer <idToken> (ver verifyAuth.ts) —
-    // sem token válido, responde 401 e cai no catch abaixo (provider
-    // local). Ver docs/architecture-review.md > Segurança.
-    const idToken = await getCurrentIdToken();
-    const response = await fetch("/api/fetch-prices", {
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       },
-<<<<<<< HEAD
       body: JSON.stringify({ marketplaces, items, apiKey: apiKey || undefined, provider }),
     });
   } catch {
@@ -140,33 +108,4 @@ export async function fetchMultipleMarketplacePrices(
     out[marketplace] = { results: body[marketplace] ?? {}, source: "server" };
   }
   return out;
-=======
-      body: JSON.stringify({ marketplaces, items, apiKey: apiKey || undefined }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Edge Function retornou ${response.status}`);
-    }
-
-    const body = (await response.json()) as Record<string, Record<string, MarketplacePriceResult>>;
-    const out = {} as Record<MarketplaceId, FetchPricesResult>;
-    for (const marketplace of marketplaces) {
-      out[marketplace] = { results: body[marketplace] ?? {}, source: "server" };
-    }
-    return out;
-  } catch {
-    const out = {} as Record<MarketplaceId, FetchPricesResult>;
-    for (const marketplace of marketplaces) {
-      try {
-        const provider = getProvider(marketplace);
-        const results = await provider.fetchPrices(items);
-        out[marketplace] = { results, source: "local" };
-      } catch (err) {
-        console.error(`Provider local falhou pra "${marketplace}":`, err);
-        out[marketplace] = { results: {}, source: "local" };
-      }
-    }
-    return out;
-  }
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }

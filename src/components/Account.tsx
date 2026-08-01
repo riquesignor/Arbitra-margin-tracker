@@ -1,9 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import {
   ShieldAlert,
   UserRound,
@@ -18,7 +14,6 @@ import {
 } from "lucide-react";
 import { firebaseConfigured } from "../lib/firebase";
 import { signIn, signOutUser, signUp, type AuthUser } from "../lib/auth";
-<<<<<<< HEAD
 import {
   deleteUserSerpApiKey,
   deleteUserRapidApiKey,
@@ -30,30 +25,11 @@ import {
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
-=======
-import { deleteUserSerpApiKey, getUserSerpApiKey, saveUserSerpApiKey } from "../lib/userSecrets";
-import { getTodayUsage } from "../lib/usageQuota";
-import { getPlan } from "../config/plans";
-import type { UserProfile } from "../lib/userProfile";
-=======
-import { ShieldAlert, UserRound, LogOut, KeyRound, Check, Trash2 } from "lucide-react";
-import { firebaseConfigured } from "../lib/firebase";
-import { signIn, signOutUser, signUp, type AuthUser } from "../lib/auth";
-import { deleteUserSerpApiKey, getUserSerpApiKey, saveUserSerpApiKey } from "../lib/userSecrets";
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 import styles from "./Account.module.css";
 
 interface Props {
   user: AuthUser | null;
-<<<<<<< HEAD
   profile: UserProfile | null;
-=======
-<<<<<<< HEAD
-  profile: UserProfile | null;
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 const cardMotion = {
@@ -62,10 +38,6 @@ const cardMotion = {
   transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 const BENEFITS = [
   {
     icon: Search,
@@ -102,7 +74,6 @@ const SERPAPI_STEPS = [
   },
 ];
 
-<<<<<<< HEAD
 // Só usada pelo provider "Amazon direto" no Dashboard (ver
 // SEARCH_PROVIDERS em Dashboard.tsx) — SerpApi e Mercado Livre direto
 // não precisam dessa chave.
@@ -124,8 +95,6 @@ const RAPIDAPI_STEPS = [
   },
 ];
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 // 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
 // contador do dia atual, sem histórico por dia no back-end ainda. Só a
 // última barra (hoje) é dado real; o resto é só pra dar forma ao
@@ -133,12 +102,6 @@ const RAPIDAPI_STEPS = [
 const ILLUSTRATIVE_USAGE_SHAPE = [4, 12, 2, 8, 18, 14, 6, 2, 15, 20, 9, 7, 11];
 
 export default function Account({ user, profile }: Props) {
-<<<<<<< HEAD
-=======
-=======
-export default function Account({ user }: Props) {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
@@ -154,7 +117,6 @@ export default function Account({ user }: Props) {
   const [serpKeyMsg, setSerpKeyMsg] = useState<string | null>(null);
   const [serpKeyError, setSerpKeyError] = useState<string | null>(null);
 
-<<<<<<< HEAD
   // BYOK — chave RapidAPI própria (provider "Amazon direto"). Mesmo
   // padrão de estado da chave SerpApi acima.
   const [hasRapidKey, setHasRapidKey] = useState(false);
@@ -163,9 +125,6 @@ export default function Account({ user }: Props) {
   const [rapidKeyMsg, setRapidKeyMsg] = useState<string | null>(null);
   const [rapidKeyError, setRapidKeyError] = useState<string | null>(null);
 
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
@@ -173,7 +132,6 @@ export default function Account({ user }: Props) {
   useEffect(() => {
     if (!user) return;
     getUserSerpApiKey(user.uid).then((key) => setHasSerpKey(Boolean(key)));
-<<<<<<< HEAD
     getUserRapidApiKey(user.uid).then((key) => setHasRapidKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
@@ -211,15 +169,6 @@ export default function Account({ user }: Props) {
       setSavingRapidKey(false);
     }
   }
-=======
-    getTodayUsage(user.uid).then(setTodayUsage);
-=======
-  useEffect(() => {
-    if (!user) return;
-    getUserSerpApiKey(user.uid).then((key) => setHasSerpKey(Boolean(key)));
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
-  }, [user]);
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 
   async function handleSaveSerpKey(e: FormEvent) {
     e.preventDefault();
@@ -271,21 +220,9 @@ export default function Account({ user }: Props) {
 
   if (!firebaseConfigured) {
     return (
-<<<<<<< HEAD
       <div className={styles.deniedContainer}>
         <h1 className={styles.deniedTitle}>Conta</h1>
         <motion.div className={styles.deniedCard} {...cardMotion}>
-=======
-<<<<<<< HEAD
-      <div className={styles.deniedContainer}>
-        <h1 className={styles.deniedTitle}>Conta</h1>
-        <motion.div className={styles.deniedCard} {...cardMotion}>
-=======
-      <div className={styles.container}>
-        <h1 className={styles.title}>Conta</h1>
-        <motion.div className={styles.card} {...cardMotion}>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
           <span className={styles.avatar}>
             <ShieldAlert size={20} />
           </span>
@@ -307,10 +244,6 @@ export default function Account({ user }: Props) {
 
   if (!user) {
     return (
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       <motion.div className={styles.container} {...cardMotion}>
         <div className={styles.loggedOutLayout}>
           <div className={styles.pitch}>
@@ -511,7 +444,6 @@ export default function Account({ user }: Props) {
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <span className={styles.cardHeaderIcon}>
-<<<<<<< HEAD
                 <KeyRound size={14} />
               </span>
               <h2 className={styles.cardHeaderTitle}>Sua chave RapidAPI</h2>
@@ -582,8 +514,6 @@ export default function Account({ user }: Props) {
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <span className={styles.cardHeaderIcon}>
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
                 <Gauge size={14} />
               </span>
               <h2 className={styles.cardHeaderTitle}>Uso diário de busca</h2>
@@ -670,115 +600,5 @@ export default function Account({ user }: Props) {
         </aside>
       </div>
     </motion.div>
-<<<<<<< HEAD
-=======
-=======
-      <div className={styles.container}>
-        <h1 className={styles.title}>Conta</h1>
-        <motion.form className={styles.card} onSubmit={handleSubmit} {...cardMotion}>
-          <span className={styles.avatar}>
-            <UserRound size={20} />
-          </span>
-          <input
-            className={styles.input}
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <input
-            className={styles.input}
-            type="password"
-            placeholder="Senha"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-          <button className={styles.primaryButton} type="submit" disabled={loading}>
-            {loading ? "Aguarde…" : mode === "signIn" ? "Entrar" : "Criar conta"}
-          </button>
-          <button
-            type="button"
-            className={styles.linkButton}
-            onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}
-          >
-            {mode === "signIn" ? "Não tem conta? Criar uma" : "Já tenho conta"}
-          </button>
-          {error && <p className={styles.errorText}>{error}</p>}
-        </motion.form>
-      </div>
-    );
-  }
-
-  return (
-    <div className={styles.container}>
-      <h1 className={styles.title}>Conta</h1>
-      <motion.div className={styles.card} {...cardMotion}>
-        <span className={styles.avatar}>
-          <UserRound size={20} />
-        </span>
-        <div className={styles.emailRow}>{user.email}</div>
-        <button className={styles.linkButton} type="button" onClick={() => void signOutUser()}>
-          <LogOut size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-          Sair
-        </button>
-      </motion.div>
-
-      <motion.form className={styles.card} onSubmit={handleSaveSerpKey} {...cardMotion}>
-        <span className={styles.avatar}>
-          <KeyRound size={20} />
-        </span>
-        <p className={styles.hint}>
-          Sua própria chave SerpApi (grátis, cadastro só com email em{" "}
-          <a href="https://serpapi.com/" target="_blank" rel="noreferrer">
-            serpapi.com
-          </a>
-          ). Com ela, suas buscas usam a cota da sua conta, não a compartilhada do app — evita o
-          limite diário estourar por causa de outros usuários.
-        </p>
-
-        {hasSerpKey && (
-          <div className={styles.emailRow}>
-            <Check size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-            Chave própria configurada
-          </div>
-        )}
-
-        <input
-          className={styles.input}
-          type="password"
-          placeholder={hasSerpKey ? "Substituir chave…" : "Cole sua chave SerpApi"}
-          value={serpKeyInput}
-          onChange={(e) => setSerpKeyInput(e.target.value)}
-          autoComplete="off"
-        />
-
-        <button
-          className={styles.primaryButton}
-          type="submit"
-          disabled={savingSerpKey || !serpKeyInput.trim()}
-        >
-          {savingSerpKey ? "Salvando…" : "Salvar chave"}
-        </button>
-
-        {hasSerpKey && (
-          <button
-            type="button"
-            className={styles.linkButton}
-            onClick={() => void handleRemoveSerpKey()}
-            disabled={savingSerpKey}
-          >
-            <Trash2 size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-            Remover e voltar pra chave compartilhada
-          </button>
-        )}
-
-        {serpKeyMsg && <p className={styles.hint}>{serpKeyMsg}</p>}
-        {serpKeyError && <p className={styles.errorText}>{serpKeyError}</p>}
-      </motion.form>
-    </div>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   );
 }

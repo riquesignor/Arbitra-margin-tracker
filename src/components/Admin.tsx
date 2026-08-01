@@ -2,35 +2,18 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ShieldAlert,
-<<<<<<< HEAD
   ShieldCheck,
-=======
-<<<<<<< HEAD
-  ShieldCheck,
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   UploadCloud,
   FileText,
   Trash2,
   Loader2,
   AlertCircle,
-<<<<<<< HEAD
   Search,
   Check,
   ChevronDown,
   ChevronRight,
   KeyRound,
   Gauge,
-=======
-<<<<<<< HEAD
-  Search,
-=======
-  Users,
-  Library,
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
-  Check,
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 } from "lucide-react";
 import type { CatalogRow, PlanId } from "../types";
 import { PLANS } from "../config/plans";
@@ -44,17 +27,12 @@ import {
   type SharedCatalog,
 } from "../lib/sharedCatalogs";
 import { parsePdfCatalogFile } from "../lib/parsePdfCatalog";
-<<<<<<< HEAD
 import { getTodayUsage } from "../lib/usageQuota";
 import { listCatalogUploads, type CatalogUploadRecord } from "../lib/catalogHistory";
 import styles from "./Admin.module.css";
 
 const DETAIL_CATALOG_LIMIT = 5;
 
-=======
-import styles from "./Admin.module.css";
-
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 interface Props {
   profile: UserProfile | null;
 }
@@ -86,16 +64,11 @@ export default function Admin({ profile }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   // Filtro da tabela "Contas e permissões" — só recorta o array `users`
   // já carregado, não dispara nenhuma chamada nova ao Firestore.
   const [filterText, setFilterText] = useState("");
   const [onlyAdmins, setOnlyAdmins] = useState(false);
 
-<<<<<<< HEAD
   // Detalhe por usuário (ADR-0002, Action Item 1) — um único usuário
   // expandido por vez, carregado sob demanda (não pré-carrega uso/
   // histórico de todo mundo, só de quem o admin de fato abrir).
@@ -104,10 +77,6 @@ export default function Admin({ profile }: Props) {
   const [detailUsage, setDetailUsage] = useState<number>(0);
   const [detailCatalogs, setDetailCatalogs] = useState<CatalogUploadRecord[]>([]);
 
-=======
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   useEffect(() => {
     if (!profile?.isAdmin) return;
     refreshCatalogs();
@@ -220,7 +189,6 @@ export default function Admin({ profile }: Props) {
     }
   }
 
-<<<<<<< HEAD
   /**
    * Abre/fecha o detalhe de um usuário. Reaproveita `getTodayUsage` e
    * `listCatalogUploads` sem nenhuma mudança nelas — o que muda é só a
@@ -247,8 +215,6 @@ export default function Admin({ profile }: Props) {
     }
   }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   if (!profile?.isAdmin) {
     return (
       <div className={styles.container}>
@@ -263,10 +229,6 @@ export default function Admin({ profile }: Props) {
     );
   }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   const filteredUsers = users.filter((u) => {
     if (onlyAdmins && !u.isAdmin) return false;
     const needle = filterText.trim().toLowerCase();
@@ -316,11 +278,6 @@ export default function Admin({ profile }: Props) {
   });
   const maxSignups = Math.max(1, ...signupMonths.map((m) => m.count));
 
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   return (
     <motion.div
       className={styles.container}
@@ -329,10 +286,6 @@ export default function Admin({ profile }: Props) {
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className={styles.header}>
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
         <div className={styles.headerMain}>
           <span className={styles.eyebrow}>Painel administrativo</span>
           <h1 className={styles.title}>Central de administração</h1>
@@ -350,17 +303,6 @@ export default function Admin({ profile }: Props) {
             <span className={styles.headerCardValue}>{profile.email ?? profile.uid}</span>
           </span>
         </div>
-<<<<<<< HEAD
-=======
-=======
-        <span className={styles.eyebrow}>Painel administrativo</span>
-        <h1 className={styles.title}>Admin</h1>
-        <p className={styles.subtitle}>
-          Suba catálogos pra biblioteca compartilhada, escolha quais planos enxergam cada um, e
-          gerencie o plano de cada usuário.
-        </p>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       </div>
 
       {error && (
@@ -369,131 +311,16 @@ export default function Admin({ profile }: Props) {
         </p>
       )}
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       <div className={styles.statsGrid}>
         {stats.map((s) => (
           <div key={s.label} className={styles.statCard}>
             <span className={styles.statCardLabel}>{s.label}</span>
             <span className={styles.statCardValue}>{s.value}</span>
             <span className={styles.statCardFoot}>{s.foot}</span>
-<<<<<<< HEAD
-=======
-=======
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>
-            <UploadCloud size={15} />
-          </span>
-          Novo catálogo pra biblioteca
-        </div>
-
-        {!draft ? (
-          <label className={parsing ? `${styles.uploadLabel} ${styles.uploadLabelDisabled}` : styles.uploadLabel}>
-            {parsing ? <Loader2 size={16} className="spin" /> : <UploadCloud size={16} />}
-            {parsing ? "Lendo PDF…" : "Escolher PDF"}
-            <input
-              className={styles.fileInput}
-              type="file"
-              accept=".pdf"
-              disabled={parsing}
-              onChange={(e) => e.target.files?.[0] && void handleFileSelected(e.target.files[0])}
-            />
-          </label>
-        ) : (
-          <div className={styles.draft}>
-            <div className={styles.draftInfo}>
-              <FileText size={14} /> {draft.fileName} · {draft.rows.length} produtos reconhecidos
-              {draft.skippedAmbiguous > 0 && ` · ${draft.skippedAmbiguous} linha(s) ignorada(s)`}
-            </div>
-            <div className={styles.planChips}>
-              {PLANS.map((p) => {
-                const active = draft.plans.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={active ? styles.planChipActive : styles.planChip}
-                    onClick={() => toggleDraftPlan(p.id)}
-                  >
-                    {active && <Check size={12} />} {p.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div className={styles.draftActions}>
-              <button
-                className={styles.button}
-                type="button"
-                disabled={saving || draft.plans.length === 0}
-                onClick={() => void handleSaveDraft()}
-              >
-                {saving ? "Salvando…" : "Salvar na biblioteca"}
-              </button>
-              <button className={styles.linkButton} type="button" onClick={() => setDraft(null)}>
-                Cancelar
-              </button>
-            </div>
-            {draft.plans.length === 0 && (
-              <p className={styles.hintSmall}>Selecione ao menos um plano antes de salvar.</p>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>
-            <Library size={15} />
-          </span>
-          Catálogos da biblioteca {catalogsLoading && <Loader2 size={12} className="spin" />}
-        </div>
-
-        {catalogs.length === 0 && !catalogsLoading && (
-          <p className={styles.hintSmall}>Nenhum catálogo na biblioteca ainda.</p>
-        )}
-
-        {catalogs.map((catalog) => (
-          <div key={catalog.id} className={styles.row}>
-            <span className={styles.rowName}>
-              <FileText size={13} /> {catalog.fileName}
-              <span className={styles.rowMeta}>{catalog.rows.length} produtos</span>
-            </span>
-            <div className={styles.planChips}>
-              {PLANS.map((p) => {
-                const active = catalog.plans.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={active ? styles.planChipActive : styles.planChip}
-                    onClick={() => void toggleCatalogPlan(catalog, p.id)}
-                  >
-                    {active && <Check size={12} />} {p.name}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              className={styles.iconButton}
-              type="button"
-              title="Remover da biblioteca"
-              onClick={() => void handleDeleteCatalog(catalog.id)}
-            >
-              <Trash2 size={14} />
-            </button>
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
           </div>
         ))}
       </div>
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       <div className={styles.layout}>
         <div className={styles.main}>
           <section className={styles.card}>
@@ -668,7 +495,6 @@ export default function Admin({ profile }: Props) {
                   <span>plano</span>
                   <span>permissão</span>
                 </div>
-<<<<<<< HEAD
                 {filteredUsers.map((u) => {
                   const expanded = expandedUid === u.uid;
                   return (
@@ -761,37 +587,6 @@ export default function Admin({ profile }: Props) {
                     </div>
                   );
                 })}
-=======
-                {filteredUsers.map((u) => (
-                  <div key={u.uid} className={styles.userRow}>
-                    <span className={styles.userCellAccount}>
-                      <span className={styles.userCellEmail}>{u.email ?? "—"}</span>
-                      <span className={styles.userCellUid}>{u.uid}</span>
-                    </span>
-                    <span className={styles.userCellSince}>
-                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString("pt-BR") : "—"}
-                    </span>
-                    <select
-                      className={styles.select}
-                      value={u.plan}
-                      onChange={(e) => void handleChangeUserPlan(u.uid, e.target.value as PlanId)}
-                    >
-                      {PLANS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className={u.isAdmin ? styles.planChipActive : styles.planChip}
-                      onClick={() => void handleToggleUserAdmin(u.uid, !u.isAdmin)}
-                    >
-                      {u.isAdmin && <Check size={12} />} Admin
-                    </button>
-                  </div>
-                ))}
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
               </>
             )}
           </section>
@@ -882,42 +677,6 @@ export default function Admin({ profile }: Props) {
             </div>
           </section>
         </aside>
-<<<<<<< HEAD
-=======
-=======
-      <div className={styles.section}>
-        <div className={styles.sectionTitle}>
-          <span className={styles.sectionIcon}>
-            <Users size={15} />
-          </span>
-          Usuários e planos {usersLoading && <Loader2 size={12} className="spin" />}
-        </div>
-
-        {users.map((u) => (
-          <div key={u.uid} className={styles.row}>
-            <span className={styles.rowName}>{u.email ?? u.uid}</span>
-            <select
-              className={styles.select}
-              value={u.plan}
-              onChange={(e) => void handleChangeUserPlan(u.uid, e.target.value as PlanId)}
-            >
-              {PLANS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className={u.isAdmin ? styles.planChipActive : styles.planChip}
-              onClick={() => void handleToggleUserAdmin(u.uid, !u.isAdmin)}
-            >
-              {u.isAdmin && <Check size={12} />} Admin
-            </button>
-          </div>
-        ))}
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
       </div>
     </motion.div>
   );

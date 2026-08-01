@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
 .container {
   width: 100%;
@@ -31,55 +27,17 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-text-dim);
-<<<<<<< HEAD
-=======
-=======
-.container {
-  max-width: 860px;
-}
-
-.header {
-  margin-bottom: var(--space-6);
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-accent);
-  background: var(--color-accent-dim);
-  padding: 4px 10px;
-  border-radius: 999px;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   margin-bottom: var(--space-3);
 }
 
 .title {
   font-size: 1.9rem;
-<<<<<<< HEAD
   letter-spacing: -0.02em;
   margin-bottom: var(--space-3);
-=======
-<<<<<<< HEAD
-  letter-spacing: -0.02em;
-  margin-bottom: var(--space-3);
-=======
-  margin-bottom: var(--space-2);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .subtitle {
   color: var(--color-text-muted);
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   max-width: 52ch;
   line-height: 1.6;
   font-size: 0.92rem;
@@ -279,61 +237,10 @@
 }
 
 .uploadRowDisabled {
-<<<<<<< HEAD
-=======
-=======
-  max-width: 560px;
-  line-height: 1.5;
-}
-
-.section {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.sectionTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
-}
-
-.sectionIcon {
-  display: flex;
-  color: var(--color-accent);
-}
-
-.uploadLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  background: var(--gradient-accent);
-  color: var(--color-on-accent);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-5);
-  font-weight: 600;
-  font-size: 0.85rem;
-  cursor: pointer;
-}
-
-.uploadLabelDisabled {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   opacity: 0.7;
   cursor: default;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .uploadIconBox {
   display: flex;
   align-items: center;
@@ -365,19 +272,10 @@
   color: var(--color-text-dim);
 }
 
-<<<<<<< HEAD
-=======
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .fileInput {
   display: none;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .button {
   flex-shrink: 0;
   background: var(--gradient-accent);
@@ -405,15 +303,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-<<<<<<< HEAD
-=======
-=======
-.draft {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .draftInfo {
@@ -442,33 +331,15 @@
   align-items: center;
   gap: 4px;
   border-radius: var(--radius-sm);
-<<<<<<< HEAD
   padding: 5px 10px;
   font-size: 0.76rem;
-=======
-<<<<<<< HEAD
-  padding: 5px 10px;
-  font-size: 0.76rem;
-=======
-  padding: 4px 10px;
-  font-size: 0.75rem;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-weight: 600;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .planChip {
-<<<<<<< HEAD
   background: var(--color-bg-elevated-2);
-=======
-<<<<<<< HEAD
-  background: var(--color-bg-elevated-2);
-=======
-  background: var(--color-bg-hover);
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   border: 1px solid var(--color-border);
   color: var(--color-text-muted);
 }
@@ -485,41 +356,13 @@
   color: var(--color-accent);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-.button {
-  background: var(--gradient-accent);
-  color: var(--color-on-accent);
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-5);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .linkButton {
   background: none;
   border: none;
   color: var(--color-text-muted);
   font-size: 0.85rem;
   cursor: pointer;
-<<<<<<< HEAD
   padding: 0;
-=======
-<<<<<<< HEAD
-  padding: 0;
-=======
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .linkButton:hover {
@@ -532,10 +375,6 @@
   margin: 0;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* --- Seção 02: biblioteca compartilhada (tabela) --- */
 
 .catalogHeadRow {
@@ -572,40 +411,11 @@
   gap: var(--space-3);
   min-width: 0;
   color: var(--color-text);
-<<<<<<< HEAD
-=======
-=======
-.row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.row:last-child {
-  border-bottom: none;
-}
-
-.rowName {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
-  color: var(--color-text);
-  font-size: 0.88rem;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .catalogCellCount {
   font-family: var(--font-mono);
   font-size: 0.76rem;
@@ -616,35 +426,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-<<<<<<< HEAD
-=======
-=======
-.rowMeta {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  margin-left: var(--space-2);
-  flex-shrink: 0;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .iconButton {
   display: flex;
   align-items: center;
   justify-content: center;
-<<<<<<< HEAD
   width: 30px;
   height: 30px;
-=======
-<<<<<<< HEAD
-  width: 30px;
-  height: 30px;
-=======
-  width: 28px;
-  height: 28px;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   flex-shrink: 0;
   background: none;
   border: 1px solid var(--color-border);
@@ -658,10 +447,6 @@
   color: var(--color-danger);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .tableEmpty {
   padding: var(--space-5);
   text-align: center;
@@ -726,7 +511,6 @@
   color: var(--color-text-dim);
 }
 
-<<<<<<< HEAD
 /* Lista de usuários: cada linha vem envolvida num .userBlock pra caber
    o painel de detalhe expansível embaixo, sem quebrar o :last-child
    acima (que passaria a bater sempre, já que .userRow vira filho
@@ -739,23 +523,16 @@
   border-bottom: none;
 }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .userRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 110px 148px 104px;
   gap: var(--space-4);
   align-items: center;
   padding: var(--space-4) var(--space-5);
-<<<<<<< HEAD
-=======
-  border-bottom: 1px solid var(--color-border-soft);
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   font-size: 0.85rem;
   color: var(--color-text-muted);
 }
 
-<<<<<<< HEAD
 .userCellAccount {
   display: flex;
   align-items: center;
@@ -764,20 +541,12 @@
 }
 
 .userCellEmailWrap {
-=======
-.userRow:last-child {
-  border-bottom: none;
-}
-
-.userCellAccount {
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-<<<<<<< HEAD
 .expandButton {
   display: flex;
   align-items: center;
@@ -802,8 +571,6 @@
   flex-shrink: 0;
 }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .userCellEmail {
   color: var(--color-text);
   font-size: 0.88rem;
@@ -827,7 +594,6 @@
   color: var(--color-text-dim);
 }
 
-<<<<<<< HEAD
 .detailPanel {
   padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 18px + var(--space-2));
   background: var(--color-bg);
@@ -866,13 +632,6 @@
 
 .select {
   width: 100%;
-=======
-.select {
-  width: 100%;
-=======
-.select {
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -880,13 +639,6 @@
   padding: var(--space-2) var(--space-3);
   font-family: var(--font-body);
   font-size: 0.82rem;
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
-=======
-  flex-shrink: 0;
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 }
 
 .select:focus {
@@ -894,10 +646,6 @@
   border-color: var(--color-accent);
 }
 
-<<<<<<< HEAD
-=======
-<<<<<<< HEAD
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 /* --- Aside: contas por plano --- */
 
 .planBars {
@@ -1068,17 +816,6 @@
 
 /* --- Estado sem acesso admin --- */
 
-<<<<<<< HEAD
-=======
-=======
-.error {
-  margin-bottom: var(--space-4);
-  color: var(--color-danger);
-  font-size: 0.9rem;
-}
-
->>>>>>> 7c481fb27bc9373aac5d889f1743cdf12b977510
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
 .deniedCard {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
