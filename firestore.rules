@@ -42,7 +42,6 @@ service cloud.firestore {
 
     // Histórico de uploads (PDF/CSV processados): cada usuário só vê e
     // grava o próprio histórico. Escrito direto pelo client (não pelo
-<<<<<<< HEAD
     // Admin SDK), por isso a regra de fato importa aqui. Admin ganhou
     // `read` (só leitura, nunca write) — sustenta a tela de detalhe por
     // usuário no Admin (ADR-0002, Action Item 1); dado em si continua
@@ -52,12 +51,6 @@ service cloud.firestore {
       allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
       allow read: if request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-=======
-    // Admin SDK), por isso a regra de fato importa aqui.
-    match /catalog_uploads/{uploadId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     }
 
     // Tokens OAuth do Mercado Livre: só o Admin SDK (server, via
@@ -85,17 +78,12 @@ service cloud.firestore {
     // Contador de buscas do dia (Fase Planos — enforcement de cota por
     // plano). Doc ID é "{uid}_{yyyymmdd}" (ver usageQuota.ts); o próprio
     // ID já garante isolamento por usuário, sem precisar de campo extra.
-<<<<<<< HEAD
     // Admin ganhou `read` (só leitura) pra tela de detalhe por usuário
     // (ADR-0002, Action Item 1) — write continua exclusivo do dono.
     match /usage_daily/{docId} {
       allow read, write: if request.auth != null && docId.split('_')[0] == request.auth.uid;
       allow read: if request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-=======
-    match /usage_daily/{docId} {
-      allow read, write: if request.auth != null && docId.split('_')[0] == request.auth.uid;
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     }
 
     // Chave SerpApi própria do usuário (BYOK, ver userSecrets.ts).
@@ -105,7 +93,6 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-<<<<<<< HEAD
     // Hospedagem temporária de foto de produto pro modo imagem (Google
     // Lens, ver src/lib/catalogImages.ts) — só criação pelo próprio
     // usuário (uma foto por vez, nunca atualizada). Leitura pública real
@@ -119,8 +106,6 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-=======
->>>>>>> 876d06fbe516a280c102d8517ac760291de86799
     // Nega tudo que não foi listado explicitamente acima.
     match /{document=**} {
       allow read, write: if false;
