@@ -122,12 +122,23 @@ function groupIntoLinesWithY(items: PositionedText[]): PositionedLine[] {
 //      é o que desambigua um número solto de um SKU/quantidade na
 //      mesma linha; sem "R$" na frente, um inteiro puro tipo "1200"
 //      fica ambíguo demais pra virar preço com segurança)
-//   2. "1234,56" (BR, decimal com vírgula, sem precisar de "R$")
+//   2. "1234,56" (BR, decimal com vírgula, sem precisar de "R$") — tanto
+//      com separador de milhar próprio ("1.234,56") quanto sem
+//      ("1234,56"), desde que a vírgula decimal esteja lá.
 //   3. "1234.56" (US, decimal com ponto, sem precisar de "R$")
 // Preço tipo "POR 1200" (sem "R$" e sem decimal) continua fora do
 // escopo — ver aviso no card de Catálogo do Dashboard.
+//
+// ⚠️ Regressão corrigida: o grupo 2 antigo era
+// `\d{1,3}(?:\.\d{3})*,\d{2}` — o `{1,3}` sem âncora de início deixava
+// o regex casar no MEIO de um número maior sem separador de milhar
+// (ex: em "3800,00" ele casava só "800,00", devorando o "3" e
+// corrompendo preço E nome). Agora a alternativa sem separador usa
+// `\d+` (sem teto) com lookbehind `(?<!\d)` garantindo que o match
+// começa no primeiro dígito de verdade — mesma estratégia já usada no
+// grupo 1 (R$) pra esse caso.
 const PRICE_PATTERN =
-  /R\$\s?(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)|(\d{1,3}(?:\.\d{3})*,\d{2})|(\d+\.\d{2})/;
+  /R\$\s?(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+(?:,\d{2})?)|(\d{1,3}(?:\.\d{3})+,\d{2}|(?<!\d)\d+,\d{2})|(\d+\.\d{2})/;
 const PRICE_PATTERN_GLOBAL = new RegExp(PRICE_PATTERN.source, "g");
 
 /**

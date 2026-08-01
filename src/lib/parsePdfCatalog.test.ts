@@ -10,6 +10,26 @@ describe("extractRows", () => {
     expect(skippedAmbiguous).toBe(0);
   });
 
+  it("le preco de 4+ digitos SEM separador de milhar, sem truncar (BR, sem R$) — regressão: 'Produto 3800,00' virava 800,00", () => {
+    const { rows } = extractRows(["Videogame Sony PS5 3800,00"]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].supplierPrice).toBe(3800);
+    expect(rows[0].name).toBe("Videogame Sony PS5");
+  });
+
+  it("le preco de 5 digitos sem separador de milhar, sem truncar", () => {
+    const { rows } = extractRows(["Bicicleta Aro 29 12345,00"]);
+
+    expect(rows[0].supplierPrice).toBe(12345);
+  });
+
+  it("continua lendo preco BR com separador de milhar normalmente (sem regressão)", () => {
+    const { rows } = extractRows(["Notebook Dell 3.800,00"]);
+
+    expect(rows[0].supplierPrice).toBe(3800);
+  });
+
   it("gera sku sintético quando não acha um padrão de SKU na linha", () => {
     const { rows } = extractRows(["Caneta Azul BIC R$ 12,50"]);
 
