@@ -1,13 +1,26 @@
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
-const COLLECTION = "user_secrets";
+/**
+ * Subcoleção de `users/{userId}` (ver ADR-0003) — doc único
+ * `users/{userId}/secrets/keys`. Antes era uma coleção de nível superior
+ * `user_secrets/{userId}` (1:1); a mudança é só de path, a regra de
+ * isolamento continua a mesma (só o dono lê/escreve, sem override de
+ * admin — ver comentário mais abaixo).
+ */
+const SUBCOLLECTION = "secrets";
+const DOC_ID = "keys";
+
+function secretsDocPath(userId: string): [string, string, string, string] {
+  return ["users", userId, SUBCOLLECTION, DOC_ID];
+}
 
 /**
  * Chave SerpApi própria do usuário (BYOK — bring your own key). Guardada
- * numa coleção separada de `users/{uid}` de propósito: `users` é
- * legível por admin (pra gestão de plano no painel Admin), mas uma
- * credencial de API é segredo do próprio usuário — `user_secrets` não
- * tem override de admin na security rule (ver firestore.rules).
+ * numa subcoleção separada do doc de perfil de propósito: `users/{uid}`
+ * é legível por admin (pra gestão de plano no painel Admin), mas uma
+ * credencial de API é segredo do próprio usuário —
+ * `users/{uid}/secrets/keys` não tem override de admin na security rule
+ * (ver firestore.rules).
  *
  * Por quê BYOK: a cota da SerpApi (env `SERPAPI_KEY`, ver
  * googleShoppingProvider.ts) seria compartilhada entre TODOS os
@@ -25,7 +38,7 @@ export async function getUserSerpApiKey(userId: string | null): Promise<string |
   try {
     const db = await getFirebaseDb();
     const { doc, getDoc } = await import("firebase/firestore");
-    const snap = await getDoc(doc(db, COLLECTION, userId));
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
     if (!snap.exists()) return null;
     const key = snap.data().serpApiKey as string | undefined;
     return key?.trim() || null;
@@ -37,9 +50,9 @@ export async function getUserSerpApiKey(userId: string | null): Promise<string |
 
 /**
  * Chave RapidAPI própria do usuário — mesmo padrão BYOK da SerpApi
- * acima, guardada no mesmo doc `user_secrets/{uid}` (campo separado,
- * `rapidApiKey`), já que é o mesmo usuário/conta que autoriza os dois.
- * Usada hoje só pelo provider Amazon direto (ver
+ * acima, guardada no mesmo doc `users/{uid}/secrets/keys` (campo
+ * separado, `rapidApiKey`), já que é o mesmo usuário/conta que autoriza
+ * os dois. Usada hoje só pelo provider Amazon direto (ver
  * api/_lib/providers/rapidApiAmazonProvider.ts) — Mercado Livre direto
  * não precisa de chave (endpoint público).
  */
@@ -49,7 +62,7 @@ export async function getUserRapidApiKey(userId: string | null): Promise<string 
   try {
     const db = await getFirebaseDb();
     const { doc, getDoc } = await import("firebase/firestore");
-    const snap = await getDoc(doc(db, COLLECTION, userId));
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
     if (!snap.exists()) return null;
     const key = snap.data().rapidApiKey as string | undefined;
     return key?.trim() || null;
@@ -60,12 +73,12 @@ export async function getUserRapidApiKey(userId: string | null): Promise<string 
 }
 
 /**
- * Grava a chave em `user_secrets/{uid}` e, no mesmo `writeBatch` (atômico),
- * atualiza `users/{uid}.hasSerpApiKey = true` — uma flag denormalizada,
- * NUNCA o valor da chave. É o que permite ao Admin mostrar "tem chave
- * cadastrada: sim/não" na tela de detalhe do usuário (ADR-0002) sem
- * jamais ler `user_secrets` de outro uid (a rule daquela coleção
- * continua sem override de admin, de propósito).
+ * Grava a chave em `users/{uid}/secrets/keys` e, no mesmo `writeBatch`
+ * (atômico), atualiza `users/{uid}.hasSerpApiKey = true` — uma flag
+ * denormalizada, NUNCA o valor da chave. É o que permite ao Admin
+ * mostrar "tem chave cadastrada: sim/não" na tela de detalhe do usuário
+ * (ADR-0002, Action Item 1) sem jamais ler os secrets de outro uid (a
+ * rule daquela subcoleção continua sem override de admin, de propósito).
  */
 export async function saveUserSerpApiKey(userId: string, key: string): Promise<void> {
   const db = await getFirebaseDb();
@@ -75,7 +88,7 @@ export async function saveUserSerpApiKey(userId: string, key: string): Promise<v
   // (ver saveUserRapidApiKey abaixo); sem merge, salvar a chave SerpApi
   // apagaria a chave RapidAPI do usuário sem querer.
   batch.set(
-    doc(db, COLLECTION, userId),
+    doc(db, ...secretsDocPath(userId)),
     { serpApiKey: key.trim(), updatedAt: Date.now() },
     { merge: true }
   );
@@ -90,23 +103,24 @@ export async function deleteUserSerpApiKey(userId: string): Promise<void> {
   // `set` com `merge: true` (não `delete` do doc inteiro nem `update`,
   // que falharia se o doc ainda não existir) — o doc pode ter
   // `rapidApiKey` junto, então só zera o campo desta chave.
-  batch.set(doc(db, COLLECTION, userId), { serpApiKey: null }, { merge: true });
+  batch.set(doc(db, ...secretsDocPath(userId)), { serpApiKey: null }, { merge: true });
   batch.set(doc(db, "users", userId), { hasSerpApiKey: false }, { merge: true });
   await batch.commit();
 }
 
 /**
- * Grava a chave RapidAPI em `user_secrets/{uid}` (campo `rapidApiKey`,
- * preservando `serpApiKey` se já existir — `set` com `merge` em vez de
- * sobrescrever o doc inteiro) e sincroniza `users/{uid}.hasRapidApiKey`
- * no mesmo `writeBatch`, mesmo padrão de `saveUserSerpApiKey` acima.
+ * Grava a chave RapidAPI em `users/{uid}/secrets/keys` (campo
+ * `rapidApiKey`, preservando `serpApiKey` se já existir — `set` com
+ * `merge` em vez de sobrescrever o doc inteiro) e sincroniza
+ * `users/{uid}.hasRapidApiKey` no mesmo `writeBatch`, mesmo padrão de
+ * `saveUserSerpApiKey` acima.
  */
 export async function saveUserRapidApiKey(userId: string, key: string): Promise<void> {
   const db = await getFirebaseDb();
   const { doc, writeBatch } = await import("firebase/firestore");
   const batch = writeBatch(db);
   batch.set(
-    doc(db, COLLECTION, userId),
+    doc(db, ...secretsDocPath(userId)),
     { rapidApiKey: key.trim(), updatedAt: Date.now() },
     { merge: true }
   );
@@ -118,7 +132,7 @@ export async function deleteUserRapidApiKey(userId: string): Promise<void> {
   const db = await getFirebaseDb();
   const { doc, writeBatch } = await import("firebase/firestore");
   const batch = writeBatch(db);
-  batch.set(doc(db, COLLECTION, userId), { rapidApiKey: null }, { merge: true });
+  batch.set(doc(db, ...secretsDocPath(userId)), { rapidApiKey: null }, { merge: true });
   batch.set(doc(db, "users", userId), { hasRapidApiKey: false }, { merge: true });
   await batch.commit();
 }

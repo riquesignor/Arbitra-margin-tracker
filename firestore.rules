@@ -3,60 +3,100 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Cada usuário só lê/escreve o próprio perfil. Admin (isAdmin == true
-    // no PRÓPRIO doc) também pode ler/atualizar qualquer perfil — é o
-    // que sustenta a tela Admin (lista de usuários + troca de plano),
-    // sem precisar de Admin SDK/Cloud Function pra isso no MVP.
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-      allow read, update: if request.auth != null &&
+    // Helper — true se quem está logado tem `isAdmin == true` no PRÓPRIO
+    // doc de perfil (users/{uid}). Centralizado aqui porque quase toda
+    // regra abaixo precisa desse mesmo check (ver ADR-0003 — antes disso
+    // cada match repetia o mesmo `get(...)` inline).
+    function isAdmin() {
+      return request.auth != null &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
     }
 
-    // Regras de precificação são privadas por usuário.
-    match /pricing_rules/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Cada usuário só lê/escreve o próprio perfil. Admin também pode ler
+    // e atualizar qualquer perfil — é o que sustenta a tela Admin (lista
+    // de usuários + troca de plano), sem precisar de Admin SDK/Cloud
+    // Function pra isso no MVP.
+    //
+    // Subcoleções (ver ADR-0003 — dado 1:N ou 1:1 por usuário que antes
+    // vivia em coleções de nível superior filtradas/chaveadas por
+    // `userId`, agora aninhado aqui dentro pra ficar "tudo na pasta do
+    // usuário" no Console do Firebase, com o UID (nunca o nome de
+    // exibição) como chave real de isolamento):
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+      allow read, update: if isAdmin();
+
+      // Regras de precificação — era `pricing_rules/{userId}`.
+      match /pricing_rules/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Chave SerpApi/RapidAPI (BYOK, ver userSecrets.ts) — era
+      // `user_secrets/{userId}`. Deliberadamente SEM override de admin —
+      // é credencial do usuário, não dado de gestão de plano (diferente
+      // do doc de perfil acima).
+      match /secrets/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Histórico de uploads (PDF/CSV processados) — era
+      // `catalog_uploads/{uploadId}` com campo `userId`. Escrito direto
+      // pelo client (não pelo Admin SDK), por isso a regra de fato
+      // importa aqui. Admin tem `read` (só leitura, nunca write) —
+      // sustenta a tela de detalhe por usuário no Admin (ADR-0002,
+      // Action Item 1); dado em si continua owner-only pra update/delete.
+      match /catalog_uploads/{uploadId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
+
+      // Hospedagem temporária de foto de produto pro modo imagem (Google
+      // Lens, ver src/lib/catalogImages.ts) — era `catalog_images/{id}`
+      // com campo `userId`. Só criação/leitura pelo próprio usuário (uma
+      // foto por vez, nunca atualizada). Leitura pública real acontece
+      // via api/catalog-image.ts com o Admin SDK (ignora esta regra de
+      // propósito, já que o crawler do Google Lens não manda
+      // Authorization header nenhum) — por isso `read` aqui fica
+      // restrito ao dono mesmo, só pra não abrir a subcoleção sem
+      // necessidade.
+      match /catalog_images/{imageId} {
+        allow create, read: if isOwner(userId);
+        allow update, delete: if false;
+      }
+
+      // Contador de buscas do dia (Fase Planos — enforcement de cota por
+      // plano) — era `usage_daily/{uid}_{yyyymmdd}` (ID composto só pra
+      // isolar sem subcoleção). Doc ID agora é só a data
+      // (`{yyyymmdd}`, ver usageQuota.ts), o path já isola por usuário.
+      // Admin tem `read` (só leitura) pra tela de detalhe por usuário
+      // (ADR-0002, Action Item 1) — write continua exclusivo do dono.
+      match /usage_daily/{dayId} {
+        allow read, write: if isOwner(userId);
+        allow read: if isAdmin();
+      }
     }
 
     // Cache de preços: qualquer usuário autenticado pode ler (é o que
     // acelera a próxima consulta pra todo mundo), mas só o servidor
     // (Admin SDK, via api/_lib/firestoreAdmin.ts) pode escrever — o
     // Admin SDK ignora Security Rules, então isso é só pra bloquear
-    // escrita direta do client.
+    // escrita direta do client. GLOBAL de propósito, não é dado de
+    // usuário (ver ADR-0003) — o preço do SKU X é o mesmo pra todo mundo,
+    // então fica fora de `users/{uid}` mesmo.
     match /market_prices/{document} {
       allow read: if request.auth != null;
       allow write: if false;
     }
 
-    // Catálogos e cálculos de margem (Fase 3+): cada usuário só acessa
-    // os próprios documentos.
-    match /catalogs/{catalogId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-    }
-
-    match /margin_calculations/{calcId} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-    }
-
-    // Histórico de uploads (PDF/CSV processados): cada usuário só vê e
-    // grava o próprio histórico. Escrito direto pelo client (não pelo
-    // Admin SDK), por isso a regra de fato importa aqui. Admin ganhou
-    // `read` (só leitura, nunca write) — sustenta a tela de detalhe por
-    // usuário no Admin (ADR-0002, Action Item 1); dado em si continua
-    // owner-only pra update/delete.
-    match /catalog_uploads/{uploadId} {
-      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-      allow read: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-    }
-
     // Tokens OAuth do Mercado Livre: só o Admin SDK (server, via
     // scripts/ml-oauth-setup.mjs e api/_lib/mlAuth.ts) lê/escreve — o
     // Admin SDK ignora Security Rules, então isso só bloqueia acesso
-    // direto do client (onde o client_secret nunca deveria chegar).
+    // direto do client (onde o client_secret nunca deveria chegar). Não
+    // é dado de usuário — token da aplicação como um todo.
     match /ml_oauth/{document} {
       allow read, write: if false;
     }
@@ -65,45 +105,15 @@ service cloud.firestore {
     // usuário autenticado pode ler um catálogo se for admin OU se o
     // próprio plano estiver em `plans` do documento — o filtro por plano
     // é reforçado aqui, não só no client (`listSharedCatalogsForPlan`).
-    // Só admin escreve (upload, atribuição de plano, exclusão).
+    // Só admin escreve (upload, atribuição de plano, exclusão). Indexado
+    // por plano (`plans[]`), não por usuário — fica fora de `users/{uid}`
+    // (ver ADR-0003).
     match /shared_catalogs/{catalogId} {
       allow read: if request.auth != null && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+        isAdmin() ||
         resource.data.plans.hasAny([get(/databases/$(database)/documents/users/$(request.auth.uid)).data.plan])
       );
-      allow write: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-    }
-
-    // Contador de buscas do dia (Fase Planos — enforcement de cota por
-    // plano). Doc ID é "{uid}_{yyyymmdd}" (ver usageQuota.ts); o próprio
-    // ID já garante isolamento por usuário, sem precisar de campo extra.
-    // Admin ganhou `read` (só leitura) pra tela de detalhe por usuário
-    // (ADR-0002, Action Item 1) — write continua exclusivo do dono.
-    match /usage_daily/{docId} {
-      allow read, write: if request.auth != null && docId.split('_')[0] == request.auth.uid;
-      allow read: if request.auth != null &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
-    }
-
-    // Chave SerpApi própria do usuário (BYOK, ver userSecrets.ts).
-    // Deliberadamente SEM override de admin — é credencial do usuário,
-    // não dado de gestão de plano (diferente de `users`).
-    match /user_secrets/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // Hospedagem temporária de foto de produto pro modo imagem (Google
-    // Lens, ver src/lib/catalogImages.ts) — só criação pelo próprio
-    // usuário (uma foto por vez, nunca atualizada). Leitura pública real
-    // acontece via api/catalog-image.ts com o Admin SDK (ignora esta
-    // regra de propósito, já que o crawler do Google Lens não manda
-    // Authorization header nenhum) — por isso `read` aqui fica restrito
-    // ao dono mesmo, só pra não abrir a coleção inteira sem necessidade.
-    match /catalog_images/{imageId} {
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
-      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow update, delete: if false;
+      allow write: if isAdmin();
     }
 
     // Nega tudo que não foi listado explicitamente acima.

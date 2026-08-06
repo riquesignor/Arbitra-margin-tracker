@@ -126,7 +126,7 @@ correspondente abaixo.
   a usuário. Corrigir exigindo um `Authorization: Bearer <idToken>` e
   validando com o Admin SDK antes de processar.
 - **Chave SerpApi do usuário fica em texto puro no Firestore**
-  (`user_secrets/{uid}.serpApiKey`). Firestore criptografa em repouso a
+  (`users/{uid}/secrets/keys.serpApiKey`, ver ADR-0003). Firestore criptografa em repouso a
   nível de infraestrutura, mas qualquer pessoa com acesso ao Console do
   Firebase do projeto lê a chave de qualquer usuário em texto puro. Pra
   um MVP entre poucas pessoas de confiança isso é aceitável; se o

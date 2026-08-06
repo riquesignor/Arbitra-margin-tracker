@@ -617,6 +617,95 @@ function cropGridBlock(
   return cropped;
 }
 
+// ── OCR fallback (páginas sem NENHUMA camada de texto) ───────────────
+//
+// Descoberto via diagnóstico real (usuário mandou o PDF): alguns
+// catálogos de fornecedor (exportados de ferramenta de design com
+// fonte "outline"/vetorizada, ou scan de verdade) não têm UM SÓ
+// caractere de texto extraível — `page.getTextContent()` devolve array
+// vazio. Antes disso o parser só sabia falhar com "nenhum produto
+// reconhecido". Só quando uma página não tem texto NENHUM, tentamos
+// OCR (Tesseract.js, roda inteiro no navegador — sem chave de API,
+// sem custo por página, mesmo padrão BYOK-free do resto do app) como
+// último recurso. Página com texto real nunca passa por aqui — então
+// catálogo que já funcionava continua bit-a-bit igual, zero risco de
+// regressão pra esse caso (só o `if (items.length === 0)` abaixo).
+//
+// Tesseract.js é carregado sob demanda (mesmo padrão do pdfjs no topo
+// deste arquivo) — quem nunca precisa de OCR não paga o peso do
+// WASM/dado de idioma no bundle nem no tempo de carregamento.
+interface TesseractBbox {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+interface TesseractWord {
+  text: string;
+  bbox: TesseractBbox;
+}
+interface TesseractLine {
+  bbox: TesseractBbox;
+  words: TesseractWord[];
+}
+interface TesseractWorker {
+  recognize: (image: HTMLCanvasElement) => Promise<{ data: { lines: TesseractLine[] } }>;
+  terminate: () => Promise<unknown>;
+}
+interface TesseractModule {
+  createWorker: (langs: string) => Promise<TesseractWorker>;
+}
+
+let tesseractWorkerPromise: Promise<TesseractWorker> | null = null;
+async function getTesseractWorker(): Promise<TesseractWorker> {
+  if (!tesseractWorkerPromise) {
+    tesseractWorkerPromise = (async () => {
+      const tesseract = (await import("tesseract.js")) as unknown as TesseractModule;
+      // "por" — catálogos desse tipo trazem rótulo em português
+      // ("MODELO:", "Unid.CX:"); dígito/preço não depende de idioma.
+      return tesseract.createWorker("por");
+    })();
+  }
+  return tesseractWorkerPromise;
+}
+
+/**
+ * Roda OCR no canvas já renderizado da página e devolve no MESMO
+ * formato `PositionedText[]` que `content.items` do pdfjs produziria —
+ * é o que permite reaproveitar `extractGridBlocks`/`extractRowsIndexed`
+ * SEM NENHUMA mudança nelas, como se o texto tivesse vindo do PDF de
+ * verdade. Usa o Y da LINHA detectada pelo Tesseract (não da palavra
+ * individual) pra todas as palavras daquela linha — bbox palavra-a-
+ * palavra oscila alguns pixels por causa de descendente de fonte ("p",
+ * "g"), o que quebraria o agrupamento por Y_TOLERANCE se cada palavra
+ * carregasse o próprio Y.
+ */
+async function ocrPageToPositionedText(
+  canvas: HTMLCanvasElement,
+  viewport: PdfjsViewport,
+  scale: number
+): Promise<PositionedText[]> {
+  const worker = await getTesseractWorker();
+  const { data } = await worker.recognize(canvas);
+  const pageHeightPdf = viewport.height / scale;
+
+  const items: PositionedText[] = [];
+  for (const line of data.lines ?? []) {
+    const lineYPdf = pageHeightPdf - line.bbox.y1 / scale;
+    for (const word of line.words ?? []) {
+      const text = word.text?.trim();
+      if (!text) continue;
+      items.push({
+        text,
+        x: word.bbox.x0 / scale,
+        width: (word.bbox.x1 - word.bbox.x0) / scale,
+        y: lineYPdf,
+      });
+    }
+  }
+  return items;
+}
+
 export interface ParsePdfOptions {
   /**
    * Ativa o modo imagem: renderiza cada página e recorta/sobe (Firestore,
@@ -663,6 +752,10 @@ export async function parsePdfCatalogFile(
   // parsePdfCatalogFile já isola catálogos diferentes um do outro (ver
   // skuFor acima).
   const seenSyntheticSkus = new Set<string>();
+  // true se QUALQUER página do intervalo precisou cair pro fallback de
+  // OCR (ver ocrPageToPositionedText) — só usado pra customizar a
+  // mensagem de erro final, caso nenhuma página produza produto algum.
+  let ocrAttempted = false;
 
   for (let pageNum = from; pageNum <= to; pageNum++) {
     const page = await doc.getPage(pageNum);
@@ -672,7 +765,7 @@ export async function parsePdfCatalogFile(
     // imagem), precisa pra detecção de coluna da grade.
     const pageWidthPdf = page.getViewport({ scale: 1 }).width;
 
-    const items: PositionedText[] = content.items
+    let items: PositionedText[] = content.items
       .filter(
         (item): item is Required<Pick<PdfjsTextItem, "str" | "transform">> & Pick<PdfjsTextItem, "width"> =>
           Boolean(item.str?.trim() && item.transform)
@@ -684,12 +777,6 @@ export async function parsePdfCatalogFile(
         width: item.width ?? 0,
       }));
 
-    // Catálogo em GRADE (N cartões por página, ver extractGridBlocks) é
-    // tentado primeiro; página sem esse padrão (sem 2+ "MODELO:" na
-    // mesma linha) cai pro modo linha-única de sempre, sem mudança de
-    // comportamento.
-    const grid = extractGridBlocks(items, pageWidthPdf);
-
     let canvas: HTMLCanvasElement | null = null;
     let viewport: PdfjsViewport | null = null;
     const ensureCanvas = async () => {
@@ -698,6 +785,26 @@ export async function parsePdfCatalogFile(
       }
       return { canvas, viewport };
     };
+
+    // Página sem NENHUM texto embutido (ver comentário de
+    // ocrPageToPositionedText acima) — só entra aqui quando pdfjs não
+    // achou nada; página com texto real nunca passa por este bloco.
+    if (items.length === 0) {
+      try {
+        const { canvas: c, viewport: v } = await ensureCanvas();
+        items = await ocrPageToPositionedText(c, v, IMAGE_RENDER_SCALE);
+        if (items.length > 0) ocrAttempted = true;
+      } catch (err) {
+        console.warn(`OCR falhou na página ${pageNum} (seguindo sem texto nesta página):`, err);
+      }
+    }
+
+    // Catálogo em GRADE (N cartões por página, ver extractGridBlocks) é
+    // tentado primeiro; página sem esse padrão (sem 2+ "MODELO:" na
+    // mesma linha) cai pro modo linha-única de sempre, sem mudança de
+    // comportamento. Funciona igual pra texto real ou vindo do OCR
+    // acima — os dois produzem o mesmo formato `PositionedText[]`.
+    const grid = extractGridBlocks(items, pageWidthPdf);
 
     if (grid) {
       skippedAmbiguous += grid.skippedAmbiguous;
@@ -748,9 +855,14 @@ export async function parsePdfCatalogFile(
 
   if (rows.length === 0) {
     throw new PdfParseError(
-      `Nenhum produto reconhecido nas páginas ${from}–${to}. Se o PDF for escaneado (imagem), ` +
-        "este parser não funciona — precisaria de OCR. Se for texto real, o layout pode não bater " +
-        "com o padrão esperado (linha com nome + preço)."
+      ocrAttempted
+        ? `Nenhum produto reconhecido nas páginas ${from}–${to} mesmo com OCR (este PDF não tem ` +
+          "texto embutido, então tentamos ler por OCR). O layout pode ser complexo demais, ou a " +
+          "qualidade da página renderizada ficou baixa demais pro OCR reconhecer — tente um " +
+          "intervalo de páginas menor ou confira se o catálogo segue o padrão esperado (nome + preço " +
+          "por produto)."
+        : `Nenhum produto reconhecido nas páginas ${from}–${to}. Se for texto real, o layout pode ` +
+          "não bater com o padrão esperado (linha com nome + preço)."
     );
   }
 

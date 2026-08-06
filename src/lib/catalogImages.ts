@@ -1,6 +1,12 @@
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
-const COLLECTION = "catalog_images";
+// Subcoleção de `users/{userId}` (ver ADR-0003) — cada foto vira um doc
+// em `users/{userId}/catalog_images/{autoId}`. Antes era uma coleção de
+// nível superior com campo `userId`; a URL pública devolvida por
+// `uploadCatalogImage` agora carrega `uid` além do `id` (ver
+// api/catalog-image.ts), porque o Admin SDK do lado servidor precisa do
+// path completo pra buscar um doc de subcoleção.
+const SUBCOLLECTION = "catalog_images";
 // 30 dias — estendido a partir das 2h originais (mesmo TTL do cache de
 // preço, market_prices) pra a foto continuar aparecendo na coluna de
 // produto da tela de Resultados mesmo quando o usuário reabre um
@@ -104,7 +110,11 @@ export function assertPubliclyReachable(): void {
 
 /**
  * Sobe uma imagem (canvas) pro Firestore e devolve a URL pública
- * (`/api/catalog-image?id=...`) que o provider Google Lens vai usar.
+ * (`/api/catalog-image?uid=...&id=...`) que o provider Google Lens vai
+ * usar. A URL carrega `uid` além do `id` (ver ADR-0003) porque o doc
+ * mora em `users/{userId}/catalog_images/{autoId}` — o Admin SDK do lado
+ * servidor precisa do path completo pra buscar um doc de subcoleção, não
+ * dá pra endereçar só pelo `id` como antes (coleção de nível superior).
  */
 export async function uploadCatalogImage(
   userId: string,
@@ -121,8 +131,7 @@ export async function uploadCatalogImage(
 
   const db = await getFirebaseDb();
   const { collection, addDoc } = await import("firebase/firestore");
-  const docRef = await addDoc(collection(db, COLLECTION), {
-    userId,
+  const docRef = await addDoc(collection(db, "users", userId, SUBCOLLECTION), {
     sku,
     contentType: "image/jpeg",
     base64,
@@ -130,5 +139,5 @@ export async function uploadCatalogImage(
     expiresAt: Date.now() + TTL_MS,
   });
 
-  return `${window.location.origin}/api/catalog-image?id=${docRef.id}`;
+  return `${window.location.origin}/api/catalog-image?uid=${encodeURIComponent(userId)}&id=${docRef.id}`;
 }

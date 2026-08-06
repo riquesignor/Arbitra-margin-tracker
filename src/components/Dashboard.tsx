@@ -336,10 +336,11 @@ export default function Dashboard({
    */
   async function handleDeleteRecord(event: MouseEvent<HTMLButtonElement>, id: string) {
     event.stopPropagation();
+    if (!userId) return;
     const previous = uploadHistory;
     setUploadHistory((prev) => prev.filter((r) => r.id !== id));
     try {
-      await deleteCatalogUpload(id);
+      await deleteCatalogUpload(userId, id);
       onHistoryDeleted?.(id);
     } catch (err) {
       setUploadHistory(previous);

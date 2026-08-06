@@ -1,20 +1,22 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 
-const COLLECTION = "catalog_images";
+const SUBCOLLECTION = "catalog_images";
 
 /**
- * GET /api/catalog-image?id=xxx
+ * GET /api/catalog-image?uid=xxx&id=yyy
  * Serve, com o Content-Type certo, uma imagem previamente salva em
- * `catalog_images/{id}` (ver src/lib/catalogImages.ts) — existe só
- * porque o Google Lens (SerpApi) exige uma URL pública de imagem, não
- * aceita upload direto (ver googleLensProvider.ts). Não tem
- * autenticação de propósito: o Google Lens crawler não manda
- * Authorization header nenhum. O "segredo" é o id ser um doc id do
- * Firestore (não sequencial, não adivinhável por força bruta) e o TTL
- * (30 dias, verificado abaixo — ver src/lib/catalogImages.ts) — não é
- * um mecanismo de controle de acesso forte, só o suficiente pro risco
- * real (foto de produto de catálogo, não é dado sensível).
+ * `users/{uid}/catalog_images/{id}` (ver src/lib/catalogImages.ts e
+ * ADR-0003 — subcoleção por usuário, não mais coleção de nível
+ * superior). Existe só porque o Google Lens (SerpApi) exige uma URL
+ * pública de imagem, não aceita upload direto (ver
+ * googleLensProvider.ts). Não tem autenticação de propósito: o Google
+ * Lens crawler não manda Authorization header nenhum. O "segredo"
+ * continua sendo o `id` (doc id do Firestore, não sequencial, não
+ * adivinhável por força bruta) e o TTL (30 dias, verificado abaixo — ver
+ * src/lib/catalogImages.ts); o `uid` só existe aqui porque o Admin SDK
+ * precisa do path completo pra buscar um doc de subcoleção — não reduz
+ * nem reforça a segurança do endpoint.
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "GET") {
@@ -24,14 +26,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
   const idParam = req.query?.id;
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
-  if (!id) {
-    res.status(400).json({ error: "Parâmetro id ausente" });
+  const uidParam = req.query?.uid;
+  const uid = Array.isArray(uidParam) ? uidParam[0] : uidParam;
+  if (!id || !uid) {
+    res.status(400).json({ error: "Parâmetro uid ou id ausente" });
     return;
   }
 
   try {
     const db = getAdminDb();
-    const snap = await db.collection(COLLECTION).doc(id).get();
+    const snap = await db.collection("users").doc(uid).collection(SUBCOLLECTION).doc(id).get();
     const data = snap.data();
 
     if (!data || typeof data.expiresAt !== "number" || data.expiresAt <= Date.now()) {

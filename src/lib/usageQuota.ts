@@ -1,17 +1,17 @@
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
-const COLLECTION = "usage_daily";
+// Subcoleção de `users/{userId}` (ver ADR-0003) —
+// `users/{userId}/usage_daily/{yyyymmdd}`. Antes era uma coleção de
+// nível superior com ID composto `{uid}_{yyyymmdd}` (o prefixo existia
+// só pra security rule conseguir isolar por usuário sem campo extra);
+// a subcoleção já escopa por usuário via path, então o doc ID volta a
+// ser só a data.
+const SUBCOLLECTION = "usage_daily";
 
 /** Chave do dia em UTC-agnóstico simples (fuso do navegador do usuário). */
 function todayKey(): string {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function docId(userId: string): string {
-  // Prefixo "{uid}_" é o que a security rule usa pra garantir que cada
-  // usuário só mexe no próprio contador — ver firestore.rules.
-  return `${userId}_${todayKey()}`;
 }
 
 /** Quantas "buscas" (1 busca = 1 chamada à SerpApi, ver config/plans.ts) o usuário já gastou hoje. */
@@ -21,7 +21,7 @@ export async function getTodayUsage(userId: string | null): Promise<number> {
   try {
     const db = await getFirebaseDb();
     const { doc, getDoc } = await import("firebase/firestore");
-    const snap = await getDoc(doc(db, COLLECTION, docId(userId)));
+    const snap = await getDoc(doc(db, "users", userId, SUBCOLLECTION, todayKey()));
     if (!snap.exists()) return 0;
     return (snap.data().searchCount as number) ?? 0;
   } catch (err) {
@@ -44,7 +44,7 @@ export async function addTodayUsage(userId: string | null, amount: number): Prom
     const db = await getFirebaseDb();
     const { doc, setDoc, increment } = await import("firebase/firestore");
     await setDoc(
-      doc(db, COLLECTION, docId(userId)),
+      doc(db, "users", userId, SUBCOLLECTION, todayKey()),
       { searchCount: increment(amount), updatedAt: Date.now() },
       { merge: true }
     );

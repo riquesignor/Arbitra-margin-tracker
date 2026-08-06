@@ -1,6 +1,13 @@
 # ADR-0002: Organização de Dados por Usuário no Firestore
 
-**Status:** Accepted (Opção B mantida; Action Item 1 implementado)
+**Status:** Superseded por [ADR-0003](./0003-subcolecoes-por-usuario.md) em 2026-08-06 — a
+Opção C (subcoleções), documentada abaixo como caminho futuro, foi
+adotada. O fato novo que muda a conta: em 2026-07-23 havia dado real em
+produção (custo de migração genuíno); em 2026-08-06 não havia mais
+histórico de produção a preservar, e o pedido de organização por usuário
+se repetiu mesmo com a Opção B implementada — ver ADR-0003 para a decisão
+e o racional completos. O conteúdo abaixo permanece como registro do
+diagnóstico original e da rejeição da Opção A, que continua válida.
 **Date:** 2026-07-23
 **Deciders:** Nicolas (produto/arquitetura)
 

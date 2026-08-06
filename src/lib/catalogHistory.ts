@@ -2,7 +2,15 @@ import type { CatalogRow, MarginResult, MarketplaceId, MarketplacePriceResult } 
 import type { PageRange } from "./parsePdfCatalog";
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
-const COLLECTION = "catalog_uploads";
+/**
+ * Subcoleção de `users/{userId}` (ver ADR-0003) — cada busca do usuário
+ * vira um doc em `users/{userId}/catalog_uploads/{autoId}`. Antes era uma
+ * coleção de nível superior com campo `userId` + índice composto
+ * (`userId ASC, uploadedAt DESC`, ver firestore.indexes.json antigo); a
+ * subcoleção já escopa por usuário via path, então some tanto o campo
+ * quanto o índice — sobra só um `orderBy` simples.
+ */
+const SUBCOLLECTION = "catalog_uploads";
 
 export interface CatalogUploadRecord {
   id: string;
@@ -45,6 +53,8 @@ function sameMarketplaces(a: MarketplaceId[], b: MarketplaceId[]): boolean {
  * sempre null — histórico persistente exige as duas coisas. Consulta só
  * com `where` de igualdade (sem orderBy) de propósito, pra não exigir
  * índice composto no Firestore; ordenação por data é feita em memória.
+ * Sem filtro de `userId` — a subcoleção `users/{userId}/catalog_uploads`
+ * já escopa isso pelo path (ver ADR-0003).
  *
  * Só considera "cache hit" registros com `results.length > 0` — um
  * processamento anterior que não achou preço nenhum (SerpApi fora do
@@ -65,8 +75,7 @@ export async function findExistingUpload(
     const { collection, query, where, getDocs } = await import("firebase/firestore");
 
     const q = query(
-      collection(db, COLLECTION),
-      where("userId", "==", userId),
+      collection(db, "users", userId, SUBCOLLECTION),
       where("fileHash", "==", fileHash)
     );
 
@@ -100,7 +109,7 @@ export async function saveCatalogUpload(
   try {
     const db = await getFirebaseDb();
     const { collection, addDoc } = await import("firebase/firestore");
-    await addDoc(collection(db, COLLECTION), { ...record, userId });
+    await addDoc(collection(db, "users", userId, SUBCOLLECTION), record);
   } catch (err) {
     console.warn("Não consegui salvar histórico de upload (seguindo sem persistir):", err);
   }
@@ -110,12 +119,10 @@ const DEFAULT_HISTORY_LIMIT = 50;
 
 /**
  * Lista o histórico do usuário, mais recente primeiro, limitado a
- * `limitCount` documentos. Antes buscava TUDO sem teto — cada doc carrega
- * linhas + preços + resultados completos, então o custo de leitura
- * crescia sem limite conforme o usuário acumulava catálogos (ver
- * docs/architecture-review.md > Performance). `orderBy` + `limit` no
- * próprio Firestore (não corte em memória) exige o índice composto
- * `userId ASC, uploadedAt DESC` — ver firestore.indexes.json.
+ * `limitCount` documentos. `orderBy` + `limit` direto na subcoleção
+ * `users/{userId}/catalog_uploads` — sem índice composto (ver ADR-0003):
+ * o path já escopa por usuário, então só sobra um índice de campo único
+ * (automático no Firestore).
  */
 export async function listCatalogUploads(
   userId: string | null,
@@ -125,12 +132,9 @@ export async function listCatalogUploads(
 
   try {
     const db = await getFirebaseDb();
-    const { collection, query, where, orderBy, limit, getDocs } = await import(
-      "firebase/firestore"
-    );
+    const { collection, query, orderBy, limit, getDocs } = await import("firebase/firestore");
     const q = query(
-      collection(db, COLLECTION),
-      where("userId", "==", userId),
+      collection(db, "users", userId, SUBCOLLECTION),
       orderBy("uploadedAt", "desc"),
       limit(limitCount)
     );
@@ -145,17 +149,20 @@ export async function listCatalogUploads(
 
 /**
  * Exclui um registro de busca do histórico (Dashboard, seção "Catálogos
- * processados"). Só remove o documento em `catalog_uploads` — não mexe
- * em `catalog_images` (fotos ligadas a essa busca seguem seu próprio
- * TTL normalmente, ver catalogImages.ts) nem em `market_prices` (cache
- * de preço é global por SKU, não por busca, então outra busca do mesmo
- * produto continua se beneficiando dele). Ownership é garantida pela
- * security rule do Firestore (só o dono do documento pode apagar), não
- * checada aqui no client.
+ * processados"). Precisa de `userId` porque o doc mora numa subcoleção
+ * (`users/{userId}/catalog_uploads/{id}`, ver ADR-0003) — Firestore
+ * exige o path completo pra apagar, não dá pra endereçar só pelo ID como
+ * antes (coleção de nível superior). Só remove o documento em
+ * `catalog_uploads` — não mexe em `catalog_images` (fotos ligadas a essa
+ * busca seguem seu próprio TTL normalmente, ver catalogImages.ts) nem em
+ * `market_prices` (cache de preço é global por SKU, não por busca, então
+ * outra busca do mesmo produto continua se beneficiando dele). Ownership
+ * é garantida pela security rule do Firestore (só o dono do documento
+ * pode apagar), não checada aqui no client.
  */
-export async function deleteCatalogUpload(id: string): Promise<void> {
+export async function deleteCatalogUpload(userId: string, id: string): Promise<void> {
   if (!firebaseConfigured) return;
   const db = await getFirebaseDb();
   const { doc, deleteDoc } = await import("firebase/firestore");
-  await deleteDoc(doc(db, COLLECTION, id));
+  await deleteDoc(doc(db, "users", userId, SUBCOLLECTION, id));
 }
