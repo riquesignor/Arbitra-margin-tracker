@@ -7,3 +7,5 @@ dist-verify
 *.log
 .vercel
 .DS_Store
+
+.vercel

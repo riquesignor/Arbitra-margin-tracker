@@ -24,7 +24,13 @@ export type SearchProviderId =
   | "mercadolivre_direct"
   | "google_lens_products";
 
-export type Screen = "dashboard" | "pricing" | "results" | "account" | "admin";
+/**
+ * "home" — tela de entrada (ver docs/design-critique-log.md, Session 4):
+ * saudação + números + atalho pra "Nova busca" (nome de tela continua
+ * "dashboard" internamente; só o rótulo de navegação mudou, ver
+ * TopNav.tsx). Vira o landing screen padrão no lugar de "dashboard".
+ */
+export type Screen = "home" | "dashboard" | "pricing" | "results" | "account" | "admin";
 
 /**
  * Planos (Fase Planos): controlam (1) quais catálogos da biblioteca
@@ -39,6 +45,15 @@ export interface CatalogRow {
   sku: string;
   name: string;
   supplierPrice: number;
+  /**
+   * URL pública da foto do produto (ver catalogImages.ts) — só existe
+   * quando a busca rodou em modo imagem (Google Lens). Persiste junto
+   * com a linha em `catalog_uploads` (catalogHistory.ts), então some
+   * quando o documento em `catalog_images` expira (TTL, ver
+   * catalogImages.ts) mesmo que o registro do histórico continue vivo —
+   * a tela de Resultados trata isso com fallback pra ícone genérico.
+   */
+  imageUrl?: string;
 }
 
 /**
@@ -119,6 +134,8 @@ export interface MarginResult {
   recommendation: Recommendation;
   link?: string;
   matchedTitle?: string;
+  /** Ver mesmo campo em CatalogRow — copiado ao calcular a margem (marginCalculator.ts). */
+  imageUrl?: string;
 }
 
 export interface MarginSummary {

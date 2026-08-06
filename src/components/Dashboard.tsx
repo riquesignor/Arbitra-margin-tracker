@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useState, type DragEvent, type MouseEvent } from "react";
 import { motion } from "framer-motion";
 import {
   UploadCloud,
@@ -14,6 +14,7 @@ import {
   Calculator,
   Library,
   Camera,
+  Trash2,
 } from "lucide-react";
 import type {
   CatalogRow,
@@ -29,6 +30,7 @@ import { fetchMultipleMarketplacePrices } from "../lib/priceApi";
 import { calculateMargins } from "../lib/marginCalculator";
 import {
   computeFileHash,
+  deleteCatalogUpload,
   findExistingUpload,
   listCatalogUploads,
   saveCatalogUpload,
@@ -141,6 +143,10 @@ interface Props {
   userId: string | null;
   profile: UserProfile | null;
   onComplete: (result: DashboardResult) => void;
+  /** Avisa o App que o histórico salvo mudou (nova busca concluída) — ver seletor de histórico em Precificação/Resultados. */
+  onHistoryChanged?: () => void;
+  /** Avisa o App que um registro do histórico foi excluído, pra podar o mesmo id da lista global. */
+  onHistoryDeleted?: (id: string) => void;
 }
 
 interface LastUpload {
@@ -149,7 +155,14 @@ interface LastUpload {
   pageRange: PageRange | null;
 }
 
-export default function Dashboard({ rules, userId, profile, onComplete }: Props) {
+export default function Dashboard({
+  rules,
+  userId,
+  profile,
+  onComplete,
+  onHistoryChanged,
+  onHistoryDeleted,
+}: Props) {
   const [state, setState] = useState<UploadState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [historyInfo, setHistoryInfo] = useState<string | null>(null);
@@ -314,6 +327,27 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
   }
 
   /**
+   * Exclui uma busca do histórico — otimista (some da lista na hora),
+   * com rollback se a exclusão falhar no Firestore (mesmo padrão de
+   * Admin.tsx > handleDeleteCatalog). `stopPropagation` no clique é
+   * essencial: o botão de lixeira fica DENTRO da linha inteira, que por
+   * sua vez é clicável pra carregar o registro (ver renderização da
+   * seção 03) — sem isso, clicar em excluir também dispararia o load.
+   */
+  async function handleDeleteRecord(event: MouseEvent<HTMLButtonElement>, id: string) {
+    event.stopPropagation();
+    const previous = uploadHistory;
+    setUploadHistory((prev) => prev.filter((r) => r.id !== id));
+    try {
+      await deleteCatalogUpload(id);
+      onHistoryDeleted?.(id);
+    } catch (err) {
+      setUploadHistory(previous);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /**
    * Usa um catálogo da biblioteca (já parseado pelo admin) — sem File
    * local, então o "hash" é sintético (`shared:{id}`), o que também
    * dedupe automaticamente via o mesmo `catalog_uploads`/`findExistingUpload`
@@ -399,9 +433,20 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       return;
     }
 
-    const searchCost = rows.length * meta.marketplaces.length;
+    // Mescla a foto (quando existe, modo imagem) em cada linha ANTES de
+    // calcular margem/salvar — assim `imageUrl` viaja junto com o resto
+    // da linha em `MarginResult` (marginCalculator.ts) e em
+    // `catalog_uploads` (catalogHistory.ts) sem precisar de um mapa
+    // paralelo em nenhum outro lugar do app (ver coluna de foto em
+    // ResultsTable.tsx).
+    const rowsWithImages =
+      imagesBySku && Object.keys(imagesBySku).length > 0
+        ? rows.map((r) => (imagesBySku[r.sku] ? { ...r, imageUrl: imagesBySku[r.sku] } : r))
+        : rows;
+
+    const searchCost = rowsWithImages.length * meta.marketplaces.length;
     setState("fetching");
-    setProgress({ done: 0, total: rows.length });
+    setProgress({ done: 0, total: rowsWithImages.length });
 
     const pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>> =
       {};
@@ -417,7 +462,8 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
     // isso aqui é só granularidade de feedback, não paralelismo extra.
     try {
       const chunks: CatalogRow[][] = [];
-      for (let i = 0; i < rows.length; i += CHUNK_SIZE) chunks.push(rows.slice(i, i + CHUNK_SIZE));
+      for (let i = 0; i < rowsWithImages.length; i += CHUNK_SIZE)
+        chunks.push(rowsWithImages.slice(i, i + CHUNK_SIZE));
 
       for (const chunk of chunks) {
         const chunkItems = chunk.map((r) => ({
@@ -439,7 +485,9 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
         }
 
         setProgress((p) =>
-          p ? { done: Math.min(p.done + chunk.length, rows.length), total: rows.length } : p
+          p
+            ? { done: Math.min(p.done + chunk.length, rowsWithImages.length), total: rowsWithImages.length }
+            : p
         );
       }
     } finally {
@@ -448,12 +496,14 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
 
     let allResults: MarginResult[] = [];
     for (const marketplace of meta.marketplaces) {
-      allResults = allResults.concat(calculateMargins(rows, pricesByMarket[marketplace] ?? {}, rules));
+      allResults = allResults.concat(
+        calculateMargins(rowsWithImages, pricesByMarket[marketplace] ?? {}, rules)
+      );
     }
 
     const source = allFromServer ? "server" : "local";
     setState("idle");
-    onComplete({ rows, pricesByMarket, results: allResults, source });
+    onComplete({ rows: rowsWithImages, pricesByMarket, results: allResults, source });
 
     if (userId) {
       void addTodayUsage(userId, searchCost);
@@ -467,12 +517,13 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
       pageRange: meta.pageRange,
       marketplaces: meta.marketplaces,
       uploadedAt: Date.now(),
-      rows,
+      rows: rowsWithImages,
       pricesByMarket,
       results: allResults,
       source,
     }).then(() => {
       if (userId) listCatalogUploads(userId).then(setUploadHistory);
+      onHistoryChanged?.();
     });
   }
 
@@ -701,6 +752,36 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                   );
                 })}
               </div>
+
+              {searchProvider === "google_lens_products" && (
+                <div className={styles.subGroup}>
+                  <span className={styles.subGroupLabel}>API em uso agora</span>
+                  <div className={styles.apiSwitchRow}>
+                    {SEARCH_PROVIDERS.map((p) => {
+                      const active = p.id === searchProvider;
+                      const Icon = p.icon;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={active ? styles.apiChipActive : styles.apiChip}
+                          title={p.note}
+                          onClick={() => selectProvider(p.id)}
+                        >
+                          <Icon size={12} />
+                          {p.label}
+                          {active && <Check size={11} strokeWidth={3} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className={styles.subGroupHint}>
+                    "Busca por imagem" usa a foto do catálogo pra achar o produto, mas por baixo
+                    ainda é a sua chave/cota SerpApi que resolve o preço — clique acima pra trocar
+                    pra busca por texto (SerpApi, Amazon direto ou Mercado Livre) a qualquer momento.
+                  </p>
+                </div>
+              )}
 
               {(searchProvider === "serpapi" || searchProvider === "google_lens_products") && (
                 <div className={styles.subGroup}>
@@ -947,16 +1028,24 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                     <span>com preço</span>
                     <span>marketplaces</span>
                     <span>quando</span>
+                    <span />
                   </div>
                   {uploadHistory.slice(0, 10).map((record) => {
                     const foundCount = record.results.length;
                     const failed = foundCount === 0;
                     return (
-                      <button
+                      <div
                         key={record.id}
-                        type="button"
                         className={styles.tableRow}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => loadHistoryRecord(record)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            loadHistoryRecord(record);
+                          }
+                        }}
                       >
                         <span className={styles.tableCellFile}>
                           <FileText size={13} /> {record.fileName}
@@ -970,7 +1059,15 @@ export default function Dashboard({ rules, userId, profile, onComplete }: Props)
                         <span className={styles.tableCellWhen}>
                           {new Date(record.uploadedAt).toLocaleString("pt-BR")}
                         </span>
-                      </button>
+                        <button
+                          type="button"
+                          className={styles.tableRowDelete}
+                          title="Excluir esta busca do histórico"
+                          onClick={(e) => void handleDeleteRecord(e, record.id)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     );
                   })}
                 </>

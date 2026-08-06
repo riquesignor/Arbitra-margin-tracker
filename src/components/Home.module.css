@@ -1,0 +1,453 @@
+/* Largura controlada por `.app-shell__content` (index.css). */
+.container {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* --- Hero: saudação + CTAs + stats --- */
+
+.heroCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-6);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+@media (max-width: 900px) {
+  .heroCard {
+    grid-template-columns: 1fr;
+  }
+}
+
+.heroMain {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+  margin-bottom: var(--space-3);
+}
+
+.heroTitle {
+  font-size: 1.8rem;
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-3);
+}
+
+.heroSubtitle {
+  color: var(--color-text-muted);
+  max-width: 62ch;
+  line-height: 1.6;
+  font-size: 0.92rem;
+  margin: 0 0 var(--space-5);
+}
+
+.heroActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--gradient-accent);
+  color: var(--color-on-accent);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: none;
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-5);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-dim);
+}
+
+.heroStats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-left: 1px solid var(--color-border-soft);
+  padding-left: var(--space-6);
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .heroStats {
+    border-left: none;
+    border-top: 1px solid var(--color-border-soft);
+    padding-left: 0;
+    padding-top: var(--space-5);
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.statRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.statValue {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+}
+
+.statLabel {
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Como funciona --- */
+
+.stepsCard {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5) var(--space-6);
+}
+
+.stepsTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+}
+
+.stepsRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+}
+
+@media (max-width: 780px) {
+  .stepsRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stepCol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  position: relative;
+  padding-left: var(--space-6);
+}
+
+.stepIcon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.stepNumber {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+}
+
+.stepTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stepText {
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
+
+/* --- Duas colunas: Suas buscas / Catálogos disponíveis --- */
+
+.twoCol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+}
+
+.asideCol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.panel {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.panelTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.panelHeaderLink {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.panelHeaderLink:hover {
+  color: var(--color-text);
+}
+
+.planBadge {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.emptyText {
+  margin: 0;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.recentTable {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recentRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 64px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recentRow:hover {
+  background: var(--color-bg-hover);
+}
+
+.recentName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-dim);
+}
+
+.recentMeta {
+  color: var(--color-text-dim);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentMargin {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-accent);
+  text-align: right;
+}
+
+.panelFooterNote {
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-soft);
+  font-size: 0.76rem;
+  color: var(--color-text-dim);
+  line-height: 1.5;
+}
+
+/* --- Biblioteca do plano --- */
+
+.libraryList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.libraryRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+}
+
+.libraryName {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  color: var(--color-text);
+}
+
+.libraryMeta {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+.libraryUseButton {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.libraryUseButton:hover {
+  border-color: var(--color-accent);
+}
+
+/* --- Callout de chave SerpApi --- */
+
+.keyCardOk,
+.keyCardWarning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+}
+
+.keyCardOk {
+  background: var(--color-success-dim);
+  border-color: var(--color-success-border);
+}
+
+.keyCardWarning {
+  background: var(--color-warning-dim);
+  border-color: var(--color-warning-border);
+}
+
+.keyCardIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-bg-elevated);
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
+.keyCardWarning .keyCardIcon {
+  color: var(--color-warning);
+}
+
+.keyCardText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  min-width: 0;
+}
+
+.keyCardSub {
+  font-size: 0.76rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.keyCardLink {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}

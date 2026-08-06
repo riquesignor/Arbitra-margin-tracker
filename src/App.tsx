@@ -10,11 +10,12 @@ import type {
 } from "./types";
 import { subscribeToAuth, type AuthUser } from "./lib/auth";
 import { ensureUserProfile, type UserProfile } from "./lib/userProfile";
-import { listCatalogUploads } from "./lib/catalogHistory";
+import { listCatalogUploads, type CatalogUploadRecord } from "./lib/catalogHistory";
 import { loadPricingRules, savePricingRules } from "./lib/pricingRulesStore";
 import { DEFAULT_PRICING_RULES, calculateMargins } from "./lib/marginCalculator";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
-import Sidebar from "./components/Sidebar";
+import TopNav from "./components/TopNav";
+import Home from "./components/Home";
 import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
 import ResultsTable from "./components/ResultsTable";
@@ -22,7 +23,11 @@ import Account from "./components/Account";
 import Admin from "./components/Admin";
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("dashboard");
+  // "home" — tela de entrada (ver docs/design-critique-log.md, Session
+  // 4): resumo do que já foi processado + atalho pra Nova busca (a
+  // Dashboard atual, agora só operacional). Landing screen padrão no
+  // lugar do antigo "dashboard".
+  const [screen, setScreen] = useState<Screen>("home");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_PRICING_RULES);
@@ -33,6 +38,16 @@ export default function App() {
   >({});
   const [results, setResults] = useState<MarginResult[]>([]);
   const [source, setSource] = useState<"server" | "local" | null>(null);
+
+  // Histórico completo do usuário (não só o mais recente, ver efeito de
+  // restauro abaixo) — alimenta o seletor "qual busca ver" em
+  // Precificação e Resultados (feature pedida: escolher entre buscas já
+  // feitas sem precisar voltar pro Dashboard). `activeHistoryId` é null
+  // quando o que está em tela é o resultado mais recente desta sessão
+  // (recém-processado ou restaurado no login) e ainda não foi trocado
+  // manualmente pelo seletor.
+  const [history, setHistory] = useState<CatalogUploadRecord[]>([]);
+  const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
   const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
   useEffect(() => applyTheme(theme), [theme]);
@@ -65,15 +80,20 @@ export default function App() {
   // do usuário já ter processado um catálogo novo.
   const skipRestoreRef = useRef(false);
   useEffect(() => {
-    if (!user) return;
-    listCatalogUploads(user.uid).then((history) => {
+    if (!user) {
+      setHistory([]);
+      return;
+    }
+    listCatalogUploads(user.uid).then((fetchedHistory) => {
+      setHistory(fetchedHistory);
       if (skipRestoreRef.current) return;
-      const latest = history[0];
+      const latest = fetchedHistory[0];
       if (latest) {
         setCatalogRows(latest.rows);
         setPricesByMarket(latest.pricesByMarket);
         setResults(latest.results);
         setSource(latest.source);
+        setActiveHistoryId(latest.id);
       }
     });
   }, [user]);
@@ -84,6 +104,36 @@ export default function App() {
     setPricesByMarket(data.pricesByMarket);
     setResults(data.results);
     setSource(data.source);
+    setActiveHistoryId(null);
+    setScreen("results");
+  }
+
+  /** Recarrega o histórico global após uma nova busca ser salva (Dashboard.tsx). */
+  function handleHistoryChanged() {
+    if (!user) return;
+    listCatalogUploads(user.uid).then(setHistory);
+  }
+
+  /** Poda um registro excluído (Dashboard.tsx) da lista global — mesma exclusão usada no seletor de Precificação/Resultados. */
+  function handleHistoryDeleted(id: string) {
+    setHistory((prev) => prev.filter((h) => h.id !== id));
+    if (activeHistoryId === id) setActiveHistoryId(null);
+  }
+
+  /** Troca qual busca salva está sendo exibida em Precificação/Resultados (ver seletor de histórico). */
+  function handleSelectHistory(id: string) {
+    const record = history.find((h) => h.id === id);
+    if (!record) return;
+    setActiveHistoryId(id);
+    setCatalogRows(record.rows);
+    setPricesByMarket(record.pricesByMarket);
+    setResults(record.results);
+    setSource(record.source);
+  }
+
+  /** Abre um registro do histórico direto na tela de Resultados (Home > "Suas buscas" / "Ver último resultado"). */
+  function handleOpenHistoryRecord(id: string) {
+    handleSelectHistory(id);
     setScreen("results");
   }
 
@@ -102,13 +152,14 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar
+      <TopNav
         active={screen}
         onChange={setScreen}
         resultsCount={results.length}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         isAdmin={profile?.isAdmin ?? false}
+        userEmail={user?.email}
       />
       <main className="app-shell__main">
         <AnimatePresence mode="wait">
@@ -120,12 +171,24 @@ export default function App() {
             exit={{ opacity: 0, y: -6 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
           >
+            {screen === "home" && (
+              <Home
+                userId={user?.uid ?? null}
+                userEmail={user?.email}
+                profile={profile}
+                history={history}
+                onNavigate={setScreen}
+                onOpenRecord={handleOpenHistoryRecord}
+              />
+            )}
             {screen === "dashboard" && (
               <Dashboard
                 rules={pricingRules}
                 userId={user?.uid ?? null}
                 profile={profile}
                 onComplete={handleDashboardComplete}
+                onHistoryChanged={handleHistoryChanged}
+                onHistoryDeleted={handleHistoryDeleted}
               />
             )}
             {screen === "pricing" && (
@@ -134,6 +197,9 @@ export default function App() {
                 onChange={handlePricingChange}
                 catalogRows={catalogRows}
                 pricesByMarket={pricesByMarket}
+                history={history}
+                activeHistoryId={activeHistoryId}
+                onSelectHistory={handleSelectHistory}
               />
             )}
             {screen === "results" && (
@@ -141,6 +207,9 @@ export default function App() {
                 results={results}
                 targetMarginPct={pricingRules.targetMarginPct}
                 source={source}
+                history={history}
+                activeHistoryId={activeHistoryId}
+                onSelectHistory={handleSelectHistory}
               />
             )}
             {screen === "account" && <Account user={user} profile={profile} />}

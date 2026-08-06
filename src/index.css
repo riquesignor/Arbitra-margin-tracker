@@ -83,8 +83,16 @@ textarea {
   vertical-align: -2px;
 }
 
+/*
+ * Layout de topbar (ver TopNav.tsx — substitui a sidebar lateral):
+ * coluna única, nav fixa em cima com altura própria, `__main` ocupa o
+ * resto da viewport. Antes era `flex-direction: row` com a Sidebar como
+ * primeira coluna de largura fixa (232px) — a mudança pra barra
+ * horizontal libera essa largura pra tabela de Resultados.
+ */
 .app-shell {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
@@ -114,10 +122,6 @@ textarea {
 }
 
 @media (max-width: 720px) {
-  .app-shell {
-    flex-direction: column;
-  }
-
   .app-shell__main {
     padding: var(--space-4);
   }

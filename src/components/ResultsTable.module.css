@@ -83,6 +83,39 @@
   background: var(--color-success);
 }
 
+/* --- Seletor "qual busca ver" (histórico salvo) --- */
+
+.historySelectWrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.historySelectLabel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.historySelect {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  max-width: 260px;
+}
+
+.historySelect:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
 /* --- Cards de resumo --- */
 
 .summaryRow {
@@ -295,6 +328,38 @@
 
 .productHeader {
   width: 32%;
+}
+
+.photoHeader {
+  width: 44px;
+}
+
+/* --- Coluna de foto do produto (só existe em busca por imagem, ver imageUrl em MarginResult) --- */
+
+.photoCell {
+  width: 44px;
+}
+
+.photoImg {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  object-fit: cover;
+  background: var(--color-bg-elevated-2);
+}
+
+.photoPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-bg-elevated-2);
+  color: var(--color-text-dim);
 }
 
 .sortButton {

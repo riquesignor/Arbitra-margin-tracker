@@ -142,3 +142,20 @@ export async function listCatalogUploads(
     return [];
   }
 }
+
+/**
+ * Exclui um registro de busca do histórico (Dashboard, seção "Catálogos
+ * processados"). Só remove o documento em `catalog_uploads` — não mexe
+ * em `catalog_images` (fotos ligadas a essa busca seguem seu próprio
+ * TTL normalmente, ver catalogImages.ts) nem em `market_prices` (cache
+ * de preço é global por SKU, não por busca, então outra busca do mesmo
+ * produto continua se beneficiando dele). Ownership é garantida pela
+ * security rule do Firestore (só o dono do documento pode apagar), não
+ * checada aqui no client.
+ */
+export async function deleteCatalogUpload(id: string): Promise<void> {
+  if (!firebaseConfigured) return;
+  const db = await getFirebaseDb();
+  const { doc, deleteDoc } = await import("firebase/firestore");
+  await deleteDoc(doc(db, COLLECTION, id));
+}

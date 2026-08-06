@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { CatalogRow, MarketplaceId, MarketplacePriceResult, PricingRules } from "../types";
 import { calculateMargin, calculateMargins, DEFAULT_PRICING_RULES, median } from "../lib/marginCalculator";
+import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import styles from "./PricingConfig.module.css";
 
 interface Props {
@@ -19,6 +20,20 @@ interface Props {
   onChange: (rules: PricingRules) => void;
   catalogRows?: CatalogRow[];
   pricesByMarket?: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>;
+  /** Buscas salvas do usuário — alimenta o seletor "qual busca ver" abaixo. */
+  history?: CatalogUploadRecord[];
+  activeHistoryId?: string | null;
+  onSelectHistory?: (id: string) => void;
+}
+
+function formatHistoryLabel(record: CatalogUploadRecord): string {
+  const when = new Date(record.uploadedAt).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${record.fileName} · ${when}`;
 }
 
 // Exemplo ilustrativo — usado só quando ainda não há catálogo processado
@@ -76,7 +91,15 @@ const sections = (delay: number) => ({
   transition: { duration: 0.3, delay, ease: [0.16, 1, 0.3, 1] as const },
 });
 
-export default function PricingConfig({ rules, onChange, catalogRows, pricesByMarket }: Props) {
+export default function PricingConfig({
+  rules,
+  onChange,
+  catalogRows,
+  pricesByMarket,
+  history = [],
+  activeHistoryId = null,
+  onSelectHistory,
+}: Props) {
   function updateFee(id: string, patch: Partial<PricingRules["marketplaceFees"][number]>) {
     onChange({
       ...rules,
@@ -265,6 +288,25 @@ export default function PricingConfig({ rules, onChange, catalogRows, pricesByMa
             </b>
           </span>
         </div>
+        {history.length > 0 && onSelectHistory && (
+          <label className={styles.historySelectWrap}>
+            <span className={styles.historySelectLabel}>ver busca</span>
+            <select
+              className={styles.historySelect}
+              value={activeHistoryId ?? ""}
+              onChange={(e) => e.target.value && onSelectHistory(e.target.value)}
+            >
+              <option value="" disabled={activeHistoryId !== null}>
+                Resultado atual desta sessão
+              </option>
+              {history.map((record) => (
+                <option key={record.id} value={record.id}>
+                  {formatHistoryLabel(record)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className={styles.statsGrid}>

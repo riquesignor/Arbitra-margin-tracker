@@ -67,6 +67,7 @@ export function calculateMargin(
     recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
     link: priceResult.link,
     matchedTitle: priceResult.matchedTitle,
+    imageUrl: row.imageUrl,
   };
 }
 

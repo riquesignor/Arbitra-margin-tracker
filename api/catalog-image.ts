@@ -12,9 +12,9 @@ const COLLECTION = "catalog_images";
  * autenticação de propósito: o Google Lens crawler não manda
  * Authorization header nenhum. O "segredo" é o id ser um doc id do
  * Firestore (não sequencial, não adivinhável por força bruta) e o TTL
- * (2h, verificado abaixo) — não é um mecanismo de controle de acesso
- * forte, só o suficiente pro risco real (foto de produto de catálogo,
- * não é dado sensível).
+ * (30 dias, verificado abaixo — ver src/lib/catalogImages.ts) — não é
+ * um mecanismo de controle de acesso forte, só o suficiente pro risco
+ * real (foto de produto de catálogo, não é dado sensível).
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
   if (req.method !== "GET") {

@@ -1,7 +1,14 @@
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
 const COLLECTION = "catalog_images";
-const TTL_MS = 2 * 60 * 60 * 1000; // 2h — mesmo TTL do cache de preço (market_prices)
+// 30 dias — estendido a partir das 2h originais (mesmo TTL do cache de
+// preço, market_prices) pra a foto continuar aparecendo na coluna de
+// produto da tela de Resultados mesmo quando o usuário reabre um
+// catálogo antigo do histórico, não só na busca recém-feita. Decisão
+// consciente de trade-off: mais documentos base64 acumulados no
+// Firestore (ver nota de limpeza abaixo), em troca de foto visível por
+// muito mais tempo no histórico.
+const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Hospedagem TEMPORÁRIA de foto de produto — existe só pra dar uma URL

@@ -1,14 +1,25 @@
 :root {
-  /* --- Tipografia --- */
-  --font-display: "Space Grotesk", sans-serif;
-  --font-body: "IBM Plex Sans", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  /* --- Tipografia — família única (Inter). Display/body/mono apontam
+     para a mesma família: números usam font-variant-numeric, não outra
+     fonte. Ver design/design-tokens.md. --- */
+  --font-display: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* --- Raios --- */
+  /* --- Escala tipográfica --- */
+  --text-display: 28px;
+  --text-title: 20px;
+  --text-card: 15px;
+  --text-body: 14px;
+  --text-sm: 13px;
+  --text-xs: 12px;
+  --text-label: 11px;
+
+  /* --- Raios — 3 degraus. Pill só em badge. --- */
   --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
-  --radius-xl: 20px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 8px;
 
   /* --- Espaçamento --- */
   --space-1: 4px;
@@ -25,97 +36,99 @@
   --duration-fast: 0.15s;
   --duration-base: 0.25s;
 
-  /*
-   * Largura máxima do conteúdo (ver `.app-shell__content` em index.css).
-   * Cresce por breakpoint em vez de ficar travada em 1180px: num monitor
-   * 27" (2560px lógico ~1440-1920px de viewport) o conteúdo travado
-   * deixava uma faixa morta enorme à direita. Além do teto, o conteúdo
-   * é centralizado — assim a sobra vira margem simétrica, não um vazio
-   * de um lado só.
-   */
   --content-max: 1180px;
 }
 
 @media (min-width: 1600px) {
-  :root {
-    --content-max: 1440px;
-  }
+  :root { --content-max: 1440px; }
 }
 
 @media (min-width: 1920px) {
-  :root {
-    --content-max: 1680px;
-  }
+  :root { --content-max: 1680px; }
 }
 
 /*
- * Paleta v2 — preto + um único acento (azul-aço desaturado), sem
- * gradiente teal→ciano. Cores semânticas (sucesso/alerta/perigo) usam
- * tons abafados, não neon — a ideia é ler como ferramenta financeira
- * séria (tipo terminal), não como produto de IA genérico.
- *
- * `--gradient-accent` continua existindo como variável (vários
- * componentes já usam `background: var(--gradient-accent)`) mas agora
- * aponta pra uma cor sólida — nenhum componente precisa mudar.
+ * Paleta v3 — clara por padrão (referência corporativa/JoomPulse), azul-aço
+ * mantido como ÚNICO acento. Regra: azul = ação e navegação; verde/âmbar/
+ * vermelho só em badge de status e no número de margem. Sem gradiente,
+ * sem glow — hierarquia é feita com borda e fundo.
  */
 :root,
-[data-theme="dark"] {
-  --color-bg: #09090b;
-  --color-bg-elevated: #131316;
-  --color-bg-elevated-2: #1a1a1e;
-  --color-bg-hover: #202024;
-  --color-border: #27272c;
-  --color-border-soft: #1c1c20;
-  --color-text: #eaeaec;
-  --color-text-muted: #9a9aa2;
-  --color-text-dim: #66666e;
-
-  --color-accent: #5b7fa6;
-  --color-accent-dim: rgba(91, 127, 166, 0.16);
-  --gradient-accent: #5b7fa6;
-  --gradient-glow: radial-gradient(55% 55% at 30% 10%, rgba(91, 127, 166, 0.07), transparent 70%);
-
-  --color-success: #5b9a6f;
-  --color-success-dim: rgba(91, 154, 111, 0.16);
-  --color-warning: #c99a3e;
-  --color-warning-dim: rgba(201, 154, 62, 0.16);
-  --color-danger: #b85c56;
-  --color-danger-dim: rgba(184, 92, 86, 0.16);
-
-  --color-on-accent: #06090c;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
-  --shadow-glow-accent: 0 0 0 1px rgba(91, 127, 166, 0.3), 0 8px 20px rgba(91, 127, 166, 0.1);
-}
-
-/* Modo claro — branco/preto, mesmo acento (versão levemente mais escura pra manter contraste em fundo claro). */
 [data-theme="light"] {
-  --color-bg: #ffffff;
-  --color-bg-elevated: #f7f7f8;
-  --color-bg-elevated-2: #f0f0f2;
-  --color-bg-hover: #e9e9ec;
-  --color-border: #dcdce0;
-  --color-border-soft: #ececef;
-  --color-text: #0a0a0c;
-  --color-text-muted: #55555e;
-  --color-text-dim: #86868f;
+  --color-bg: #f7f8fa;
+  --color-bg-elevated: #ffffff;
+  --color-bg-elevated-2: #fafbfc;
+  --color-bg-hover: #f2f4f7;
+  --color-border: #e3e6ea;
+  --color-border-strong: #d5d9df;
+  --color-border-soft: #eef0f3;
+  --color-text: #12161c;
+  --color-text-muted: #5b6472;
+  --color-text-dim: #8b93a1;
 
   --color-accent: #3f5f80;
-  --color-accent-dim: rgba(63, 95, 128, 0.1);
+  --color-accent-hover: #2c4460;
+  --color-accent-soft: #7d9ab8;
+  --color-accent-dim: #eef2f7;
+  --color-accent-border: #d3dfeb;
+  /* Mantido só por compatibilidade: aponta pra cor sólida, sem gradiente. */
   --gradient-accent: #3f5f80;
   --gradient-glow: none;
 
-  --color-success: #327049;
-  --color-warning: #97701f;
+  --color-success: #2f6b47;
+  --color-success-dim: #edf4ef;
+  --color-success-border: #cfe2d6;
+  --color-warning: #8a6516;
+  --color-warning-dim: #faf4e8;
+  --color-warning-border: #ecdcbc;
   --color-danger: #9c3f39;
-  --color-success-dim: rgba(50, 112, 73, 0.1);
-  --color-warning-dim: rgba(151, 112, 31, 0.1);
-  --color-danger-dim: rgba(156, 63, 57, 0.1);
+  --color-danger-dim: #faf1f0;
+  --color-danger-border: #e8cfcd;
 
   --color-on-accent: #ffffff;
+  --focus-ring: 0 0 0 3px #e5ecf4;
 
-  --shadow-sm: 0 1px 2px rgba(20, 20, 25, 0.06);
-  --shadow-md: 0 8px 24px rgba(20, 20, 25, 0.08);
-  --shadow-glow-accent: 0 0 0 1px rgba(63, 95, 128, 0.25), 0 8px 20px rgba(63, 95, 128, 0.08);
+  /* Elevação só existe em overlay (dropdown, modal, tooltip). */
+  --shadow-sm: none;
+  --shadow-md: 0 6px 16px rgba(18, 22, 28, 0.08);
+  --shadow-glow-accent: none;
+}
+
+/* Variante escura — mesma estrutura, superfícies invertidas. */
+[data-theme="dark"] {
+  --color-bg: #0e1013;
+  --color-bg-elevated: #16191e;
+  --color-bg-elevated-2: #181c21;
+  --color-bg-hover: #1a1e24;
+  --color-border: #262a31;
+  --color-border-strong: #333944;
+  --color-border-soft: #1f242b;
+  --color-text: #e8eaed;
+  --color-text-muted: #9aa3b0;
+  --color-text-dim: #8992a0;
+
+  --color-accent: #7fa3c9;
+  --color-accent-hover: #93b3d4;
+  --color-accent-soft: #5b7fa6;
+  --color-accent-dim: #1d2530;
+  --color-accent-border: #2f3d4d;
+  --gradient-accent: #7fa3c9;
+  --gradient-glow: none;
+
+  --color-success: #77b491;
+  --color-success-dim: #182219;
+  --color-success-border: #2b3f31;
+  --color-warning: #d1a34d;
+  --color-warning-dim: #231d12;
+  --color-warning-border: #3e3320;
+  --color-danger: #cf7f79;
+  --color-danger-dim: #241819;
+  --color-danger-border: #3f2a2a;
+
+  --color-on-accent: #0e1013;
+  --focus-ring: 0 0 0 3px rgba(127, 163, 201, 0.22);
+
+  --shadow-sm: none;
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-glow-accent: none;
 }

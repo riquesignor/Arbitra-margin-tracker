@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import Papa from "papaparse";
 import {
   Package,
+  ImageOff,
   TrendingUp,
   Percent,
   ShieldAlert,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
+import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import MarginBar from "./MarginBar";
 import styles from "./ResultsTable.module.css";
 
@@ -24,6 +26,48 @@ interface Props {
   results: MarginResult[];
   targetMarginPct: number;
   source: "server" | "local" | null;
+  /** Buscas salvas do usuário — alimenta o seletor "qual busca ver" abaixo. */
+  history?: CatalogUploadRecord[];
+  activeHistoryId?: string | null;
+  onSelectHistory?: (id: string) => void;
+}
+
+function formatHistoryLabel(record: CatalogUploadRecord): string {
+  const when = new Date(record.uploadedAt).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${record.fileName} · ${when}`;
+}
+
+/**
+ * Thumbnail do produto — só existe quando a busca rodou em modo imagem
+ * (Google Lens, ver imageUrl em CatalogRow/MarginResult). Cai pro ícone
+ * genérico tanto na ausência do campo (busca por texto, nunca teve
+ * foto) quanto no load da imagem falhando (documento expirado em
+ * `catalog_images`, ver TTL em catalogImages.ts) — as duas situações são
+ * o esperado, não um erro pra reportar ao usuário.
+ */
+function ProductThumb({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return (
+      <span className={styles.photoPlaceholder} title="Sem foto disponível">
+        <ImageOff size={13} />
+      </span>
+    );
+  }
+  return (
+    <img
+      className={styles.photoImg}
+      src={src}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 const SOURCE_LABEL: Record<"server" | "local", string> = {
@@ -65,7 +109,14 @@ const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
 // pesada sem necessidade, já que só a página visível importa pra tela.
 const PAGE_SIZE = 50;
 
-export default function ResultsTable({ results, targetMarginPct, source }: Props) {
+export default function ResultsTable({
+  results,
+  targetMarginPct,
+  source,
+  history = [],
+  activeHistoryId = null,
+  onSelectHistory,
+}: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("todos");
   const [sortKey, setSortKey] = useState<SortKey>("marginPct");
@@ -164,6 +215,25 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
             meta <b className={styles.headerCardStrong}>{(targetMarginPct * 100).toFixed(0)}%</b>
           </span>
         </div>
+        {history.length > 0 && onSelectHistory && (
+          <label className={styles.historySelectWrap}>
+            <span className={styles.historySelectLabel}>ver busca</span>
+            <select
+              className={styles.historySelect}
+              value={activeHistoryId ?? ""}
+              onChange={(e) => e.target.value && onSelectHistory(e.target.value)}
+            >
+              <option value="" disabled={activeHistoryId !== null}>
+                Resultado atual desta sessão
+              </option>
+              {history.map((record) => (
+                <option key={record.id} value={record.id}>
+                  {formatHistoryLabel(record)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className={styles.summaryRow}>
@@ -248,6 +318,7 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
             <table className={styles.table}>
               <thead>
                 <tr>
+                  <th className={styles.photoHeader} />
                   <th>SKU</th>
                   <th className={styles.productHeader}>Produto</th>
                   <th>Marketplace</th>
@@ -286,6 +357,9 @@ export default function ResultsTable({ results, targetMarginPct, source }: Props
                       ease: [0.16, 1, 0.3, 1],
                     }}
                   >
+                    <td className={styles.photoCell}>
+                      <ProductThumb src={r.imageUrl} />
+                    </td>
                     <td>{r.sku}</td>
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
