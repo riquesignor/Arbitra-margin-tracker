@@ -56,44 +56,35 @@ const BENEFITS = [
   },
 ];
 
-const SERPAPI_STEPS = [
-  {
-    n: "1",
-    title: "Crie a conta grátis na SerpApi",
-    text: "só email, sem cartão de crédito — cerca de 250 buscas por mês no plano grátis",
-  },
-  {
-    n: "2",
-    title: "Copie sua API key",
-    text: "ela fica no painel da SerpApi, em Your Account → API Key",
-  },
-  {
-    n: "3",
-    title: "Cole aqui e salve",
-    text: "a busca já usa sua chave na próxima tentativa — sem mexer em .env, sem reiniciar nada",
-  },
-];
+// Instrução compacta (1 linha) em vez do passo-a-passo numerado antigo —
+// o link já leva direto pra onde pegar a chave, sem precisar de 3 blocos
+// de texto por card. Usada tanto pra busca por texto (Amazon + Mercado
+// Livre) quanto pra busca por foto (Google Lens) — é a MESMA chave.
+const SERPAPI_INTRO = (
+  <>
+    Busca por texto (Amazon + Mercado Livre) e por foto (Google Lens), pra catálogo sem texto real —{" "}
+    <a href="https://serpapi.com/manage-api-key" target="_blank" rel="noreferrer">
+      crie grátis em serpapi.com
+    </a>{" "}
+    (só email, ~250 buscas/mês) e cole a API key abaixo.
+  </>
+);
 
 // Só usada pelo provider "Amazon direto" no Dashboard (ver
 // SEARCH_PROVIDERS em Dashboard.tsx) — SerpApi e Mercado Livre direto
-// não precisam dessa chave.
-const RAPIDAPI_STEPS = [
-  {
-    n: "1",
-    title: "Crie a conta grátis na RapidAPI",
-    text: "só email, sem cartão de crédito",
-  },
-  {
-    n: "2",
-    title: 'Assine a API "Real-Time Amazon Data"',
-    text: "no plano Basic (free) — até 100 buscas por mês, dá pra testar sem custo",
-  },
-  {
-    n: "3",
-    title: "Copie a X-RapidAPI-Key e cole aqui",
-    text: "a mesma chave da sua conta RapidAPI funciona pra qualquer API que você assinar lá",
-  },
-];
+// não precisam dessa chave. Reservada pra catálogo com texto real e
+// legível (ver gate de OCR em Dashboard.tsx > finishWithRows) — PDF que
+// só funciona por foto continua exigindo a SerpApi acima.
+const RAPIDAPI_INTRO = (
+  <>
+    Opcional — busca por NOME só na Amazon, mais barata que a SerpApi; use em catálogo com texto
+    legível (sem OCR).{" "}
+    <a href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/real-time-amazon-data/pricing" target="_blank" rel="noreferrer">
+      assine grátis "Real-Time Amazon Data" na RapidAPI
+    </a>{" "}
+    (até 100 buscas/mês) e cole a X-RapidAPI-Key abaixo.
+  </>
+);
 
 // 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
 // contador do dia atual, sem histórico por dia no back-end ainda. Só a
@@ -382,59 +373,43 @@ export default function Account({ user, profile }: Props) {
               <span className={styles.cardHeaderIcon}>
                 <KeyRound size={14} />
               </span>
-              <h2 className={styles.cardHeaderTitle}>Sua chave SerpApi</h2>
+              <h2 className={styles.cardHeaderTitle}>SerpApi</h2>
               <span className={hasSerpKey ? styles.statusPillOk : styles.statusPillWarning}>
                 {hasSerpKey ? <Check size={11} strokeWidth={3} /> : null} {hasSerpKey ? "configurada" : "não configurada"}
               </span>
             </div>
 
-            {SERPAPI_STEPS.map((s) => (
-              <div key={s.n} className={styles.stepRow}>
-                <span className={styles.stepNumber}>{s.n}</span>
-                <span className={styles.stepText}>
-                  <span className={styles.stepTitle}>{s.title}</span>
-                  <span className={styles.stepDesc}>{s.text}</span>
-                </span>
-              </div>
-            ))}
+            <form className={styles.compactKeyForm} onSubmit={handleSaveSerpKey}>
+              <p className={styles.cardIntro}>{SERPAPI_INTRO}</p>
 
-            <form className={styles.cardBody} onSubmit={handleSaveSerpKey}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>
-                  {hasSerpKey ? "substituir a chave atual" : "sua chave SerpApi"}
-                </span>
+              <div className={styles.compactKeyRow}>
                 <input
                   className={styles.input}
                   type="password"
-                  placeholder={hasSerpKey ? "Cole a nova chave…" : "Cole sua chave SerpApi"}
+                  placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
                   value={serpKeyInput}
                   onChange={(e) => setSerpKeyInput(e.target.value)}
                   autoComplete="off"
                 />
-              </label>
-
-              <div className={styles.keyActions}>
                 <button
                   className={styles.primaryButton}
                   type="submit"
                   disabled={savingSerpKey || !serpKeyInput.trim()}
                 >
-                  {savingSerpKey ? "Salvando…" : "Salvar chave"}
+                  {savingSerpKey ? "Salvando…" : "Salvar"}
                 </button>
                 {hasSerpKey && (
                   <button
                     type="button"
-                    className={styles.linkButton}
+                    className={styles.iconButton}
+                    title="Remover chave"
                     onClick={() => void handleRemoveSerpKey()}
                     disabled={savingSerpKey}
                   >
-                    <Trash2 size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    remover chave
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
-
-              <p className={styles.smallHint}>a chave fica guardada na sua conta e nunca é exibida de volta em texto puro</p>
 
               {serpKeyMsg && <p className={styles.successText}>{serpKeyMsg}</p>}
               {serpKeyError && <p className={styles.errorText}>{serpKeyError}</p>}
@@ -446,65 +421,44 @@ export default function Account({ user, profile }: Props) {
               <span className={styles.cardHeaderIcon}>
                 <KeyRound size={14} />
               </span>
-              <h2 className={styles.cardHeaderTitle}>Sua chave RapidAPI</h2>
+              <h2 className={styles.cardHeaderTitle}>RapidAPI (Amazon)</h2>
               <span className={hasRapidKey ? styles.statusPillOk : styles.statusPillWarning}>
                 {hasRapidKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
                 {hasRapidKey ? "configurada" : "não configurada"}
               </span>
             </div>
 
-            <p className={styles.cardIntro}>
-              opcional — só necessária se você escolher o provider "Amazon direto" no Dashboard
-              (alternativa à SerpApi quando ela estiver sem cota).
-            </p>
+            <form className={styles.compactKeyForm} onSubmit={handleSaveRapidKey}>
+              <p className={styles.cardIntro}>{RAPIDAPI_INTRO}</p>
 
-            {RAPIDAPI_STEPS.map((s) => (
-              <div key={s.n} className={styles.stepRow}>
-                <span className={styles.stepNumber}>{s.n}</span>
-                <span className={styles.stepText}>
-                  <span className={styles.stepTitle}>{s.title}</span>
-                  <span className={styles.stepDesc}>{s.text}</span>
-                </span>
-              </div>
-            ))}
-
-            <form className={styles.cardBody} onSubmit={handleSaveRapidKey}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>
-                  {hasRapidKey ? "substituir a chave atual" : "sua chave RapidAPI (X-RapidAPI-Key)"}
-                </span>
+              <div className={styles.compactKeyRow}>
                 <input
                   className={styles.input}
                   type="password"
-                  placeholder={hasRapidKey ? "Cole a nova chave…" : "Cole sua chave RapidAPI"}
+                  placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
                   value={rapidKeyInput}
                   onChange={(e) => setRapidKeyInput(e.target.value)}
                   autoComplete="off"
                 />
-              </label>
-
-              <div className={styles.keyActions}>
                 <button
                   className={styles.primaryButton}
                   type="submit"
                   disabled={savingRapidKey || !rapidKeyInput.trim()}
                 >
-                  {savingRapidKey ? "Salvando…" : "Salvar chave"}
+                  {savingRapidKey ? "Salvando…" : "Salvar"}
                 </button>
                 {hasRapidKey && (
                   <button
                     type="button"
-                    className={styles.linkButton}
+                    className={styles.iconButton}
+                    title="Remover chave"
                     onClick={() => void handleRemoveRapidKey()}
                     disabled={savingRapidKey}
                   >
-                    <Trash2 size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    remover chave
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
-
-              <p className={styles.smallHint}>a chave fica guardada na sua conta e nunca é exibida de volta em texto puro</p>
 
               {rapidKeyMsg && <p className={styles.successText}>{rapidKeyMsg}</p>}
               {rapidKeyError && <p className={styles.errorText}>{rapidKeyError}</p>}

@@ -257,6 +257,19 @@ export interface ExtractResult {
    * catálogo inteiro — ver extractRowImageBands).
    */
   imagesBySku?: Record<string, string>;
+  /**
+   * true se QUALQUER página do intervalo processado precisou cair pro
+   * fallback de OCR (ver comentário grande acima de ocrPageToPositionedText)
+   * — ou seja, o PDF não tem camada de texto real, pelo menos numa parte
+   * das páginas pedidas. Usado pelo Dashboard pra travar a busca por
+   * NOME (SerpApi texto, RapidAPI Amazon, Mercado Livre direto): produto
+   * cujo nome veio de OCR de imagem tende a ficar ilegível/impreciso
+   * demais pra busca por texto acertar — esses catálogos só devem seguir
+   * por busca por FOTO (google_lens_products), que casa pela imagem, não
+   * pelo nome. Catálogo com texto real (mesmo com nome ruim por outro
+   * motivo) não é afetado por este flag.
+   */
+  usedOcr?: boolean;
 }
 
 /**
@@ -656,6 +669,24 @@ interface TesseractModule {
   createWorker: (langs: string) => Promise<TesseractWorker>;
 }
 
+// Detecta celular/tablet só pra decidir o TETO de páginas de OCR por
+// chamada (ver MAX_OCR_PAGES_PER_CALL abaixo) — não muda resolução de
+// render nem precisão do OCR, só limita quanto trabalho pesado tenta
+// rodar de uma vez num aparelho com CPU/memória bem mais fraca que
+// notebook (risco real: navegador mobile — Safari iOS em especial —
+// mata a aba que passa do teto de memória).
+const isMobileDevice =
+  typeof navigator !== "undefined" && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+// Teto de páginas que tentam OCR NUMA MESMA chamada de
+// `parsePdfCatalogFile`. Proteção contra catálogo grande sem texto
+// (centenas de página) travar a aba por minutos ou estourar memória —
+// página que passa do teto simplesmente não tenta OCR (melhor um
+// catálogo parcial do que a aba travar ou morrer). Menor em mobile de
+// propósito (ver isMobileDevice acima). Usuário vê o aviso no console e
+// pode reprocessar em intervalos menores pra cobrir o restante.
+const MAX_OCR_PAGES_PER_CALL = isMobileDevice ? 10 : 25;
+
 let tesseractWorkerPromise: Promise<TesseractWorker> | null = null;
 async function getTesseractWorker(): Promise<TesseractWorker> {
   if (!tesseractWorkerPromise) {
@@ -756,119 +787,155 @@ export async function parsePdfCatalogFile(
   // OCR (ver ocrPageToPositionedText) — só usado pra customizar a
   // mensagem de erro final, caso nenhuma página produza produto algum.
   let ocrAttempted = false;
+  // Quantas páginas já TENTARAM OCR nesta chamada — ver MAX_OCR_PAGES_PER_CALL.
+  let ocrPagesUsed = 0;
 
-  for (let pageNum = from; pageNum <= to; pageNum++) {
-    const page = await doc.getPage(pageNum);
-    const content = await page.getTextContent();
-    // scale:1 só pra pegar a largura da página em pt — não renderiza
-    // nada, é barato o bastante pra chamar sempre (mesmo fora do modo
-    // imagem), precisa pra detecção de coluna da grade.
-    const pageWidthPdf = page.getViewport({ scale: 1 }).width;
+  // try/finally garante que o worker do Tesseract (WASM + dado de
+  // idioma, alguns MB) é liberado ao final do processamento — mesmo se
+  // o parse lançar erro no meio — em vez de ficar vivo indefinidamente
+  // na memória da aba entre catálogos diferentes na mesma sessão.
+  // `tesseractWorkerPromise` só existe se ALGUMA página precisou de OCR
+  // (ver getTesseractWorker) — catálogo com texto normal nunca cria o
+  // worker, então nunca paga esse custo de encerrar algo que não existe.
+  try {
+    for (let pageNum = from; pageNum <= to; pageNum++) {
+      const page = await doc.getPage(pageNum);
+      const content = await page.getTextContent();
+      // scale:1 só pra pegar a largura da página em pt — não renderiza
+      // nada, é barato o bastante pra chamar sempre (mesmo fora do modo
+      // imagem), precisa pra detecção de coluna da grade.
+      const pageWidthPdf = page.getViewport({ scale: 1 }).width;
 
-    let items: PositionedText[] = content.items
-      .filter(
-        (item): item is Required<Pick<PdfjsTextItem, "str" | "transform">> & Pick<PdfjsTextItem, "width"> =>
-          Boolean(item.str?.trim() && item.transform)
-      )
-      .map((item) => ({
-        text: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
-        width: item.width ?? 0,
-      }));
+      let items: PositionedText[] = content.items
+        .filter(
+          (item): item is Required<Pick<PdfjsTextItem, "str" | "transform">> & Pick<PdfjsTextItem, "width"> =>
+            Boolean(item.str?.trim() && item.transform)
+        )
+        .map((item) => ({
+          text: item.str,
+          x: item.transform[4],
+          y: item.transform[5],
+          width: item.width ?? 0,
+        }));
 
-    let canvas: HTMLCanvasElement | null = null;
-    let viewport: PdfjsViewport | null = null;
-    const ensureCanvas = async () => {
-      if (!canvas || !viewport) {
-        ({ canvas, viewport } = await renderPageToCanvas(page, IMAGE_RENDER_SCALE));
-      }
-      return { canvas, viewport };
-    };
+      let canvas: HTMLCanvasElement | null = null;
+      let viewport: PdfjsViewport | null = null;
+      const ensureCanvas = async () => {
+        if (!canvas || !viewport) {
+          ({ canvas, viewport } = await renderPageToCanvas(page, IMAGE_RENDER_SCALE));
+        }
+        return { canvas, viewport };
+      };
 
-    // Página sem NENHUM texto embutido (ver comentário de
-    // ocrPageToPositionedText acima) — só entra aqui quando pdfjs não
-    // achou nada; página com texto real nunca passa por este bloco.
-    if (items.length === 0) {
-      try {
-        const { canvas: c, viewport: v } = await ensureCanvas();
-        items = await ocrPageToPositionedText(c, v, IMAGE_RENDER_SCALE);
-        if (items.length > 0) ocrAttempted = true;
-      } catch (err) {
-        console.warn(`OCR falhou na página ${pageNum} (seguindo sem texto nesta página):`, err);
-      }
-    }
-
-    // Catálogo em GRADE (N cartões por página, ver extractGridBlocks) é
-    // tentado primeiro; página sem esse padrão (sem 2+ "MODELO:" na
-    // mesma linha) cai pro modo linha-única de sempre, sem mudança de
-    // comportamento. Funciona igual pra texto real ou vindo do OCR
-    // acima — os dois produzem o mesmo formato `PositionedText[]`.
-    const grid = extractGridBlocks(items, pageWidthPdf);
-
-    if (grid) {
-      skippedAmbiguous += grid.skippedAmbiguous;
-      rows.push(...grid.blocks.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
-
-      if (withImages && grid.blocks.length > 0) {
-        const { canvas: c, viewport: v } = await ensureCanvas();
-        await mapWithConcurrency(grid.blocks, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
+      // Página sem NENHUM texto embutido (ver comentário de
+      // ocrPageToPositionedText acima) — só entra aqui quando pdfjs não
+      // achou nada; página com texto real nunca passa por este bloco.
+      if (items.length === 0) {
+        if (ocrPagesUsed >= MAX_OCR_PAGES_PER_CALL) {
+          // Teto de segurança (ver MAX_OCR_PAGES_PER_CALL) — protege
+          // celular/aparelho fraco de travar processando OCR página após
+          // página sem limite. Página fica sem produtos reconhecidos;
+          // usuário pode reprocessar um intervalo menor pra cobri-la.
+          console.warn(
+            `Página ${pageNum} sem texto ignorada — limite de ${MAX_OCR_PAGES_PER_CALL} páginas de OCR por processamento atingido.`
+          );
+        } else {
+          ocrPagesUsed++;
           try {
-            const cropped = cropGridBlock(c!, v!, IMAGE_RENDER_SCALE, block);
-            const url = await uploadCatalogImage(options!.userId!, block.sku, cropped);
-            imagesBySku[block.sku] = url;
+            const { canvas: c, viewport: v } = await ensureCanvas();
+            items = await ocrPageToPositionedText(c, v, IMAGE_RENDER_SCALE);
+            if (items.length > 0) ocrAttempted = true;
           } catch (err) {
-            console.warn(`Falha ao extrair/subir imagem do produto "${block.sku}":`, err);
+            console.warn(`OCR falhou na página ${pageNum} (seguindo sem texto nesta página):`, err);
+          }
+        }
+      }
+
+      // Catálogo em GRADE (N cartões por página, ver extractGridBlocks) é
+      // tentado primeiro; página sem esse padrão (sem 2+ "MODELO:" na
+      // mesma linha) cai pro modo linha-única de sempre, sem mudança de
+      // comportamento. Funciona igual pra texto real ou vindo do OCR
+      // acima — os dois produzem o mesmo formato `PositionedText[]`.
+      const grid = extractGridBlocks(items, pageWidthPdf);
+
+      if (grid) {
+        skippedAmbiguous += grid.skippedAmbiguous;
+        rows.push(...grid.blocks.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
+
+        if (withImages && grid.blocks.length > 0) {
+          const { canvas: c, viewport: v } = await ensureCanvas();
+          await mapWithConcurrency(grid.blocks, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
+            try {
+              const cropped = cropGridBlock(c!, v!, IMAGE_RENDER_SCALE, block);
+              const url = await uploadCatalogImage(options!.userId!, block.sku, cropped);
+              imagesBySku[block.sku] = url;
+            } catch (err) {
+              console.warn(`Falha ao extrair/subir imagem do produto "${block.sku}":`, err);
+            }
+          });
+        }
+        continue;
+      }
+
+      const pageLines = groupIntoLinesWithY(items);
+      const { rows: pageRows, skippedAmbiguous: pageSkipped } = extractRowsIndexed(
+        pageLines.map((l) => l.text),
+        seenSyntheticSkus
+      );
+      skippedAmbiguous += pageSkipped;
+      rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
+
+      if (withImages && pageRows.length > 0) {
+        const { canvas: c, viewport: v } = await ensureCanvas();
+
+        await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
+          try {
+            const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
+            const nextY = row.lineIndex < pageLines.length - 1 ? pageLines[row.lineIndex + 1].y : null;
+            const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
+            const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
+            imagesBySku[row.sku] = url;
+          } catch (err) {
+            // Falha em UM item (upload, recorte) não derruba o catálogo
+            // inteiro — esse produto só fica sem imagem, busca por texto
+            // continua disponível pra ele.
+            console.warn(`Falha ao extrair/subir imagem do produto "${row.sku}":`, err);
           }
         });
       }
-      continue;
     }
 
-    const pageLines = groupIntoLinesWithY(items);
-    const { rows: pageRows, skippedAmbiguous: pageSkipped } = extractRowsIndexed(
-      pageLines.map((l) => l.text),
-      seenSyntheticSkus
-    );
-    skippedAmbiguous += pageSkipped;
-    rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
+    if (rows.length === 0) {
+      throw new PdfParseError(
+        ocrAttempted
+          ? `Nenhum produto reconhecido nas páginas ${from}–${to} mesmo com OCR (este PDF não tem ` +
+            "texto embutido, então tentamos ler por OCR). O layout pode ser complexo demais, ou a " +
+            "qualidade da página renderizada ficou baixa demais pro OCR reconhecer — tente um " +
+            "intervalo de páginas menor ou confira se o catálogo segue o padrão esperado (nome + preço " +
+            "por produto)."
+          : `Nenhum produto reconhecido nas páginas ${from}–${to}. Se for texto real, o layout pode ` +
+            "não bater com o padrão esperado (linha com nome + preço)."
+      );
+    }
 
-    if (withImages && pageRows.length > 0) {
-      const { canvas: c, viewport: v } = await ensureCanvas();
-
-      await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
-        try {
-          const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
-          const nextY = row.lineIndex < pageLines.length - 1 ? pageLines[row.lineIndex + 1].y : null;
-          const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
-          const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
-          imagesBySku[row.sku] = url;
-        } catch (err) {
-          // Falha em UM item (upload, recorte) não derruba o catálogo
-          // inteiro — esse produto só fica sem imagem, busca por texto
-          // continua disponível pra ele.
-          console.warn(`Falha ao extrair/subir imagem do produto "${row.sku}":`, err);
-        }
-      });
+    return {
+      rows,
+      skippedAmbiguous,
+      imagesBySku: withImages ? imagesBySku : undefined,
+      usedOcr: ocrAttempted,
+    };
+  } finally {
+    // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB
+    // de memória) assim que este catálogo termina de processar — evita
+    // acúmulo indefinido na aba se o usuário sobe vários catálogos na
+    // mesma sessão. Só existe algo a liberar se ALGUMA página deste
+    // catálogo (ou de um catálogo anterior na mesma sessão) precisou de
+    // OCR; catálogo com texto real nunca cria o worker (ver
+    // getTesseractWorker) e este bloco vira no-op.
+    if (tesseractWorkerPromise) {
+      const promise = tesseractWorkerPromise;
+      tesseractWorkerPromise = null;
+      void promise.then((w) => w.terminate()).catch(() => {});
     }
   }
-
-  if (rows.length === 0) {
-    throw new PdfParseError(
-      ocrAttempted
-        ? `Nenhum produto reconhecido nas páginas ${from}–${to} mesmo com OCR (este PDF não tem ` +
-          "texto embutido, então tentamos ler por OCR). O layout pode ser complexo demais, ou a " +
-          "qualidade da página renderizada ficou baixa demais pro OCR reconhecer — tente um " +
-          "intervalo de páginas menor ou confira se o catálogo segue o padrão esperado (nome + preço " +
-          "por produto)."
-        : `Nenhum produto reconhecido nas páginas ${from}–${to}. Se for texto real, o layout pode ` +
-          "não bater com o padrão esperado (linha com nome + preço)."
-    );
-  }
-
-  return {
-    rows,
-    skippedAmbiguous,
-    imagesBySku: withImages ? imagesBySku : undefined,
-  };
 }

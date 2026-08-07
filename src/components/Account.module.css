@@ -417,57 +417,17 @@
   color: var(--color-warning);
 }
 
-/* Texto curto explicando quando um card de chave opcional (ex: RapidAPI)
-   é necessário — fica entre o cardHeader e os steps numerados. */
+/* Linha única de instrução dentro do card compacto de chave (ver
+   .compactKeyForm) — o padding já vem do form pai, aqui só a tipografia. */
 .cardIntro {
-  padding: var(--space-4) var(--space-5) 0;
   color: var(--color-text-dim);
   font-size: 0.82rem;
   line-height: 1.5;
   margin: 0;
 }
 
-.stepRow {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.stepNumber {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  flex-shrink: 0;
-}
-
-.stepText {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.stepTitle {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text);
-}
-
-.stepDesc {
-  font-size: 0.83rem;
-  line-height: 1.55;
-  color: var(--color-text-muted);
-  max-width: 60ch;
+.cardIntro a {
+  color: var(--color-accent);
 }
 
 .cardBody {
@@ -496,20 +456,50 @@
   cursor: default;
 }
 
-.keyActions {
+/* Card compacto de chave (SerpApi/RapidAPI) — substitui o antigo bloco
+   de 3 passos numerados por uma única linha de instrução (.cardIntro,
+   já existente) + input/botão/remover na MESMA linha. Menos altura,
+   menos seções repetidas por card. */
+.compactKeyForm {
+  padding: var(--space-4) var(--space-5) var(--space-5);
   display: flex;
-  align-items: center;
-  gap: var(--space-4);
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-.smallHint {
+.compactKeyRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
+}
+
+.compactKeyRow .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.iconButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .successText {

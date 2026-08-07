@@ -50,6 +50,8 @@ interface ParseOutcome {
   skippedAmbiguous: number;
   /** Só preenchido quando o parse rodou em modo imagem (PDF) — ver processFile. */
   imagesBySku?: Record<string, string>;
+  /** true se o PDF precisou de OCR (sem texto real) — ver ExtractResult em parsePdfCatalog.ts. CSV nunca seta isso (fica undefined/falsy). */
+  usedOcr?: boolean;
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -402,6 +404,8 @@ export default function Dashboard({
       sourceType: SourceType;
       pageRange: PageRange | null;
       marketplaces: MarketplaceId[];
+      /** true se o PDF precisou de OCR (sem texto real) — ver ParseOutcome/ExtractResult. */
+      usedOcr?: boolean;
     },
     imagesBySku?: Record<string, string>
   ) {
@@ -420,8 +424,8 @@ export default function Dashboard({
       setState("error");
       setError(
         activeProvider.needsKey === "serpApiKey"
-          ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (veja o card \"Sua chave SerpApi\")."
-          : "Cadastre sua chave RapidAPI em Conta antes de buscar preço (veja o card \"Sua chave RapidAPI\")."
+          ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (card \"SerpApi\")."
+          : "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
       );
       return;
     }
@@ -430,6 +434,21 @@ export default function Dashboard({
       setError(
         "Não consegui extrair/subir nenhuma foto deste PDF (recorte ou upload falhou pra todo " +
           "mundo) — troque pra SerpApi/RapidAPI, que buscam por texto, ou tente reprocessar."
+      );
+      return;
+    }
+    // Catálogo sem texto real (nomes vieram de OCR de imagem, ver
+    // usedOcr/ExtractResult) — busca por NOME tende a errar o produto
+    // nesse caso (nome pode ter saído torto do OCR, ou ser só o código
+    // do modelo). Só "busca por imagem" (Google Lens, casa pela foto, não
+    // pelo nome) é confiável aqui — trava os outros providers com um erro
+    // claro em vez de deixar rodar e devolver preço errado silenciosamente.
+    if (meta.usedOcr && searchProvider !== IMAGE_MODE_PROVIDER) {
+      setState("error");
+      setError(
+        "Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME " +
+          "tende a errar o produto nesse caso. Troque pra \"Busca por imagem (Google Lens)\" na " +
+          "seção 01 antes de continuar."
       );
       return;
     }
@@ -557,7 +576,7 @@ export default function Dashboard({
         return;
       }
 
-      const { rows, skippedAmbiguous, imagesBySku } = await parse();
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr } = await parse();
       if (skippedAmbiguous > 0) {
         setSkippedInfo(
           `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) ` +
@@ -572,6 +591,7 @@ export default function Dashboard({
           sourceType,
           pageRange,
           marketplaces: selectedMarketplaces,
+          usedOcr,
         },
         imagesBySku
       );
@@ -597,7 +617,7 @@ export default function Dashboard({
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
-      const { rows, skippedAmbiguous, imagesBySku } = await parse();
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr } = await parse();
       if (skippedAmbiguous > 0) {
         setSkippedInfo(
           `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) por ambiguidade.`
@@ -611,6 +631,7 @@ export default function Dashboard({
           sourceType,
           pageRange,
           marketplaces: selectedMarketplaces,
+          usedOcr,
         },
         imagesBySku
       );
