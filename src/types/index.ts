@@ -30,7 +30,14 @@ export type SearchProviderId =
  * "dashboard" internamente; só o rótulo de navegação mudou, ver
  * TopNav.tsx). Vira o landing screen padrão no lugar de "dashboard".
  */
-export type Screen = "home" | "dashboard" | "pricing" | "results" | "account" | "admin";
+export type Screen =
+  | "home"
+  | "dashboard"
+  | "pricing"
+  | "results"
+  | "account"
+  | "settings"
+  | "admin";
 
 /**
  * Planos (Fase Planos): controlam (1) quais catálogos da biblioteca
@@ -39,7 +46,7 @@ export type Screen = "home" | "dashboard" | "pricing" | "results" | "account" | 
  * `config/plans.ts` — aqui só o identificador, pra não criar dependência
  * circular entre `types` e `config`.
  */
-export type PlanId = "iniciante" | "profissional";
+export type PlanId = "free" | "starter" | "pro";
 
 export interface CatalogRow {
   sku: string;

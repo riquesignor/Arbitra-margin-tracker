@@ -71,3 +71,63 @@ export async function getCurrentIdToken(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Reautentica com email/senha atual — pré-requisito do Firebase Auth
+ * pras 3 operações sensíveis abaixo (trocar senha, trocar email, excluir
+ * conta): todas exigem login "recente", e como o app só tem login por
+ * email/senha (ver signIn/signUp acima), reautenticar é sempre isto.
+ */
+async function reauthenticate(currentPassword: string): Promise<void> {
+  const auth = await getFirebaseAuth();
+  const user = auth.currentUser;
+  if (!user?.email) throw new Error("Nenhum usuário logado.");
+  const { EmailAuthProvider, reauthenticateWithCredential } = await import("firebase/auth");
+  const credential = EmailAuthProvider.credential(user.email, currentPassword);
+  await reauthenticateWithCredential(user, credential);
+}
+
+/** Configurações → Dados da conta: trocar senha (exige a senha atual). */
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await reauthenticate(currentPassword);
+  const auth = await getFirebaseAuth();
+  const { updatePassword } = await import("firebase/auth");
+  await updatePassword(auth.currentUser!, newPassword);
+}
+
+/**
+ * Configurações → Dados da conta: trocar email. Usa
+ * `verifyBeforeUpdateEmail` (recomendação atual do Firebase) — o email
+ * só muda de fato depois que o usuário confirma pelo link enviado pro
+ * ENDEREÇO NOVO, não troca na hora. `AuthUser.email` só reflete a troca
+ * depois do próximo login.
+ */
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<void> {
+  await reauthenticate(currentPassword);
+  const auth = await getFirebaseAuth();
+  const { verifyBeforeUpdateEmail } = await import("firebase/auth");
+  await verifyBeforeUpdateEmail(auth.currentUser!, newEmail);
+}
+
+/**
+ * Configurações → Dados da conta: excluir conta. Apaga o doc de perfil
+ * (`users/{uid}`) antes de excluir o login — best-effort (a regra
+ * permite `isOwner` deletar, ver firestore.rules); subcoleções
+ * (secrets/pricing_rules/preferences/etc.) ficam órfãs (Firestore não
+ * cascade-deleta), aceitável pro MVP sem Cloud Function de limpeza.
+ */
+export async function deleteAccount(currentPassword: string): Promise<void> {
+  await reauthenticate(currentPassword);
+  const auth = await getFirebaseAuth();
+  const user = auth.currentUser!;
+  try {
+    const { getFirebaseDb } = await import("./firebase");
+    const db = await getFirebaseDb();
+    const { doc, deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(db, "users", user.uid));
+  } catch (err) {
+    console.warn("Não consegui apagar o doc de perfil antes de excluir a conta (seguindo mesmo assim):", err);
+  }
+  const { deleteUser } = await import("firebase/auth");
+  await deleteUser(user);
+}

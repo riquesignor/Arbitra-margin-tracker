@@ -180,6 +180,138 @@
   white-space: nowrap;
 }
 
+/* --- Faixa de distribuição de margem (Configurações → Personalização) --- */
+
+.distributionCard {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-5);
+}
+
+.distributionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.distributionHeaderIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.distributionTitle {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.distributionMeta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+}
+
+.distributionBand {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-3);
+  height: 90px;
+  align-items: end;
+}
+
+.distributionCol {
+  display: grid;
+  grid-template-rows: 14px 1fr 16px;
+  gap: 4px;
+  height: 100%;
+  justify-items: center;
+}
+
+.distributionValue {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.distributionTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.distributionFill {
+  display: block;
+  width: 100%;
+  background: var(--color-accent-dim);
+  border-top: 2px solid var(--color-accent);
+}
+
+.distributionLabel {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Comparar lado a lado: coluna de diferença --- */
+
+.diffUp {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.diffDown {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+/* --- Agrupar por SKU: expandir/recolher outras ofertas --- */
+
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.expandButton:hover {
+  text-decoration: underline;
+}
+
+.subRow td {
+  background: var(--color-bg-elevated-2);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.subRowHint {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
 /* --- Painel único da tabela --- */
 
 .panel {

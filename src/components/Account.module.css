@@ -670,3 +670,75 @@
   padding: var(--space-4) var(--space-5);
   border-top: 1px solid var(--color-border-soft);
 }
+
+/* --- Preferências opcionais (mesmo padrão de Settings.module.css) --- */
+
+.toggleList {
+  display: flex;
+  flex-direction: column;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.toggleRow:last-child {
+  border-bottom: none;
+}
+
+.toggleText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.toggleTitle {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.toggleSub {
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+.switch,
+.switchOn {
+  position: relative;
+  flex-shrink: 0;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg);
+  cursor: pointer;
+  padding: 0;
+}
+
+.switchOn {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.switchThumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-bg-elevated);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.switchOn .switchThumb {
+  transform: translateX(16px);
+  background: var(--color-on-accent);
+}

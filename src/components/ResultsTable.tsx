@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import Papa from "papaparse";
 import {
@@ -15,6 +15,9 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  BarChart3,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -30,6 +33,12 @@ interface Props {
   history?: CatalogUploadRecord[];
   activeHistoryId?: string | null;
   onSelectHistory?: (id: string) => void;
+  /** Configurações → Personalização: "Gráficos na tela de Resultados" — só a faixa de distribuição no topo; a barra de margem por linha (MarginBar) é sempre visível, não é opcional. */
+  showCharts?: boolean;
+  /** 2+ marketplaces buscados: mostra 1 linha por SKU com 1 coluna de preço por marketplace + diferença, em vez de 1 linha por oferta. */
+  compareSideBySide?: boolean;
+  /** 1 linha por SKU (melhor oferta em destaque), com as outras ofertas do mesmo SKU recolhidas — expande com o chevron. */
+  groupBySku?: boolean;
 }
 
 function formatHistoryLabel(record: CatalogUploadRecord): string {
@@ -116,12 +125,16 @@ export default function ResultsTable({
   history = [],
   activeHistoryId = null,
   onSelectHistory,
+  showCharts = true,
+  compareSideBySide = false,
+  groupBySku = false,
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("todos");
   const [sortKey, setSortKey] = useState<SortKey>("marginPct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
+  const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set());
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -160,6 +173,64 @@ export default function ResultsTable({
   const currentPage = Math.min(page, pageCount - 1);
   const pageStart = currentPage * PAGE_SIZE;
   const paginated = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Marketplaces de fato presentes NESTE resultado — "comparar lado a
+  // lado" só faz sentido com 2+ (com 1 só, cai pro agrupado ou pro flat
+  // normalmente, ver viewMode abaixo).
+  const marketplacesPresent = useMemo(
+    () => Array.from(new Set(results.map((r) => r.marketplace))),
+    [results]
+  );
+
+  // Agrupa a PÁGINA atual por SKU (não o conjunto filtrado inteiro) —
+  // mantém a paginação simples (PAGE_SIZE ofertas por página) mesmo em
+  // modo agrupado/lado-a-lado; catálogo típico tem 1-2 marketplaces, então
+  // o agrupamento dentro da página já cobre o caso comum.
+  const groupedRows = useMemo(() => {
+    const map = new Map<string, MarginResult[]>();
+    for (const r of paginated) {
+      const list = map.get(r.sku) ?? [];
+      list.push(r);
+      map.set(r.sku, list);
+    }
+    return Array.from(map.values());
+  }, [paginated]);
+
+  const viewMode: "flat" | "sideBySide" | "grouped" =
+    compareSideBySide && marketplacesPresent.length >= 2
+      ? "sideBySide"
+      : groupBySku
+        ? "grouped"
+        : "flat";
+
+  function toggleExpanded(sku: string) {
+    setExpandedSkus((prev) => {
+      const next = new Set(prev);
+      if (next.has(sku)) next.delete(sku);
+      else next.add(sku);
+      return next;
+    });
+  }
+
+  // Faixa de distribuição de margem (Configurações → Personalização,
+  // "Gráficos na tela de Resultados") — sobre TODOS os resultados desta
+  // busca (não só a página/filtro atual), mesmos buckets conceituais do
+  // histograma em PricingConfig.tsx.
+  const distribution = useMemo(() => {
+    const buckets: { label: string; min: number; max: number }[] = [
+      { label: "<0%", min: -Infinity, max: 0 },
+      { label: "0–10%", min: 0, max: 0.1 },
+      { label: "10–20%", min: 0.1, max: 0.2 },
+      { label: "20–30%", min: 0.2, max: 0.3 },
+      { label: "30–50%", min: 0.3, max: 0.5 },
+      { label: "50%+", min: 0.5, max: Infinity },
+    ];
+    const counts = buckets.map(
+      (b) => results.filter((r) => r.marginPct >= b.min && r.marginPct < b.max).length
+    );
+    const max = Math.max(1, ...counts);
+    return buckets.map((b, i) => ({ label: b.label, count: counts[i], max }));
+  }, [results]);
 
   const totalProfitable = results.filter((r) => r.recommendation === "recomendado").length;
   const totalToAvoid = results.filter((r) => r.recommendation === "evitar").length;
@@ -265,6 +336,32 @@ export default function ResultsTable({
         ))}
       </div>
 
+      {showCharts && results.length > 0 && (
+        <div className={styles.distributionCard}>
+          <div className={styles.distributionHeader}>
+            <span className={styles.distributionHeaderIcon}>
+              <BarChart3 size={13} />
+            </span>
+            <span className={styles.distributionTitle}>Distribuição de margem</span>
+            <span className={styles.distributionMeta}>{results.length} produto(s)</span>
+          </div>
+          <div className={styles.distributionBand}>
+            {distribution.map((b) => (
+              <div key={b.label} className={styles.distributionCol}>
+                <span className={styles.distributionValue}>{b.count}</span>
+                <span className={styles.distributionTrack}>
+                  <span
+                    className={styles.distributionFill}
+                    style={{ height: `${Math.max(3, Math.round((b.count / b.max) * 100))}%` }}
+                  />
+                </span>
+                <span className={styles.distributionLabel}>{b.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className={styles.panel}>
         <div className={styles.controls}>
           <span className={styles.searchWrap}>
@@ -313,7 +410,7 @@ export default function ResultsTable({
                   "produtos com nome muito genérico também podem não achar match no Google Shopping."
                 : "Nenhum resultado com esse filtro ou busca — limpe o texto ou troque o status acima."}
           </p>
-        ) : (
+        ) : viewMode === "flat" ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
               <thead>
@@ -398,6 +495,168 @@ export default function ResultsTable({
                     </td>
                   </motion.tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        ) : viewMode === "sideBySide" ? (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th className={styles.photoHeader} />
+                  <th>SKU</th>
+                  <th className={styles.productHeader}>Produto</th>
+                  {marketplacesPresent.map((m) => (
+                    <th key={m}>{MARKETPLACE_LABEL[m]}</th>
+                  ))}
+                  {marketplacesPresent.length === 2 && <th>Diferença</th>}
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedRows.map((group) => {
+                  const best = [...group].sort((a, b) => b.marginPct - a.marginPct)[0];
+                  const byMarket = new Map(group.map((r) => [r.marketplace, r]));
+                  const priceA =
+                    marketplacesPresent.length === 2 ? byMarket.get(marketplacesPresent[0])?.marketplacePrice : undefined;
+                  const priceB =
+                    marketplacesPresent.length === 2 ? byMarket.get(marketplacesPresent[1])?.marketplacePrice : undefined;
+                  const diff = priceA !== undefined && priceB !== undefined ? priceB - priceA : null;
+                  return (
+                    <motion.tr key={best.sku} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                      <td className={styles.photoCell}>
+                        <ProductThumb src={best.imageUrl} />
+                      </td>
+                      <td>{best.sku}</td>
+                      <td className={styles.productCell}>
+                        <div className={styles.productName} title={best.name}>
+                          {best.name}
+                        </div>
+                      </td>
+                      {marketplacesPresent.map((m) => {
+                        const offer = byMarket.get(m);
+                        return (
+                          <td key={m}>
+                            {offer ? (
+                              <>
+                                R$ {offer.marketplacePrice.toFixed(2)}
+                                <span className={styles.marginValue}>
+                                  {(offer.marginPct * 100).toFixed(1)}% margem
+                                </span>
+                              </>
+                            ) : (
+                              <span className={styles.noLink}>sem oferta</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                      {marketplacesPresent.length === 2 && (
+                        <td>
+                          {diff === null ? (
+                            "—"
+                          ) : (
+                            <span className={diff <= 0 ? styles.diffDown : styles.diffUp}>
+                              {diff > 0 ? "+" : ""}
+                              R$ {diff.toFixed(2)}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                      <td>
+                        <span className={`${styles.badge} ${BADGE_CLASS[best.recommendation]}`}>
+                          {BADGE_LABEL[best.recommendation]}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th className={styles.photoHeader} />
+                  <th>SKU</th>
+                  <th className={styles.productHeader}>Produto</th>
+                  <th>Marketplace</th>
+                  <th>Custo</th>
+                  <th>Preço</th>
+                  <th>Margem</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedRows.map((group) => {
+                  const sorted = [...group].sort((a, b) => b.marginPct - a.marginPct);
+                  const best = sorted[0];
+                  const rest = sorted.slice(1);
+                  const isExpanded = expandedSkus.has(best.sku);
+                  return (
+                    <Fragment key={best.sku}>
+                      <motion.tr initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                        <td className={styles.photoCell}>
+                          <ProductThumb src={best.imageUrl} />
+                        </td>
+                        <td>{best.sku}</td>
+                        <td className={styles.productCell}>
+                          <div className={styles.productName} title={best.name}>
+                            {best.name}
+                          </div>
+                          {rest.length > 0 && (
+                            <button
+                              type="button"
+                              className={styles.expandButton}
+                              onClick={() => toggleExpanded(best.sku)}
+                            >
+                              {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                              {isExpanded ? "ocultar" : `+${rest.length} oferta(s)`}
+                            </button>
+                          )}
+                        </td>
+                        <td className={styles.marketCell}>{MARKETPLACE_LABEL[best.marketplace]}</td>
+                        <td>R$ {best.supplierPrice.toFixed(2)}</td>
+                        <td>R$ {best.marketplacePrice.toFixed(2)}</td>
+                        <td>
+                          <MarginBar
+                            marginPct={best.marginPct}
+                            targetMarginPct={targetMarginPct}
+                            recommendation={best.recommendation}
+                          />
+                          <span className={styles.marginValue}>{(best.marginPct * 100).toFixed(1)}%</span>
+                        </td>
+                        <td>
+                          <span className={`${styles.badge} ${BADGE_CLASS[best.recommendation]}`}>
+                            {BADGE_LABEL[best.recommendation]}
+                          </span>
+                        </td>
+                      </motion.tr>
+                      {isExpanded &&
+                        rest.map((r) => (
+                          <tr key={`${r.marketplace}-${r.sku}`} className={styles.subRow}>
+                            <td className={styles.photoCell} />
+                            <td />
+                            <td className={styles.productCell}>
+                              <span className={styles.subRowHint}>outra oferta</span>
+                            </td>
+                            <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
+                            <td>R$ {r.supplierPrice.toFixed(2)}</td>
+                            <td>R$ {r.marketplacePrice.toFixed(2)}</td>
+                            <td>
+                              <span className={styles.marginValue}>{(r.marginPct * 100).toFixed(1)}%</span>
+                            </td>
+                            <td>
+                              <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
+                                {BADGE_LABEL[r.recommendation]}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

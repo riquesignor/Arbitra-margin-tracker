@@ -35,6 +35,15 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
       }
 
+      // Preferências de UI (Configurações → Aparência/Personalização, ver
+      // src/lib/userPreferences.ts) — tema, paleta, tamanho de fonte,
+      // toggles de gráfico e as "Preferências opcionais" da tela Conta.
+      // Mesmo padrão de `pricing_rules` acima: doc único por usuário, sem
+      // override de admin (não é dado de gestão de plano).
+      match /preferences/{docId} {
+        allow read, write: if isOwner(userId);
+      }
+
       // Chave SerpApi/RapidAPI (BYOK, ver userSecrets.ts) — era
       // `user_secrets/{userId}`. Deliberadamente SEM override de admin —
       // é credencial do usuário, não dado de gestão de plano (diferente

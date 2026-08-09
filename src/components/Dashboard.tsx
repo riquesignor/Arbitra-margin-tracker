@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import {
   UploadCloud,
   Loader2,
-  Download,
   AlertCircle,
   FileText,
   History,
@@ -11,10 +10,10 @@ import {
   Store,
   ShoppingBag,
   Search,
-  Calculator,
-  Library,
   Camera,
   Trash2,
+  Gauge,
+  Zap,
 } from "lucide-react";
 import type {
   CatalogRow,
@@ -36,11 +35,12 @@ import {
   saveCatalogUpload,
   type CatalogUploadRecord,
 } from "../lib/catalogHistory";
-import { listSharedCatalogsForPlan, type SharedCatalog } from "../lib/sharedCatalogs";
 import { getTodayUsage, addTodayUsage } from "../lib/usageQuota";
 import { getUserSerpApiKey, getUserRapidApiKey } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
+import type { SharedCatalog } from "../lib/sharedCatalogs";
+import { getSpeedSummary, recordSample, type ProviderSpeedSummary } from "../lib/providerSpeedStats";
 import styles from "./Dashboard.module.css";
 
 type UploadState = "idle" | "parsing" | "fetching" | "error";
@@ -76,6 +76,13 @@ const AVAILABLE_MARKETPLACES: {
 // SerpApi cobre os dois marketplaces numa busca só; os providers
 // "diretos" cobrem só um marketplace fixo cada, então escolher um deles
 // já define `selectedMarketplaces` sozinho (ver selectProvider).
+//
+// "serpapi" (texto puro) continua no array — ainda é um SearchProviderId
+// válido e resolve `activeProvider`/needsKey normalmente — mas NÃO entra
+// no grid principal de seleção (ver SELECTABLE_PROVIDERS abaixo): ficava
+// redundante ao lado de "Busca por imagem", que já é a mesma SerpApi por
+// baixo. Continua alcançável pelo chip "API em uso agora" dentro do
+// subgrupo de imagem (ver seção 01 no JSX).
 const SEARCH_PROVIDERS: {
   id: SearchProviderId;
   label: string;
@@ -124,7 +131,8 @@ const SEARCH_PROVIDERS: {
 // ver api/_lib/providers/googleLensProvider.ts.
 const IMAGE_MODE_PROVIDER: SearchProviderId = "google_lens_products";
 
-const STEP_ICONS = [UploadCloud, Search, Calculator];
+/** Grid principal de seleção (seção 01) — sem "serpapi" (ver comentário em SEARCH_PROVIDERS acima). */
+const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi");
 
 // Tamanho do lote de busca — catálogos grandes são processados em
 // lotes sequenciais (não tudo de uma vez) só pra reportar progresso
@@ -149,6 +157,12 @@ interface Props {
   onHistoryChanged?: () => void;
   /** Avisa o App que um registro do histórico foi excluído, pra podar o mesmo id da lista global. */
   onHistoryDeleted?: (id: string) => void;
+  /** Preferências opcionais (Conta) — controla só o badge "!" da barra de cota abaixo, nunca bloqueia a busca. */
+  warnAt80PercentQuota?: boolean;
+  /** Catálogo da biblioteca escolhido em "usar" na Home (ver App.tsx) — a biblioteca em si não mora mais aqui, só o gatilho de processar. */
+  pendingSharedCatalog?: SharedCatalog | null;
+  /** Avisa o App que o catálogo pendente acima já foi consumido (evita reprocessar em loop). */
+  onPendingSharedCatalogConsumed?: () => void;
 }
 
 interface LastUpload {
@@ -164,6 +178,9 @@ export default function Dashboard({
   onComplete,
   onHistoryChanged,
   onHistoryDeleted,
+  warnAt80PercentQuota = true,
+  pendingSharedCatalog,
+  onPendingSharedCatalogConsumed,
 }: Props) {
   const [state, setState] = useState<UploadState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -183,8 +200,10 @@ export default function Dashboard({
 
   // Qual API usar pra essa busca — ver SEARCH_PROVIDERS acima. Escolhido
   // por busca, não fixo por conta (pedido explícito: "hoje quero amazon
-  // aí amanhã uso a de mercado livre e depois a serp").
-  const [searchProvider, setSearchProvider] = useState<SearchProviderId>("serpapi");
+  // aí amanhã uso a de mercado livre e depois a serp"). Default =
+  // "Busca por imagem" — é o primeiro card do grid agora que "serpapi"
+  // saiu da seleção principal (ver SELECTABLE_PROVIDERS).
+  const [searchProvider, setSearchProvider] = useState<SearchProviderId>(IMAGE_MODE_PROVIDER);
 
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
@@ -195,14 +214,12 @@ export default function Dashboard({
   const [uploadHistory, setUploadHistory] = useState<CatalogUploadRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Biblioteca administrável (Fase Planos) — catálogos que o admin
-  // liberou pro plano do usuário logado. Recarrega quando o plano muda
-  // (ex.: admin trocou o plano da conta em outra aba).
-  const [libraryCatalogs, setLibraryCatalogs] = useState<SharedCatalog[]>([]);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-
   // Cota diária de buscas do plano — ver config/plans.ts e usageQuota.ts.
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
+
+  // Comparativo de velocidade por mecanismo (ver providerSpeedStats.ts) —
+  // substitui o antigo card estático "Como o cálculo roda".
+  const [speedSummary, setSpeedSummary] = useState<ProviderSpeedSummary[]>(() => getSpeedSummary());
 
   // BYOK — chave SerpApi própria do usuário (Conta). Presente = busca usa
   // a cota da própria conta SerpApi do usuário, não a compartilhada do
@@ -245,17 +262,6 @@ export default function Dashboard({
   }, [userId]);
 
   useEffect(() => {
-    if (!profile) {
-      setLibraryCatalogs([]);
-      return;
-    }
-    setLibraryLoading(true);
-    listSharedCatalogsForPlan(profile.plan)
-      .then(setLibraryCatalogs)
-      .finally(() => setLibraryLoading(false));
-  }, [profile]);
-
-  useEffect(() => {
     if (!userId) {
       setTodayUsage(null);
       return;
@@ -263,18 +269,22 @@ export default function Dashboard({
     getTodayUsage(userId).then(setTodayUsage);
   }, [userId]);
 
-  const activeStep = state === "parsing" ? 0 : state === "fetching" ? 1 : -1;
+  // Catálogo escolhido em "usar" na biblioteca da Home — processa uma vez
+  // e avisa o App pra limpar o pendente (senão reprocessaria em loop a
+  // cada re-render). `processSharedCatalog` é function declaration
+  // (hoisted), então funciona mesmo definida mais abaixo no arquivo.
+  useEffect(() => {
+    if (!pendingSharedCatalog) return;
+    void processSharedCatalog(pendingSharedCatalog);
+    onPendingSharedCatalogConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSharedCatalog]);
+
   const marketplaceLabels = AVAILABLE_MARKETPLACES.filter((m) =>
     selectedMarketplaces.includes(m.id)
   )
     .map((m) => m.label)
     .join(" + ");
-
-  const STEPS = [
-    { label: "Upload do catálogo" },
-    { label: marketplaceLabels ? `Buscamos preço (${marketplaceLabels})` : "Selecione um marketplace" },
-    { label: "Calculamos a margem ideal" },
-  ];
 
   const lastRun = uploadHistory[0] ?? null;
   const uniqueMarketplaces = new Set(uploadHistory.flatMap((h) => h.marketplaces ?? []));
@@ -291,6 +301,13 @@ export default function Dashboard({
         ? rapidApiKey
         : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
+
+  // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
+  // busca (mesma filosofia BYOK do resto do app). `!` a partir de 80% —
+  // design-tokens.md § Regras de tela adicionadas — respeitando o
+  // toggle "Avisar quando eu chegar a 80% da cota" (Conta).
+  const quotaPct = todayUsage !== null ? Math.min(1, todayUsage / plan.dailySearchLimit) : 0;
+  const quotaWarning = warnAt80PercentQuota && quotaPct >= 0.8;
 
   function toggleMarketplace(id: MarketplaceId) {
     setSelectedMarketplaces((prev) =>
@@ -491,12 +508,21 @@ export default function Dashboard({
           name: r.name,
           imageUrl: imagesBySku?.[r.sku],
         }));
+        const chunkStartedAt = performance.now();
         const fetched = await fetchMultipleMarketplacePrices(
           meta.marketplaces,
           chunkItems,
           activeProviderKey,
           searchProvider
         );
+        // ms/item deste lote — vira 1 amostra do comparativo de
+        // velocidade (ver providerSpeedStats.ts e o card "Velocidade por
+        // mecanismo" na aside). Só registra lote com item de verdade
+        // (chunkItems.length > 0 sempre aqui, mas a guarda existe pra
+        // não dividir por zero se isso mudar).
+        if (chunkItems.length > 0) {
+          recordSample(searchProvider, (performance.now() - chunkStartedAt) / chunkItems.length);
+        }
 
         for (const marketplace of meta.marketplaces) {
           const { results: prices, source } = fetched[marketplace];
@@ -512,6 +538,7 @@ export default function Dashboard({
       }
     } finally {
       setProgress(null);
+      setSpeedSummary(getSpeedSummary());
     }
 
     let allResults: MarginResult[] = [];
@@ -746,7 +773,7 @@ export default function Dashboard({
             </div>
             <div className={styles.cardBody}>
               <div className={styles.marketplaceGrid}>
-                {SEARCH_PROVIDERS.map((p) => {
+                {SELECTABLE_PROVIDERS.map((p) => {
                   const active = searchProvider === p.id;
                   const Icon = p.icon;
                   return (
@@ -755,6 +782,7 @@ export default function Dashboard({
                       type="button"
                       className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
                       onClick={() => selectProvider(p.id)}
+                      title={p.note}
                     >
                       <span
                         className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
@@ -763,7 +791,6 @@ export default function Dashboard({
                       </span>
                       <span className={styles.marketplaceCardText}>
                         <span className={styles.marketplaceCardLabel}>{p.label}</span>
-                        <span className={styles.marketplaceCardNote}>{p.note}</span>
                       </span>
                       {active && (
                         <span className={styles.marketplaceCardCheck}>
@@ -820,6 +847,7 @@ export default function Dashboard({
                           type="button"
                           className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
                           onClick={() => toggleMarketplace(m.id)}
+                          title={m.note}
                         >
                           <span
                             className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
@@ -828,7 +856,6 @@ export default function Dashboard({
                           </span>
                           <span className={styles.marketplaceCardText}>
                             <span className={styles.marketplaceCardLabel}>{m.label}</span>
-                            <span className={styles.marketplaceCardNote}>{m.note}</span>
                           </span>
                           {active && (
                             <span className={styles.marketplaceCardCheck}>
@@ -848,9 +875,6 @@ export default function Dashboard({
             <div className={styles.cardHeader}>
               <span className={styles.cardHeaderNumber}>02</span>
               <h2 className={styles.cardHeaderTitle}>Catálogo</h2>
-              <a className={styles.cardHeaderLink} href="/sample-catalog.csv" download>
-                <Download size={11} /> baixar exemplo .csv
-              </a>
             </div>
             <div className={styles.cardBody}>
               {pendingPdf ? (
@@ -1007,27 +1031,6 @@ export default function Dashboard({
                 )}
               </div>
             )}
-
-            {userId && profile && !libraryLoading && libraryCatalogs.length > 0 && (
-              <div className={styles.libraryPanel}>
-                <div className={styles.libraryTitle}>
-                  <Library size={12} /> Biblioteca do plano {plan.name}
-                </div>
-                {libraryCatalogs.map((catalog) => (
-                  <button
-                    key={catalog.id}
-                    type="button"
-                    className={styles.libraryRow}
-                    onClick={() => void processSharedCatalog(catalog)}
-                  >
-                    <span className={styles.libraryName}>
-                      <FileText size={13} /> {catalog.fileName}
-                    </span>
-                    <span className={styles.libraryMeta}>{catalog.rows.length} produtos</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </section>
 
           {userId && (
@@ -1156,23 +1159,69 @@ export default function Dashboard({
             </div>
           </section>
 
+          {userId && activeProvider.needsKey === "serpApiKey" && serpApiKey && todayUsage !== null && (
+            <section className={quotaWarning ? styles.cardWarning : styles.card}>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardHeaderIcon}>
+                  <Gauge size={13} />
+                </span>
+                <h2 className={styles.cardHeaderTitle}>Cota diária</h2>
+                <span className={quotaWarning ? styles.quotaBadgeWarning : styles.cardHeaderMeta}>
+                  {quotaWarning && <AlertCircle size={11} />}
+                  {Math.round(quotaPct * 100)}%
+                </span>
+              </div>
+              <div className={styles.quotaBody}>
+                <div className={styles.quotaTrack}>
+                  <div
+                    className={quotaWarning ? styles.quotaFillWarning : styles.quotaFill}
+                    style={{ width: `${Math.round(quotaPct * 100)}%` }}
+                  />
+                </div>
+                <span className={styles.quotaLabel}>
+                  {todayUsage} / {plan.dailySearchLimit} busca(s) hoje · plano {plan.name}
+                </span>
+              </div>
+            </section>
+          )}
+
           <section className={styles.card}>
             <div className={styles.cardHeader}>
-              <h2 className={styles.cardHeaderTitle}>Como o cálculo roda</h2>
+              <span className={styles.cardHeaderIcon}>
+                <Zap size={13} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>Velocidade por mecanismo</h2>
             </div>
-            {STEPS.map((step, i) => {
-              const Icon = STEP_ICONS[i];
-              const isActive = i === activeStep;
-              return (
-                <div key={step.label} className={isActive ? styles.stepRowActive : styles.stepRow}>
-                  <span className={isActive ? styles.stepIconBoxActive : styles.stepIconBox}>
-                    <Icon size={13} />
-                  </span>
-                  <span className={styles.stepRowLabel}>{step.label}</span>
-                  <span className={styles.stepRowNumber}>0{i + 1}</span>
-                </div>
-              );
-            })}
+            {speedSummary.length === 0 ? (
+              <p className={styles.speedEmpty}>
+                Ainda sem dado — aparece aqui depois da primeira busca com cada mecanismo (medido
+                neste navegador, ms por produto).
+              </p>
+            ) : (
+              <div className={styles.speedList}>
+                {(() => {
+                  const maxMs = Math.max(...speedSummary.map((s) => s.avgMsPerItem));
+                  return speedSummary.map((s) => {
+                    const label = SEARCH_PROVIDERS.find((p) => p.id === s.provider)?.label ?? s.provider;
+                    return (
+                      <div key={s.provider} className={styles.speedRow}>
+                        <span className={styles.speedRowLabel}>{label}</span>
+                        <span className={styles.speedTrack}>
+                          <span
+                            className={styles.speedFill}
+                            style={{ width: `${Math.max(6, Math.round((s.avgMsPerItem / maxMs) * 100))}%` }}
+                          />
+                        </span>
+                        <span className={styles.speedValue}>{Math.round(s.avgMsPerItem)}ms</span>
+                      </div>
+                    );
+                  });
+                })()}
+                <p className={styles.speedCaption}>
+                  média de ms por produto, medida nas suas últimas buscas — mais curto é mais rápido.
+                </p>
+              </div>
+            )}
           </section>
 
           {userId && uploadHistory.length > 0 && (

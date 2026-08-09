@@ -509,66 +509,6 @@
   color: var(--color-text);
 }
 
-.libraryPanel {
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--color-border-soft);
-}
-
-.libraryTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
-}
-
-.libraryRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  width: 100%;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  margin-bottom: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: 0.82rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.libraryRow:last-child {
-  margin-bottom: 0;
-}
-
-.libraryRow:hover {
-  border-color: var(--color-accent);
-  color: var(--color-text);
-}
-
-.libraryName {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: 1;
-  min-width: 0;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.libraryMeta {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
-  flex-shrink: 0;
-}
-
 /* --- Seção 03: tabela de catálogos processados --- */
 
 .tableHeadRow {
@@ -723,57 +663,136 @@
   color: var(--color-text-dim);
 }
 
-/* --- Aside: como o cálculo roda (steps verticais) --- */
+/* --- Aside: ícone no header de card (cota / velocidade) --- */
 
-.stepRow,
-.stepRowActive {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-  line-height: 1.45;
-}
-
-.stepRow:last-child,
-.stepRowActive:last-child {
-  border-bottom: none;
-}
-
-.stepRowActive {
-  color: var(--color-text);
-  background: var(--color-accent-dim);
-}
-
-.stepIconBox,
-.stepIconBoxActive {
+.cardHeaderIcon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   border-radius: var(--radius-sm);
-  background: var(--color-bg-hover);
-  color: var(--color-text-dim);
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
   flex-shrink: 0;
 }
 
-.stepIconBoxActive {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+/* --- Aside: cota diária --- */
+
+.cardWarning {
+  composes: card;
+  border-color: var(--color-warning-border);
 }
 
-.stepRowLabel {
-  flex: 1;
+.cardWarning .cardHeaderIcon {
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
 }
 
-.stepRowNumber {
+.quotaBadgeWarning {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--color-text-dim);
+  font-size: 0.72rem;
+  color: var(--color-warning);
   flex-shrink: 0;
+}
+
+.quotaBody {
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.quotaTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.quotaFill {
+  height: 100%;
+  background: var(--gradient-accent);
+  transition: width 0.2s ease;
+}
+
+.quotaFillWarning {
+  composes: quotaFill;
+  background: var(--color-warning);
+}
+
+.quotaLabel {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+/* --- Aside: velocidade por mecanismo --- */
+
+.speedEmpty {
+  padding: var(--space-5);
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+.speedList {
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.speedRow {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.speedRowLabel {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speedTrack {
+  display: block;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.speedFill {
+  display: block;
+  height: 100%;
+  background: var(--gradient-accent);
+}
+
+.speedValue {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  text-align: right;
+}
+
+.speedCaption {
+  margin: var(--space-2) 0 0;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
 }
 
 /* --- Aside: seu histórico (estatísticas) --- */

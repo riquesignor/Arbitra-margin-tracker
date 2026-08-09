@@ -11,15 +11,23 @@ import type {
 import { subscribeToAuth, type AuthUser } from "./lib/auth";
 import { ensureUserProfile, type UserProfile } from "./lib/userProfile";
 import { listCatalogUploads, type CatalogUploadRecord } from "./lib/catalogHistory";
+import type { SharedCatalog } from "./lib/sharedCatalogs";
 import { loadPricingRules, savePricingRules } from "./lib/pricingRulesStore";
 import { DEFAULT_PRICING_RULES, calculateMargins } from "./lib/marginCalculator";
-import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
+import { applyAccent, applyFontSize, applyTheme, getInitialTheme, resolveThemeMode, type Theme } from "./lib/theme";
+import {
+  DEFAULT_PREFERENCES,
+  loadUserPreferences,
+  saveUserPreferences,
+  type UserPreferences,
+} from "./lib/userPreferences";
 import TopNav from "./components/TopNav";
 import Home from "./components/Home";
 import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
 import ResultsTable from "./components/ResultsTable";
 import Account from "./components/Account";
+import Settings from "./components/Settings";
 import Admin from "./components/Admin";
 
 export default function App() {
@@ -49,8 +57,54 @@ export default function App() {
   const [history, setHistory] = useState<CatalogUploadRecord[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
 
-  const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
-  useEffect(() => applyTheme(theme), [theme]);
+  // Catálogo da biblioteca escolhido em "usar" na Home (ver Home.tsx) —
+  // a biblioteca em si só mora na Home agora; isto é só o gatilho pra
+  // Dashboard processar sem reabrir a lista lá (ver Dashboard.tsx).
+  const [pendingSharedCatalog, setPendingSharedCatalog] = useState<SharedCatalog | null>(null);
+
+  // Preferências de UI (Configurações → Aparência/Personalização + as
+  // opcionais da tela Conta, ver lib/userPreferences.ts). `resolvedTheme`
+  // é o valor JÁ resolvido de `preferences.themeMode` (light/dark, nunca
+  // "system" — ver resolveThemeMode em lib/theme.ts), o que a barra
+  // superior de fato usa pro ícone sol/lua.
+  const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
+  const [resolvedTheme, setResolvedTheme] = useState<Theme>(() => getInitialTheme());
+
+  useEffect(() => {
+    loadUserPreferences(user?.uid ?? null).then(setPreferences);
+  }, [user]);
+
+  useEffect(() => {
+    const resolved = resolveThemeMode(preferences.themeMode);
+    setResolvedTheme(resolved);
+    applyTheme(resolved);
+    applyAccent(preferences.accent);
+    applyFontSize(preferences.fontSize);
+  }, [preferences]);
+
+  // "Sistema" acompanha o SO em tempo real, sem precisar de reload —
+  // só o listener importa quando o modo escolhido é "system" (light/dark
+  // explícitos não mudam com o SO).
+  useEffect(() => {
+    if (preferences.themeMode !== "system" || typeof window === "undefined") return;
+    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const handler = () => {
+      const resolved = resolveThemeMode("system");
+      setResolvedTheme(resolved);
+      applyTheme(resolved);
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [preferences.themeMode]);
+
+  /** Atualiza e persiste um subconjunto de preferências — usado pelo toggle rápido da TopNav e pela tela Configurações. */
+  function updatePreferences(partial: Partial<UserPreferences>) {
+    setPreferences((prev) => {
+      const next = { ...prev, ...partial };
+      void saveUserPreferences(user?.uid ?? null, next);
+      return next;
+    });
+  }
 
   useEffect(() => subscribeToAuth(setUser), []);
 
@@ -137,6 +191,12 @@ export default function App() {
     setScreen("results");
   }
 
+  /** "usar" num catálogo da biblioteca (Home) — manda pra Nova busca já processando. */
+  function handleUseSharedCatalog(catalog: SharedCatalog) {
+    setPendingSharedCatalog(catalog);
+    setScreen("dashboard");
+  }
+
   function handlePricingChange(newRules: PricingRules) {
     setPricingRules(newRules);
     void savePricingRules(user?.uid ?? null, newRules);
@@ -156,8 +216,10 @@ export default function App() {
         active={screen}
         onChange={setScreen}
         resultsCount={results.length}
-        theme={theme}
-        onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+        theme={resolvedTheme}
+        onToggleTheme={() =>
+          updatePreferences({ themeMode: resolvedTheme === "dark" ? "light" : "dark" })
+        }
         isAdmin={profile?.isAdmin ?? false}
         userEmail={user?.email}
       />
@@ -179,6 +241,7 @@ export default function App() {
                 history={history}
                 onNavigate={setScreen}
                 onOpenRecord={handleOpenHistoryRecord}
+                onUseSharedCatalog={handleUseSharedCatalog}
               />
             )}
             {screen === "dashboard" && (
@@ -189,6 +252,9 @@ export default function App() {
                 onComplete={handleDashboardComplete}
                 onHistoryChanged={handleHistoryChanged}
                 onHistoryDeleted={handleHistoryDeleted}
+                warnAt80PercentQuota={preferences.warnAt80PercentQuota}
+                pendingSharedCatalog={pendingSharedCatalog}
+                onPendingSharedCatalogConsumed={() => setPendingSharedCatalog(null)}
               />
             )}
             {screen === "pricing" && (
@@ -200,6 +266,7 @@ export default function App() {
                 history={history}
                 activeHistoryId={activeHistoryId}
                 onSelectHistory={handleSelectHistory}
+                showCharts={preferences.chartsPricing}
               />
             )}
             {screen === "results" && (
@@ -210,9 +277,27 @@ export default function App() {
                 history={history}
                 activeHistoryId={activeHistoryId}
                 onSelectHistory={handleSelectHistory}
+                showCharts={preferences.chartsResults}
+                compareSideBySide={preferences.compareEnginesSideBySide}
+                groupBySku={preferences.groupOffersBySku}
               />
             )}
-            {screen === "account" && <Account user={user} profile={profile} />}
+            {screen === "account" && (
+              <Account
+                user={user}
+                profile={profile}
+                preferences={preferences}
+                onUpdatePreferences={updatePreferences}
+              />
+            )}
+            {screen === "settings" && (
+              <Settings
+                preferences={preferences}
+                onUpdatePreferences={updatePreferences}
+                user={user}
+                profile={profile}
+              />
+            )}
             {screen === "admin" && <Admin profile={profile} />}
           </motion.div>
         </AnimatePresence>

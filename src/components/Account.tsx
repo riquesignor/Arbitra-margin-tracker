@@ -11,6 +11,7 @@ import {
   Calculator,
   Library,
   Gauge,
+  SlidersHorizontal,
 } from "lucide-react";
 import { firebaseConfigured } from "../lib/firebase";
 import { signIn, signOutUser, signUp, type AuthUser } from "../lib/auth";
@@ -25,12 +26,54 @@ import {
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
+import type { UserPreferences } from "../lib/userPreferences";
 import styles from "./Account.module.css";
 
 interface Props {
   user: AuthUser | null;
   profile: UserProfile | null;
+  preferences: UserPreferences;
+  onUpdatePreferences: (partial: Partial<UserPreferences>) => void;
 }
+
+// "Preferências opcionais" — cada uma tem efeito num ponto específico do
+// app (ver comentário de cada campo em userPreferences.ts). Fica na tela
+// Conta (não em Configurações) porque são ajustes de COMPORTAMENTO de
+// busca/histórico da própria conta, não de aparência/gráfico.
+const OPTIONAL_PREFERENCES: {
+  key: keyof Pick<
+    UserPreferences,
+    "onlyOwnKey" | "warnAt80PercentQuota" | "reuseRecentResult" | "notifyOnSearchComplete" | "retainHistory90Days"
+  >;
+  title: string;
+  text: string;
+}[] = [
+  {
+    key: "onlyOwnKey",
+    title: "Usar somente a minha chave",
+    text: "nunca cair pro provider sem chave (Mercado Livre público) mesmo se a busca falhar.",
+  },
+  {
+    key: "warnAt80PercentQuota",
+    title: "Avisar quando eu chegar a 80% da cota",
+    text: "mostra o aviso \"!\" na barra de busca diária da Nova busca.",
+  },
+  {
+    key: "reuseRecentResult",
+    title: "Reaproveitar resultado recente",
+    text: "carrega do histórico em vez de reprocessar um catálogo já buscado.",
+  },
+  {
+    key: "notifyOnSearchComplete",
+    title: "Me avisar quando a busca terminar",
+    text: "notificação do navegador ao concluir uma busca longa (catálogo grande).",
+  },
+  {
+    key: "retainHistory90Days",
+    title: "Guardar histórico por 90 dias",
+    text: "catálogos processados somem da lista depois de 90 dias (menos linha pra rolar).",
+  },
+];
 
 const cardMotion = {
   initial: { opacity: 0, y: 8 },
@@ -92,7 +135,22 @@ const RAPIDAPI_INTRO = (
 // gráfico (ver aviso abaixo do gráfico, igual ao mockup).
 const ILLUSTRATIVE_USAGE_SHAPE = [4, 12, 2, 8, 18, 14, 6, 2, 15, 20, 9, 7, 11];
 
-export default function Account({ user, profile }: Props) {
+function PrefSwitch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      className={on ? styles.switchOn : styles.switch}
+      onClick={onToggle}
+    >
+      <span className={styles.switchThumb} />
+    </button>
+  );
+}
+
+export default function Account({ user, profile, preferences, onUpdatePreferences }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
@@ -499,6 +557,30 @@ export default function Account({ user, profile }: Props) {
                 a barra destacada é o dia de hoje (dado real). O histórico dos dias anteriores é
                 ilustrativo — ainda não é gravado por dia no back-end.
               </p>
+            </div>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <SlidersHorizontal size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>Preferências opcionais</h2>
+            </div>
+            <div className={styles.toggleList}>
+              {OPTIONAL_PREFERENCES.map((p) => (
+                <div key={p.key} className={styles.toggleRow}>
+                  <span className={styles.toggleText}>
+                    <span className={styles.toggleTitle}>{p.title}</span>
+                    <span className={styles.toggleSub}>{p.text}</span>
+                  </span>
+                  <PrefSwitch
+                    on={preferences[p.key]}
+                    onToggle={() => onUpdatePreferences({ [p.key]: !preferences[p.key] })}
+                    label={p.title}
+                  />
+                </div>
+              ))}
             </div>
           </section>
         </div>

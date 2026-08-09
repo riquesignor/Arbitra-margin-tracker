@@ -6,14 +6,16 @@
   --font-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* --- Escala tipográfica --- */
-  --text-display: 28px;
-  --text-title: 20px;
-  --text-card: 15px;
-  --text-body: 14px;
-  --text-sm: 13px;
-  --text-xs: 12px;
-  --text-label: 11px;
+  /* --- Escala tipográfica — cada degrau multiplica --font-scale (ver
+     preset de tamanho de texto logo abaixo), então trocar o preset
+     reescala a hierarquia inteira sem tocar em nenhum componente. --- */
+  --text-display: calc(28px * var(--font-scale));
+  --text-title: calc(20px * var(--font-scale));
+  --text-card: calc(15px * var(--font-scale));
+  --text-body: calc(14px * var(--font-scale));
+  --text-sm: calc(13px * var(--font-scale));
+  --text-xs: calc(12px * var(--font-scale));
+  --text-label: calc(11px * var(--font-scale));
 
   /* --- Raios — 3 degraus. Pill só em badge. --- */
   --radius-sm: 4px;
@@ -21,15 +23,16 @@
   --radius-lg: 8px;
   --radius-xl: 8px;
 
-  /* --- Espaçamento --- */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --space-7: 48px;
-  --space-8: 64px;
+  /* --- Espaçamento — acompanha --font-scale (design-tokens.md: "a
+     densidade percebida se mantém"). --- */
+  --space-1: calc(4px * var(--font-scale));
+  --space-2: calc(8px * var(--font-scale));
+  --space-3: calc(12px * var(--font-scale));
+  --space-4: calc(16px * var(--font-scale));
+  --space-5: calc(24px * var(--font-scale));
+  --space-6: calc(32px * var(--font-scale));
+  --space-7: calc(48px * var(--font-scale));
+  --space-8: calc(64px * var(--font-scale));
 
   /* --- Transições --- */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -37,6 +40,13 @@
   --duration-base: 0.25s;
 
   --content-max: 1180px;
+
+  /* --- Tamanho de texto — 3 presets, fator único multiplica a escala
+     inteira (ver design-tokens.md § Tamanho de texto). Aplicado via
+     [data-font-size] no <html>; padrão = 1 quando o atributo não está
+     presente. Consumido pelas variáveis --text-* abaixo através de
+     calc(), então nenhum componente precisa saber do fator. --- */
+  --font-scale: 1;
 }
 
 @media (min-width: 1600px) {
@@ -46,6 +56,10 @@
 @media (min-width: 1920px) {
   :root { --content-max: 1680px; }
 }
+
+[data-font-size="compact"] { --font-scale: 0.93; }
+[data-font-size="standard"] { --font-scale: 1; }
+[data-font-size="large"] { --font-scale: 1.14; }
 
 /*
  * Paleta v3 — clara por padrão (referência corporativa/JoomPulse), azul-aço
@@ -131,4 +145,73 @@
   --shadow-sm: none;
   --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
   --shadow-glow-accent: none;
+}
+
+/*
+ * Paletas de acento (Configurações → Aparência, ver design-tokens.md
+ * § Temas de cor). Eixo INDEPENDENTE de [data-theme]: só o acento muda
+ * — neutros e cores de status (success/warning/danger) são fixos em
+ * qualquer paleta, porque status precisa significar sempre a mesma
+ * coisa. "aco" é a paleta padrão, já coberta pelos blocos [data-theme]
+ * acima; as 3 abaixo só entram em vigor quando [data-accent] aponta
+ * pra uma delas. Contraste (claro): 6,7–7,5:1, todas AA.
+ */
+[data-theme="light"][data-accent="petroleo"] {
+  --color-accent: #1f5f5b;
+  --color-accent-hover: #164744;
+  --color-accent-soft: #5c918d;
+  --color-accent-dim: #e9f2f1;
+  --color-accent-border: #c7e0dd;
+  --gradient-accent: #1f5f5b;
+  --focus-ring: 0 0 0 3px rgba(31, 95, 91, 0.16);
+}
+[data-theme="dark"][data-accent="petroleo"] {
+  --color-accent: #6fb3ac;
+  --color-accent-hover: #85c2bb;
+  --color-accent-soft: #4c8b85;
+  --color-accent-dim: #17221f;
+  --color-accent-border: #294038;
+  --gradient-accent: #6fb3ac;
+  --color-on-accent: #0e1013;
+  --focus-ring: 0 0 0 3px rgba(111, 179, 172, 0.22);
+}
+
+[data-theme="light"][data-accent="indigo"] {
+  --color-accent: #4a4f8c;
+  --color-accent-hover: #383c6e;
+  --color-accent-soft: #8285b3;
+  --color-accent-dim: #eeeff7;
+  --color-accent-border: #d6d8ed;
+  --gradient-accent: #4a4f8c;
+  --focus-ring: 0 0 0 3px rgba(74, 79, 140, 0.16);
+}
+[data-theme="dark"][data-accent="indigo"] {
+  --color-accent: #9a9dd6;
+  --color-accent-hover: #aeb0de;
+  --color-accent-soft: #6c70ab;
+  --color-accent-dim: #1e1f2e;
+  --color-accent-border: #33354e;
+  --gradient-accent: #9a9dd6;
+  --color-on-accent: #0e1013;
+  --focus-ring: 0 0 0 3px rgba(154, 157, 214, 0.22);
+}
+
+[data-theme="light"][data-accent="terracota"] {
+  --color-accent: #8a4a2f;
+  --color-accent-hover: #6b3823;
+  --color-accent-soft: #b98567;
+  --color-accent-dim: #f8efea;
+  --color-accent-border: #e8d2c4;
+  --gradient-accent: #8a4a2f;
+  --focus-ring: 0 0 0 3px rgba(138, 74, 47, 0.16);
+}
+[data-theme="dark"][data-accent="terracota"] {
+  --color-accent: #d19a78;
+  --color-accent-hover: #dcae90;
+  --color-accent-soft: #a66d4c;
+  --color-accent-dim: #271c15;
+  --color-accent-border: #3f2c21;
+  --gradient-accent: #d19a78;
+  --color-on-accent: #0e1013;
+  --focus-ring: 0 0 0 3px rgba(209, 154, 120, 0.22);
 }

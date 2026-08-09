@@ -24,6 +24,8 @@ interface Props {
   history?: CatalogUploadRecord[];
   activeHistoryId?: string | null;
   onSelectHistory?: (id: string) => void;
+  /** Configurações → Personalização: "Gráficos na tela de Precificação". Some só a curva de sensibilidade e o histograma — Preview ao vivo (números + barra de custo) fica sempre visível, não é opcional. */
+  showCharts?: boolean;
 }
 
 function formatHistoryLabel(record: CatalogUploadRecord): string {
@@ -99,6 +101,7 @@ export default function PricingConfig({
   history = [],
   activeHistoryId = null,
   onSelectHistory,
+  showCharts = true,
 }: Props) {
   function updateFee(id: string, patch: Partial<PricingRules["marketplaceFees"][number]>) {
     onChange({
@@ -530,120 +533,124 @@ export default function PricingConfig({
             </div>
           </motion.section>
 
-          <motion.section className={styles.card} {...sections(0.06)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <LineChart size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Se o preço mudar</h2>
-              <span className={styles.cardHeaderMeta}>−30% a +40%</span>
-            </div>
-            <div className={styles.chartBody}>
-              <svg className={styles.curve} viewBox="0 0 100 100" preserveAspectRatio="none">
-                <line
-                  className={styles.curveLineTarget}
-                  x1="0"
-                  x2="100"
-                  y1={sensitivity.targetY}
-                  y2={sensitivity.targetY}
-                  vectorEffect="non-scaling-stroke"
-                />
-                <line
-                  className={styles.curveLineZero}
-                  x1="0"
-                  x2="100"
-                  y1={sensitivity.zeroY}
-                  y2={sensitivity.zeroY}
-                  vectorEffect="non-scaling-stroke"
-                />
-                <polyline
-                  className={styles.curvePath}
-                  points={sensitivity.polyline}
-                  vectorEffect="non-scaling-stroke"
-                />
-              </svg>
-              <div className={styles.curveAxis}>
-                <span>−30%</span>
-                <span>preço atual</span>
-                <span>+40%</span>
+          {showCharts && (
+            <motion.section className={styles.card} {...sections(0.06)}>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardHeaderIcon}>
+                  <LineChart size={14} />
+                </span>
+                <h2 className={styles.cardHeaderTitle}>Se o preço mudar</h2>
+                <span className={styles.cardHeaderMeta}>−30% a +40%</span>
               </div>
-              <p className={styles.chartCaption}>
-                {sensitivity.reachesTarget && sensitivity.breakEven !== null
-                  ? `bate a meta a partir de ${brl(sensitivity.breakEven)} de preço de venda`
-                  : "não bate a meta nem a +40% do preço atual — reveja custo, taxas ou a própria meta"}
-              </p>
-            </div>
-          </motion.section>
-
-          <motion.section className={styles.card} {...sections(0.1)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Layers size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Impacto no catálogo</h2>
-            </div>
-            <div className={styles.chartBody}>
-              {impact.total === 0 ? (
+              <div className={styles.chartBody}>
+                <svg className={styles.curve} viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <line
+                    className={styles.curveLineTarget}
+                    x1="0"
+                    x2="100"
+                    y1={sensitivity.targetY}
+                    y2={sensitivity.targetY}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <line
+                    className={styles.curveLineZero}
+                    x1="0"
+                    x2="100"
+                    y1={sensitivity.zeroY}
+                    y2={sensitivity.zeroY}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <polyline
+                    className={styles.curvePath}
+                    points={sensitivity.polyline}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+                <div className={styles.curveAxis}>
+                  <span>−30%</span>
+                  <span>preço atual</span>
+                  <span>+40%</span>
+                </div>
                 <p className={styles.chartCaption}>
-                  Nenhum catálogo processado nesta sessão — envie um arquivo no Dashboard pra ver a
-                  distribuição de margem com estas regras.
+                  {sensitivity.reachesTarget && sensitivity.breakEven !== null
+                    ? `bate a meta a partir de ${brl(sensitivity.breakEven)} de preço de venda`
+                    : "não bate a meta nem a +40% do preço atual — reveja custo, taxas ou a própria meta"}
                 </p>
-              ) : (
-                <>
-                  <div className={styles.stackBar}>
-                    <span
-                      className={styles.stackRecomendado}
-                      style={{ width: `${(impact.counts.recomendado / impact.total) * 100}%` }}
-                    />
-                    <span
-                      className={styles.stackRevisar}
-                      style={{ width: `${(impact.counts.revisar / impact.total) * 100}%` }}
-                    />
-                    <span
-                      className={styles.stackEvitar}
-                      style={{ width: `${(impact.counts.evitar / impact.total) * 100}%` }}
-                    />
-                  </div>
-                  <div className={styles.legend}>
-                    <span className={styles.legendItem}>
-                      <span className={`${styles.legendDot} ${styles.segProfit}`} />
-                      Recomendado
-                      <b className={styles.legendValue}>{impact.counts.recomendado}</b>
-                    </span>
-                    <span className={styles.legendItem}>
-                      <span className={`${styles.legendDot} ${styles.segShipping}`} />
-                      Revisar
-                      <b className={styles.legendValue}>{impact.counts.revisar}</b>
-                    </span>
-                    <span className={styles.legendItem}>
-                      <span className={`${styles.legendDot} ${styles.segTaxes}`} />
-                      Evitar
-                      <b className={styles.legendValue}>{impact.counts.evitar}</b>
-                    </span>
-                  </div>
-                  <div className={styles.histogram}>
-                    {impact.buckets.map((b) => (
-                      <div key={b.label} className={styles.histCol}>
-                        <span className={styles.histValue}>{b.count}</span>
-                        <span className={styles.histTrack}>
-                          <span
-                            className={b.isNegative ? styles.histFillNegative : styles.histFill}
-                            style={{
-                              height: `${Math.max(2, Math.round((b.count / impact.maxBucket) * 100))}%`,
-                            }}
-                          />
-                        </span>
-                        <span className={styles.histLabel}>{b.label}</span>
-                      </div>
-                    ))}
-                  </div>
+              </div>
+            </motion.section>
+          )}
+
+          {showCharts && (
+            <motion.section className={styles.card} {...sections(0.1)}>
+              <div className={styles.cardHeader}>
+                <span className={styles.cardHeaderIcon}>
+                  <Layers size={14} />
+                </span>
+                <h2 className={styles.cardHeaderTitle}>Impacto no catálogo</h2>
+              </div>
+              <div className={styles.chartBody}>
+                {impact.total === 0 ? (
                   <p className={styles.chartCaption}>
-                    produtos por faixa de margem, com as regras atuais
+                    Nenhum catálogo processado nesta sessão — envie um arquivo no Dashboard pra ver a
+                    distribuição de margem com estas regras.
                   </p>
-                </>
-              )}
-            </div>
-          </motion.section>
+                ) : (
+                  <>
+                    <div className={styles.stackBar}>
+                      <span
+                        className={styles.stackRecomendado}
+                        style={{ width: `${(impact.counts.recomendado / impact.total) * 100}%` }}
+                      />
+                      <span
+                        className={styles.stackRevisar}
+                        style={{ width: `${(impact.counts.revisar / impact.total) * 100}%` }}
+                      />
+                      <span
+                        className={styles.stackEvitar}
+                        style={{ width: `${(impact.counts.evitar / impact.total) * 100}%` }}
+                      />
+                    </div>
+                    <div className={styles.legend}>
+                      <span className={styles.legendItem}>
+                        <span className={`${styles.legendDot} ${styles.segProfit}`} />
+                        Recomendado
+                        <b className={styles.legendValue}>{impact.counts.recomendado}</b>
+                      </span>
+                      <span className={styles.legendItem}>
+                        <span className={`${styles.legendDot} ${styles.segShipping}`} />
+                        Revisar
+                        <b className={styles.legendValue}>{impact.counts.revisar}</b>
+                      </span>
+                      <span className={styles.legendItem}>
+                        <span className={`${styles.legendDot} ${styles.segTaxes}`} />
+                        Evitar
+                        <b className={styles.legendValue}>{impact.counts.evitar}</b>
+                      </span>
+                    </div>
+                    <div className={styles.histogram}>
+                      {impact.buckets.map((b) => (
+                        <div key={b.label} className={styles.histCol}>
+                          <span className={styles.histValue}>{b.count}</span>
+                          <span className={styles.histTrack}>
+                            <span
+                              className={b.isNegative ? styles.histFillNegative : styles.histFill}
+                              style={{
+                                height: `${Math.max(2, Math.round((b.count / impact.maxBucket) * 100))}%`,
+                              }}
+                            />
+                          </span>
+                          <span className={styles.histLabel}>{b.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className={styles.chartCaption}>
+                      produtos por faixa de margem, com as regras atuais
+                    </p>
+                  </>
+                )}
+              </div>
+            </motion.section>
+          )}
         </aside>
       </div>
     </div>

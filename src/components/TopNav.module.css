@@ -118,6 +118,13 @@
   border-color: var(--color-text-dim);
 }
 
+.iconButtonActive {
+  composes: iconButton;
+  color: var(--color-accent);
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-dim);
+}
+
 .statusRow {
   display: flex;
   align-items: center;

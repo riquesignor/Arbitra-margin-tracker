@@ -9,6 +9,7 @@ import {
   Moon,
   ShieldCheck,
   ChevronDown,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import type { Screen } from "../types";
 import type { Theme } from "../lib/theme";
@@ -96,6 +97,16 @@ export default function TopNav({
           title={theme === "dark" ? "Modo claro" : "Modo escuro"}
         >
           {theme === "dark" ? <Sun size={15} strokeWidth={2} /> : <Moon size={15} strokeWidth={2} />}
+        </button>
+
+        <button
+          type="button"
+          className={active === "settings" ? styles.iconButtonActive : styles.iconButton}
+          onClick={() => onChange("settings")}
+          aria-label="Configurações"
+          title="Configurações"
+        >
+          <SettingsIcon size={15} strokeWidth={2} />
         </button>
 
         <span className={styles.statusRow}>

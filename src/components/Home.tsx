@@ -29,6 +29,8 @@ interface Props {
   onNavigate: (screen: Screen) => void;
   /** Abre um registro do histórico direto na tela de Resultados (ver handleOpenHistoryRecord em App.tsx). */
   onOpenRecord: (id: string) => void;
+  /** "usar" num catálogo da biblioteca — manda o catálogo inteiro pro App, que passa pra Dashboard já processar (ver handleUseSharedCatalog em App.tsx). */
+  onUseSharedCatalog: (catalog: SharedCatalog) => void;
 }
 
 const STEPS = [
@@ -71,7 +73,15 @@ function isThisMonth(ts: number): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 }
 
-export default function Home({ userId, userEmail, profile, history, onNavigate, onOpenRecord }: Props) {
+export default function Home({
+  userId,
+  userEmail,
+  profile,
+  history,
+  onNavigate,
+  onOpenRecord,
+  onUseSharedCatalog,
+}: Props) {
   const [libraryCatalogs, setLibraryCatalogs] = useState<SharedCatalog[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [hasSerpKey, setHasSerpKey] = useState<boolean | null>(null);
@@ -252,7 +262,7 @@ export default function Home({ userId, userEmail, profile, history, onNavigate, 
                     <button
                       type="button"
                       className={styles.libraryUseButton}
-                      onClick={() => onNavigate("dashboard")}
+                      onClick={() => onUseSharedCatalog(c)}
                     >
                       usar
                     </button>
