@@ -152,7 +152,15 @@ export async function fetchRapidApiAmazonPrices(
         competitorCount: Math.max(0, products.length - 1),
         buyBoxEligible: true,
         confidence: confidenceFromSimilarity(bestSimilarity),
-        link: best.product_url,
+        // `product_url` normalmente vem preenchido (ver amostra pública da
+        // API), mas não é documentado como garantido em 100% dos
+        // resultados — cai pro `asin` (chave primária do produto,
+        // praticamente sempre presente num item de busca) construindo o
+        // link direto pro domínio BR, já que a busca já pede
+        // `country=BR` acima. Sem esse fallback, um resultado sem
+        // `product_url` mostrava foto (via imageUrl/row.imageUrl) mas
+        // ficava sem o botão "Ver anúncio" — o bug relatado.
+        link: best.product_url ?? (best.asin ? `https://www.amazon.com.br/dp/${best.asin}` : undefined),
         matchedTitle: best.product_title,
         imageUrl: best.product_photo,
       };
