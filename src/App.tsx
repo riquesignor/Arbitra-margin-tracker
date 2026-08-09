@@ -26,6 +26,7 @@ import Home from "./components/Home";
 import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
 import ResultsTable from "./components/ResultsTable";
+import Portfolio from "./components/Portfolio";
 import Account from "./components/Account";
 import Settings from "./components/Settings";
 import Admin from "./components/Admin";
@@ -281,6 +282,9 @@ export default function App() {
                 compareSideBySide={preferences.compareEnginesSideBySide}
                 groupBySku={preferences.groupOffersBySku}
               />
+            )}
+            {screen === "portfolio" && (
+              <Portfolio history={history} onNavigateToDashboard={() => setScreen("dashboard")} />
             )}
             {screen === "account" && (
               <Account

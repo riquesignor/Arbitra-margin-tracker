@@ -18,6 +18,8 @@ import {
   ChevronDown,
   ChevronUp,
   BarChart3,
+  Users,
+  Crown,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -59,7 +61,7 @@ function formatHistoryLabel(record: CatalogUploadRecord): string {
  * `catalog_images`, ver TTL em catalogImages.ts) — as duas situações são
  * o esperado, não um erro pra reportar ao usuário.
  */
-function ProductThumb({ src }: { src?: string }) {
+export function ProductThumb({ src }: { src?: string }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
     return (
@@ -79,6 +81,36 @@ function ProductThumb({ src }: { src?: string }) {
   );
 }
 
+/**
+ * Concorrência + elegibilidade ao "ganha-compra" (Buy Box) — os
+ * providers já calculam isso (ver MarketplacePriceResult), mas até
+ * agora nada na UI mostrava; só a margem/preço apareciam. Fica ao lado
+ * do badge de recomendação (mesma coluna Status) em vez de coluna nova
+ * pra não precisar mexer nos 3 modos de visualização (flat/lado-a-lado/
+ * agrupado) em mais lugares do que o necessário.
+ */
+export function CompetitionBadge({
+  competitorCount,
+  buyBoxEligible,
+}: {
+  competitorCount: number;
+  buyBoxEligible: boolean;
+}) {
+  return (
+    <span
+      className={buyBoxEligible ? styles.buyBoxYes : styles.buyBoxNo}
+      title={
+        buyBoxEligible
+          ? `Elegível ao ganha-compra com ${competitorCount} concorrente(s) encontrado(s)`
+          : `Não elegível ao ganha-compra — ${competitorCount} concorrente(s) encontrado(s)`
+      }
+    >
+      {buyBoxEligible ? <Crown size={10} /> : <Users size={10} />}
+      {competitorCount}
+    </span>
+  );
+}
+
 const SOURCE_LABEL: Record<"server" | "local", string> = {
   server: "servidor (cache)",
   local: "direto no navegador",
@@ -88,19 +120,22 @@ type FilterOption = "todos" | Recommendation;
 type SortKey = "supplierPrice" | "marketplacePrice" | "marginPct" | "confidence";
 type SortDir = "asc" | "desc";
 
-const BADGE_CLASS: Record<Recommendation, string> = {
+// Exportados — reaproveitados por Portfolio.tsx ("Meus produtos"), que
+// mostra o mesmo vocabulário visual (badge de recomendação, rótulo de
+// marketplace, foto/concorrência) sem duplicar os mapeamentos.
+export const BADGE_CLASS: Record<Recommendation, string> = {
   recomendado: styles.badgeRecomendado,
   revisar: styles.badgeRevisar,
   evitar: styles.badgeEvitar,
 };
 
-const BADGE_LABEL: Record<Recommendation, string> = {
+export const BADGE_LABEL: Record<Recommendation, string> = {
   recomendado: "Recomendado",
   revisar: "Revisar",
   evitar: "Evitar",
 };
 
-const MARKETPLACE_LABEL: Record<MarketplaceId, string> = {
+export const MARKETPLACE_LABEL: Record<MarketplaceId, string> = {
   amazon: "Amazon",
   mercadolivre: "Mercado Livre",
   shopee: "Shopee",
@@ -248,6 +283,8 @@ export default function ResultsTable({
       "Margem (%)": (r.marginPct * 100).toFixed(1),
       "Confiança (%)": (r.confidence * 100).toFixed(0),
       Recomendação: BADGE_LABEL[r.recommendation],
+      Concorrentes: r.competitorCount,
+      "Elegível Buy Box": r.buyBoxEligible ? "Sim" : "Não",
       Link: r.link ?? "",
     }));
 
@@ -492,6 +529,10 @@ export default function ResultsTable({
                       <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
                         {BADGE_LABEL[r.recommendation]}
                       </span>
+                      <CompetitionBadge
+                        competitorCount={r.competitorCount}
+                        buyBoxEligible={r.buyBoxEligible}
+                      />
                     </td>
                   </motion.tr>
                 ))}
@@ -566,6 +607,10 @@ export default function ResultsTable({
                         <span className={`${styles.badge} ${BADGE_CLASS[best.recommendation]}`}>
                           {BADGE_LABEL[best.recommendation]}
                         </span>
+                        <CompetitionBadge
+                          competitorCount={best.competitorCount}
+                          buyBoxEligible={best.buyBoxEligible}
+                        />
                       </td>
                     </motion.tr>
                   );
@@ -631,6 +676,10 @@ export default function ResultsTable({
                           <span className={`${styles.badge} ${BADGE_CLASS[best.recommendation]}`}>
                             {BADGE_LABEL[best.recommendation]}
                           </span>
+                          <CompetitionBadge
+                            competitorCount={best.competitorCount}
+                            buyBoxEligible={best.buyBoxEligible}
+                          />
                         </td>
                       </motion.tr>
                       {isExpanded &&
@@ -651,6 +700,10 @@ export default function ResultsTable({
                               <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
                                 {BADGE_LABEL[r.recommendation]}
                               </span>
+                              <CompetitionBadge
+                                competitorCount={r.competitorCount}
+                                buyBoxEligible={r.buyBoxEligible}
+                              />
                             </td>
                           </tr>
                         ))}

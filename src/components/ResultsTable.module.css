@@ -586,6 +586,31 @@
   color: var(--color-danger);
 }
 
+/* --- Concorrência / Buy Box (ao lado do badge de recomendação) --- */
+
+.buyBoxYes,
+.buyBoxNo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.buyBoxYes {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.buyBoxNo {
+  background: var(--color-bg-elevated-2);
+  color: var(--color-text-dim);
+}
+
 .productLink {
   display: inline-flex;
   align-items: center;

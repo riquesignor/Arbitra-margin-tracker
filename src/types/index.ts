@@ -35,6 +35,7 @@ export type Screen =
   | "dashboard"
   | "pricing"
   | "results"
+  | "portfolio"
   | "account"
   | "settings"
   | "admin";
@@ -151,6 +152,15 @@ export interface MarginResult {
   matchedTitle?: string;
   /** Ver mesmo campo em CatalogRow — copiado ao calcular a margem (marginCalculator.ts). */
   imageUrl?: string;
+  /**
+   * Nº de outros vendedores encontrados pro mesmo anúncio e se este
+   * resultado é elegível ao "ganha-compra" (Buy Box/comprar com este
+   * vendedor) — ambos já calculados por todo provider (ver
+   * MarketplacePriceResult), só não chegavam até a UI antes; copiados
+   * em calculateMargin() igual aos outros campos desta seção.
+   */
+  competitorCount: number;
+  buyBoxEligible: boolean;
 }
 
 export interface MarginSummary {

@@ -9,11 +9,32 @@ const STORAGE_KEY = "arbitra:pricing_rules";
 const SUBCOLLECTION = "pricing_rules";
 const DOC_ID = "config";
 
+/**
+ * `{ ...DEFAULT, ...saved }` é merge RASO — `marketplaceFees` é array,
+ * então "saved" (se existir) substitui o array padrão inteiro, não
+ * mescla item a item. Sem isso, uma taxa nova adicionada em
+ * `DEFAULT_PRICING_RULES` (ex: "ads") nunca apareceria pra quem já tem
+ * regras salvas de antes — só pra conta nova. Aqui completa por `id`:
+ * mantém 100% da customização do usuário nas taxas que ele já tinha, só
+ * acrescenta as que faltam.
+ */
+function mergeMissingFees(saved: PricingRules["marketplaceFees"] | undefined): PricingRules["marketplaceFees"] {
+  const base = saved ?? [];
+  const existingIds = new Set(base.map((f) => f.id));
+  const missing = DEFAULT_PRICING_RULES.marketplaceFees.filter((f) => !existingIds.has(f.id));
+  return missing.length > 0 ? [...base, ...missing] : base;
+}
+
 function loadFromLocalStorage(): PricingRules {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PRICING_RULES;
-    return { ...DEFAULT_PRICING_RULES, ...JSON.parse(raw) } as PricingRules;
+    const saved = JSON.parse(raw) as Partial<PricingRules>;
+    return {
+      ...DEFAULT_PRICING_RULES,
+      ...saved,
+      marketplaceFees: mergeMissingFees(saved.marketplaceFees),
+    };
   } catch {
     return DEFAULT_PRICING_RULES;
   }
@@ -33,7 +54,12 @@ export async function loadPricingRules(userId: string | null): Promise<PricingRu
       const { doc, getDoc } = await import("firebase/firestore");
       const snap = await getDoc(doc(db, "users", userId, SUBCOLLECTION, DOC_ID));
       if (snap.exists()) {
-        return { ...DEFAULT_PRICING_RULES, ...(snap.data() as Partial<PricingRules>) };
+        const saved = snap.data() as Partial<PricingRules>;
+        return {
+          ...DEFAULT_PRICING_RULES,
+          ...saved,
+          marketplaceFees: mergeMissingFees(saved.marketplaceFees),
+        };
       }
       return DEFAULT_PRICING_RULES;
     } catch (err) {

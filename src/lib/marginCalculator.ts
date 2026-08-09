@@ -11,6 +11,12 @@ export const DEFAULT_PRICING_RULES: PricingRules = {
   marketplaceFees: [
     { id: "referencia", name: "Taxa de referência", rate: 0.15, enabled: true },
     { id: "fechamento", name: "Taxa de fechamento", rate: 0.02, enabled: true },
+    // Desabilitada por padrão (opt-in): nem todo revendedor roda ads
+    // patrocinado, e o % varia muito por categoria/estratégia — ao
+    // contrário das duas taxas acima (fixas pela regra do marketplace),
+    // aqui quem sabe o próprio número é o usuário. Ativar + preencher em
+    // Precificação já entra no cálculo de margem como as outras taxas.
+    { id: "ads", name: "Ads / patrocinado (média)", rate: 0, enabled: false },
   ],
   shippingTiers: [
     { id: "tier-1", label: "Até R$50", maxPrice: 50, cost: 12 },
@@ -67,6 +73,8 @@ export function calculateMargin(
     recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
     link: priceResult.link,
     matchedTitle: priceResult.matchedTitle,
+    competitorCount: priceResult.competitorCount,
+    buyBoxEligible: priceResult.buyBoxEligible,
     // Prioriza a foto do ANÚNCIO encontrado (mais útil pra conferir se o
     // match faz sentido) — cai pra foto do próprio catálogo só quando o
     // provider/item não trouxe nenhuma (ex: Mercado Livre direto sem

@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   SlidersHorizontal,
   BarChart3,
+  PackageSearch,
   UserRound,
   Boxes,
   Sun,
@@ -36,6 +37,7 @@ const NAV_ITEMS: { screen: Screen; icon: typeof LayoutDashboard; label: string }
   { screen: "dashboard", icon: LayoutDashboard, label: "Nova busca" },
   { screen: "pricing", icon: SlidersHorizontal, label: "Precificação" },
   { screen: "results", icon: BarChart3, label: "Resultados" },
+  { screen: "portfolio", icon: PackageSearch, label: "Meus produtos" },
 ];
 
 /** Nome curto pra saudação/avatar a partir do email — não há displayName no AuthUser (ver lib/auth.ts). */

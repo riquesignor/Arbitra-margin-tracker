@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   SlidersHorizontal,
   BarChart3,
+  PackageSearch,
   UserRound,
   Boxes,
   Sun,
@@ -26,6 +27,7 @@ const NAV_ITEMS: { screen: Screen; icon: typeof LayoutDashboard; label: string }
   { screen: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { screen: "pricing", icon: SlidersHorizontal, label: "Precificação" },
   { screen: "results", icon: BarChart3, label: "Resultados" },
+  { screen: "portfolio", icon: PackageSearch, label: "Meus produtos" },
 ];
 
 export default function Sidebar({
