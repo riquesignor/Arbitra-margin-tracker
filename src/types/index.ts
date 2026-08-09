@@ -89,6 +89,14 @@ export interface MarketplacePriceResult {
   link?: string;
   /** Título/nome exatamente como retornado pelo marketplace — pra conferir se o match faz sentido */
   matchedTitle?: string;
+  /**
+   * Foto do ANÚNCIO encontrado (thumbnail do marketplace) — diferente de
+   * `CatalogRow.imageUrl`, que é a foto do PRÓPRIO catálogo do
+   * fornecedor. `marginCalculator.ts` prioriza esta aqui (mais útil pra
+   * conferir se o match faz sentido) e cai pra `CatalogRow.imageUrl` só
+   * quando o provider/item encontrado não trouxe foto nenhuma.
+   */
+  imageUrl?: string;
 }
 
 export interface MarketplaceFee {

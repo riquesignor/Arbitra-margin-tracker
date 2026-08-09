@@ -143,6 +143,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
     try {
       const cached = await getCachedPrices(
+        uid,
         provider,
         expectedMarketplace,
         items.map((i) => i.sku)
@@ -157,7 +158,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
             : await fetchMercadoLivreDirectPrices(missItems);
 
         try {
-          await writeCachedPrices(provider, expectedMarketplace, fresh);
+          await writeCachedPrices(uid, provider, expectedMarketplace, fresh);
         } catch (cacheErr) {
           console.error(
             `writeCachedPrices(${provider}/${expectedMarketplace}) falhou (ignorando, best-effort):`,
@@ -185,6 +186,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     await Promise.all(
       marketplaces.map(async (marketplace) => {
         const cached = await getCachedPrices(
+          uid,
           provider,
           marketplace,
           items.map((i) => i.sku)
@@ -233,7 +235,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // esse marketplace, mesmo o que não era miss dele agora — só
           // adianta cache pra próxima consulta.
           try {
-            await writeCachedPrices(provider, marketplace, fresh[marketplace] ?? {});
+            await writeCachedPrices(uid, provider, marketplace, fresh[marketplace] ?? {});
           } catch (cacheErr) {
             console.error(`writeCachedPrices(${provider}/${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
           }
@@ -255,7 +257,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       responseByMarketplace[marketplace] = { ...responseByMarketplace[marketplace], ...fresh };
 
       try {
-        await writeCachedPrices(provider, marketplace, fresh);
+        await writeCachedPrices(uid, provider, marketplace, fresh);
       } catch (cacheErr) {
         console.error(`writeCachedPrices(${provider}/${marketplace}) falhou (ignorando, best-effort):`, cacheErr);
       }

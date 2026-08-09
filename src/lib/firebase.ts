@@ -46,8 +46,20 @@ export function getFirebaseDb(): Promise<Firestore> {
     return Promise.reject(new Error("Firebase não configurado (VITE_FIREBASE_* ausente)"));
   }
   if (!dbPromise) {
+    // `initializeFirestore` (não `getFirestore`) — é o único jeito de
+    // passar `ignoreUndefinedProperties`. Sem isso, QUALQUER `setDoc`/
+    // `addDoc` com um campo opcional valendo `undefined` (ex:
+    // `MarginResult.link`/`matchedTitle`/`imageUrl` quando o provider não
+    // retornou aquele dado pra aquele item específico — comum, não é
+    // exceção) lança `FirebaseError: Unsupported field value: undefined`
+    // e o catch em volta (ver catalogHistory.ts > saveCatalogUpload) só
+    // loga um warning — a busca aparece na tela normalmente, mas nunca
+    // é salva no histórico, e some ao recarregar a página. Só pode ser
+    // chamado UMA VEZ por app, antes de qualquer outro uso de Firestore —
+    // seguro aqui porque `getFirebaseDb` é o único ponto de entrada
+    // (dbPromise é singleton).
     dbPromise = Promise.all([getApp(), import("firebase/firestore")]).then(
-      ([app, { getFirestore }]) => getFirestore(app)
+      ([app, { initializeFirestore }]) => initializeFirestore(app, { ignoreUndefinedProperties: true })
     );
   }
   return dbPromise;

@@ -12,6 +12,7 @@ interface MLSearchItem {
   permalink?: string;
   available_quantity?: number;
   sold_quantity?: number;
+  thumbnail?: string;
 }
 
 interface MLSearchResponse {
@@ -94,6 +95,7 @@ export async function fetchMercadoLivreDirectPrices(
         confidence: confidenceFromSimilarity(bestSimilarity),
         link: best.permalink,
         matchedTitle: best.title,
+        imageUrl: best.thumbnail,
       };
     } catch (err) {
       errorCount++;

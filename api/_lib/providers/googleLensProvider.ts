@@ -18,6 +18,7 @@ interface LensVisualMatch {
   source?: string;
   price?: LensPrice;
   in_stock?: boolean;
+  thumbnail?: string;
 }
 
 interface LensResponse {
@@ -131,6 +132,7 @@ export async function searchGoogleLensProductsShared(
           confidence: Math.max(0.5, confidenceFromSimilarity(bestSimilarity)),
           link: best.link,
           matchedTitle: best.title,
+          imageUrl: best.thumbnail,
         };
       }
     } catch (err) {

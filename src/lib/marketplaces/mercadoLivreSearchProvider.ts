@@ -9,6 +9,7 @@ interface MLSearchItem {
   title: string;
   price: number;
   permalink: string;
+  thumbnail?: string;
 }
 
 interface MLSearchResponse {
@@ -79,6 +80,7 @@ export function createMercadoLivreSearchProvider(): PriceProvider {
             confidence: 0.55,
             link: match.permalink,
             matchedTitle: match.title,
+            imageUrl: match.thumbnail,
           };
         } catch (err) {
           console.error(`Busca Mercado Livre falhou pra "${name}":`, err);

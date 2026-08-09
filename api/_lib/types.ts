@@ -57,4 +57,6 @@ export interface MarketplacePriceResult {
   confidence: number;
   link?: string;
   matchedTitle?: string;
+  /** Foto do anúncio encontrado (thumbnail do marketplace) — ver mesmo campo em src/types/index.ts. */
+  imageUrl?: string;
 }

@@ -67,7 +67,11 @@ export function calculateMargin(
     recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
     link: priceResult.link,
     matchedTitle: priceResult.matchedTitle,
-    imageUrl: row.imageUrl,
+    // Prioriza a foto do ANÚNCIO encontrado (mais útil pra conferir se o
+    // match faz sentido) — cai pra foto do próprio catálogo só quando o
+    // provider/item não trouxe nenhuma (ex: Mercado Livre direto sem
+    // thumbnail nesse resultado específico).
+    imageUrl: priceResult.imageUrl ?? row.imageUrl,
   };
 }
 

@@ -87,18 +87,21 @@ service cloud.firestore {
         allow read, write: if isOwner(userId);
         allow read: if isAdmin();
       }
-    }
 
-    // Cache de preços: qualquer usuário autenticado pode ler (é o que
-    // acelera a próxima consulta pra todo mundo), mas só o servidor
-    // (Admin SDK, via api/_lib/firestoreAdmin.ts) pode escrever — o
-    // Admin SDK ignora Security Rules, então isso é só pra bloquear
-    // escrita direta do client. GLOBAL de propósito, não é dado de
-    // usuário (ver ADR-0003) — o preço do SKU X é o mesmo pra todo mundo,
-    // então fica fora de `users/{uid}` mesmo.
-    match /market_prices/{document} {
-      allow read: if request.auth != null;
-      allow write: if false;
+      // Cache de preços (era `market_prices/{document}`, coleção global
+      // — ver ADR-0003). Movido pra dentro de `users/{userId}` por
+      // decisão explícita: a chave do cache é `provider__marketplace__sku`,
+      // e SKU é texto arbitrário do catálogo de cada fornecedor — global,
+      // dois usuários (ou dois catálogos do MESMO usuário) reaproveitando
+      // o mesmo texto de SKU pra produtos DIFERENTES colidiam e um
+      // herdava o preço do outro. Isolado por usuário elimina a colisão,
+      // ao custo de perder o compartilhamento de cache entre contas. Só
+      // o servidor escreve (Admin SDK ignora Security Rules; `write:
+      // false` aqui só bloqueia escrita direta do client).
+      match /market_prices/{document} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     // Tokens OAuth do Mercado Livre: só o Admin SDK (server, via

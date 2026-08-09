@@ -154,6 +154,7 @@ export async function fetchRapidApiAmazonPrices(
         confidence: confidenceFromSimilarity(bestSimilarity),
         link: best.product_url,
         matchedTitle: best.product_title,
+        imageUrl: best.product_photo,
       };
     } catch (err) {
       errorCount++;

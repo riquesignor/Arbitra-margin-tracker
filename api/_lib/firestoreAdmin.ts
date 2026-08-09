@@ -32,6 +32,23 @@ export function getAdminApp(): App {
   return app;
 }
 
+let db: Firestore | null = null;
+
+/**
+ * `db.settings({ ignoreUndefinedProperties: true })` — mesmo motivo do
+ * lado client (ver src/lib/firebase.ts): sem isso, `writeCachedPrices`
+ * (cache.ts) falha em silêncio sempre que um `MarketplacePriceResult`
+ * tem `link`/`matchedTitle`/`imageUrl` valendo `undefined` (comum — nem
+ * todo item encontrado tem os três). `settings()` só pode ser chamado
+ * UMA VEZ por instância, antes de qualquer leitura/escrita — por isso o
+ * singleton `db` aqui (sem ele, cada chamada a `getFirestore()` devolve
+ * a mesma instância cacheada pelo SDK, e a segunda chamada a `settings()`
+ * nela lançaria "Firestore has already been initialized").
+ */
 export function getAdminDb(): Firestore {
-  return getFirestore(getAdminApp());
+  if (!db) {
+    db = getFirestore(getAdminApp());
+    db.settings({ ignoreUndefinedProperties: true });
+  }
+  return db;
 }

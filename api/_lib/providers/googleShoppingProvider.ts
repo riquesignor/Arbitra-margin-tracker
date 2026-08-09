@@ -16,6 +16,7 @@ interface SerpShoppingResult {
   extracted_price?: number;
   product_link?: string;
   link?: string;
+  thumbnail?: string;
 }
 
 interface SerpShoppingResponse {
@@ -170,6 +171,7 @@ export async function searchGoogleShoppingShared(
           confidence: confidenceFromSimilarity(bestSimilarity),
           link: best.product_link ?? best.link,
           matchedTitle: best.title,
+          imageUrl: best.thumbnail,
         };
       }
     } catch (err) {
