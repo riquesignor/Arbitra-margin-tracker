@@ -1,7 +1,7 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
-import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { pickBestCandidate } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
@@ -20,10 +20,6 @@ interface LensVisualMatch {
   price?: LensPrice;
   in_stock?: boolean;
   thumbnail?: string;
-  /** Confirmado na doc pública da SerpApi (google-lens-products-api) — usado pro ranking por popularidade, ver rankCandidates.ts. */
-  rating?: number;
-  /** Idem — contagem de avaliações. */
-  reviews?: number;
 }
 
 interface LensResponse {
@@ -50,6 +46,14 @@ interface LensResponse {
  * Reaproveita os MESMOS `GOOGLE_SHOPPING_MATCHERS` (amazon/mercado) pra
  * filtrar `source` — é o mesmo critério "essa loja é a Amazon/Mercado
  * Livre?" usado na busca por texto, só aplicado a um payload diferente.
+ *
+ * IMPORTANTE (corrigido — release anterior afirmava o contrário): o
+ * engine `google_lens` NÃO expõe `rating`/`reviews` na doc pública da
+ * SerpApi (só o `google_shopping` expõe, ver googleShoppingProvider.ts).
+ * Conferido direto contra a documentação (serpapi.com/google-lens-api,
+ * nenhum exemplo de `visual_matches[]` traz esses campos) — por isso o
+ * ranking aqui usa só similaridade de texto (`getPopularity` sempre 0),
+ * SEM fingir um sinal de popularidade que a API não entrega.
  */
 export async function searchGoogleLensProductsShared(
   items: CatalogItemQuery[],
@@ -109,15 +113,16 @@ export async function searchGoogleLensProductsShared(
         );
         if (candidates.length === 0) continue;
 
-        // Entre os candidatos da loja certa com similaridade de texto
-        // próxima do melhor match (mesmo que o nome do catálogo seja
-        // genérico), prioriza o mais "famoso" (rating/reviews) — ver
-        // rankCandidates.ts.
+        // Sem sinal de popularidade neste engine (ver comentário no topo
+        // do arquivo) — `getPopularity` sempre 0, então o desempate cai
+        // inteiro pra similaridade de texto (`pickBestCandidate` já cobre
+        // isso sozinho). Mantém a mesma função de ranking dos outros
+        // providers só por consistência de código, não por sinal real.
         const ranked = pickBestCandidate(
           name,
           candidates,
           (c) => c.title ?? "",
-          (c) => popularityScore(c.reviews, c.rating)
+          () => 0
         );
         if (!ranked || ranked.candidate.price?.extracted_value == null) continue;
 

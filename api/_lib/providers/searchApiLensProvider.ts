@@ -1,26 +1,33 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
-import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { pickBestCandidate } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 const ENDPOINT = "https://www.searchapi.io/api/v1/search";
 const CONCURRENCY = 2; // mesmo motivo de cautela de throughput da SerpApi — ver googleShoppingProvider.ts
 
-interface SearchApiLensPrice {
-  value?: string;
-  extracted_value?: number;
-  currency?: string;
-}
-
+/**
+ * Shape CORRIGIDO em ago/2026 contra a doc real (searchapi.io/docs/
+ * google-lens): diferente da SerpApi, aqui o preço NÃO vem aninhado —
+ * `price` é a string de exibição ("$14*") e `extracted_price` é o
+ * número, os dois soltos no mesmo nível do match. A versão anterior
+ * deste arquivo assumia o formato aninhado da SerpApi (`price.extracted_value`)
+ * por engano, o que fazia o filtro de candidatos nunca casar com nada —
+ * o provider rodava sem erro mas nunca achava preço nenhum. `rating`/
+ * `reviews` também foram removidos: não aparecem em nenhum exemplo da
+ * doc oficial (nem no `search_type=all`, nem em `products`), só existem
+ * de fato no engine `google_shopping` — ver mesma correção em
+ * googleLensProvider.ts.
+ */
 interface SearchApiLensMatch {
   title?: string;
   link?: string;
   source?: string;
-  price?: SearchApiLensPrice;
-  in_stock?: boolean;
-  rating?: number;
-  reviews?: number;
+  price?: string;
+  extracted_price?: number;
+  currency?: string;
+  stock_information?: string;
   thumbnail?: string;
 }
 
@@ -39,13 +46,15 @@ interface SearchApiLensResponse {
  * do ar, esta aqui continua funcionando com uma chave/cota própria e
  * independente (BYOK, campo `searchApiKey`, ver userSecrets.ts).
  *
- * SearchApi.io espelha o mesmo motor (Google Lens) que a SerpApi, então
- * o shape de `visual_matches[]` documentado é equivalente — `rating` e
- * `reviews` foram confirmados presentes na doc pública ao lado de
- * `price`/`in_stock`, mas como qualquer integração de terceiro (mesma
- * ressalva já feita em rapidApiAmazonProvider.ts) vale conferir contra
- * uma resposta real assim que tiver uma chave e ajustar se algum campo
- * tiver mudado.
+ * SearchApi.io espelha o mesmo motor (Google Lens) que a SerpApi, mas o
+ * shape de `visual_matches[]` NÃO é idêntico — ver comentário em
+ * `SearchApiLensMatch` acima pro schema real de preço (achatado, não
+ * aninhado como na SerpApi) e a ausência de `rating`/`reviews` nesse
+ * engine. `country` (não `gl`, que é convenção da SerpApi) e
+ * `search_type=products` são os parâmetros corretos confirmados na doc
+ * pública (searchapi.io/docs/google-lens) pra restringir a resultado de
+ * produto/preço, em vez do default `search_type=all` (mistura visual
+ * matches, exact matches e related searches).
  *
  * Reaproveita os mesmos `GOOGLE_SHOPPING_MATCHERS` (amazon/mercado) pra
  * filtrar `source` — mesmo critério "essa loja é a Amazon/Mercado
@@ -76,9 +85,10 @@ export async function searchSearchApiLensShared(
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("engine", "google_lens");
+      url.searchParams.set("search_type", "products");
       url.searchParams.set("url", imageUrl!);
       url.searchParams.set("hl", "pt-br");
-      url.searchParams.set("gl", "br");
+      url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);
 
       const response = await fetch(url.toString());
@@ -104,22 +114,25 @@ export async function searchSearchApiLensShared(
 
       for (const { marketplace, matchesSource } of matchers) {
         const candidates = visualMatches.filter(
-          (m) => m.source && m.price?.extracted_value != null && matchesSource(m.source.toLowerCase())
+          (m) => m.source && m.extracted_price != null && matchesSource(m.source.toLowerCase())
         );
         if (candidates.length === 0) continue;
 
+        // Sem sinal de popularidade neste engine (ver comentário no topo
+        // do arquivo) — `getPopularity` sempre 0, desempate cai pra
+        // similaridade de texto, igual googleLensProvider.ts.
         const ranked = pickBestCandidate(
           name,
           candidates,
           (c) => c.title ?? "",
-          (c) => popularityScore(c.reviews, c.rating)
+          () => 0
         );
-        if (!ranked || ranked.candidate.price?.extracted_value == null) continue;
+        if (!ranked || ranked.candidate.extracted_price == null) continue;
 
         results[marketplace][sku] = {
           marketplace,
           sku,
-          price: ranked.candidate.price.extracted_value,
+          price: ranked.candidate.extracted_price,
           competitorCount: Math.max(0, visualMatches.length - 1),
           buyBoxEligible: true,
           // Mesmo piso da busca por imagem via SerpApi — match visual,
