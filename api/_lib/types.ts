@@ -21,6 +21,14 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  *   - "mercadolivre_direct" → endpoint público do Mercado Livre, sem
  *     chave — só cobre marketplace mercadolivre. Instável (ver
  *     mercadoLivreDirectProvider.ts).
+ *   - "mercadolivre_alt" → alternativa PAGA ao endpoint público acima
+ *     (Unwrangle Mercado Livre Search API, BYOK) — só cobre mercadolivre,
+ *     mesmo grupo "direto" que "mercadolivre_direct" e "rapidapi_amazon".
+ *     Existe só pra quando o endpoint público falha (ver
+ *     unwrangleMercadoLivreProvider.ts e o fluxo de fallback em
+ *     Dashboard.tsx > finishWithRows): não é uma opção de busca normal
+ *     no seletor, é oferecida como "tentar de novo com sua chave" quando
+ *     "mercadolivre_direct" dá erro E o usuário já tem a chave cadastrada.
  *   - "google_lens_products" → busca por IMAGEM (Google Lens via
  *     SerpApi, mesma chave da SerpApi acima), cobre amazon +
  *     mercadolivre igual "serpapi" — só muda o insumo (foto do produto
@@ -28,12 +36,20 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  *     catálogos com nome genérico demais ("Faca de corte") onde busca
  *     por texto acha qualquer coisa — precisa de `imageUrl` por item
  *     (ver CatalogItemQuery abaixo), não funciona sem foto.
+ *   - "searchapi_lens" → segunda API de busca por FOTO, vendor diferente
+ *     (SearchApi.io, BYOK própria) espelhando o mesmo Google Lens que
+ *     "google_lens_products" usa via SerpApi — existe só como
+ *     redundância (cota/downtime de um não afeta o outro), ver
+ *     searchApiLensProvider.ts. Mesmo grupo multi-marketplace de
+ *     "google_lens_products".
  */
 export type SearchProviderId =
   | "serpapi"
   | "rapidapi_amazon"
   | "mercadolivre_direct"
-  | "google_lens_products";
+  | "mercadolivre_alt"
+  | "google_lens_products"
+  | "searchapi_lens";
 
 export interface CatalogItemQuery {
   sku: string;

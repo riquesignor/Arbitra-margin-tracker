@@ -27,6 +27,7 @@ import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
 import ResultsTable from "./components/ResultsTable";
 import Portfolio from "./components/Portfolio";
+import SupplierCompare from "./components/SupplierCompare";
 import Account from "./components/Account";
 import Settings from "./components/Settings";
 import Admin from "./components/Admin";
@@ -285,6 +286,9 @@ export default function App() {
             )}
             {screen === "portfolio" && (
               <Portfolio history={history} onNavigateToDashboard={() => setScreen("dashboard")} />
+            )}
+            {screen === "suppliers" && (
+              <SupplierCompare history={history} onNavigateToDashboard={() => setScreen("dashboard")} />
             )}
             {screen === "account" && (
               <Account

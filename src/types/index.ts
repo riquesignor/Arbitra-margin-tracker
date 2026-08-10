@@ -15,14 +15,19 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  * MarketplaceId, escolhido pelo usuário na tela Dashboard (ver
  * SearchProviderId espelhado em api/_lib/types.ts pro mesmo motivo de
  * duplicação documentado no topo deste arquivo). "google_lens_products"
- * busca por FOTO do produto (não por nome) — ver catalogImages.ts,
- * useful pra catálogos com nome genérico demais ("Faca de corte").
+ * e "searchapi_lens" buscam por FOTO do produto (não por nome) — ver
+ * catalogImages.ts, útil pra catálogos com nome genérico demais ("Faca
+ * de corte"). "mercadolivre_alt" não aparece no seletor normal — é só a
+ * alternativa paga oferecida quando "mercadolivre_direct" falha (ver
+ * Dashboard.tsx > finishWithRows).
  */
 export type SearchProviderId =
   | "serpapi"
   | "rapidapi_amazon"
   | "mercadolivre_direct"
-  | "google_lens_products";
+  | "mercadolivre_alt"
+  | "google_lens_products"
+  | "searchapi_lens";
 
 /**
  * "home" — tela de entrada (ver docs/design-critique-log.md, Session 4):
@@ -36,6 +41,7 @@ export type Screen =
   | "pricing"
   | "results"
   | "portfolio"
+  | "suppliers"
   | "account"
   | "settings"
   | "admin";

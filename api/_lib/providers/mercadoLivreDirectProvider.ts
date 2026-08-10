@@ -1,6 +1,7 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
+import { confidenceFromSimilarity } from "../textSimilarity.js";
+import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 
 const ENDPOINT = "https://api.mercadolibre.com/sites/MLB/search";
 const CONCURRENCY = 3;
@@ -75,24 +76,27 @@ export async function fetchMercadoLivreDirectPrices(
       const candidates = (data.results ?? []).filter((r) => r.title && typeof r.price === "number");
       if (candidates.length === 0) return;
 
-      let best = candidates[0];
-      let bestSimilarity = textSimilarity(name, best.title!);
-      for (const candidate of candidates.slice(1)) {
-        const similarity = textSimilarity(name, candidate.title!);
-        if (similarity > bestSimilarity) {
-          best = candidate;
-          bestSimilarity = similarity;
-        }
-      }
-      if (typeof best.price !== "number") return;
+      // Entre os candidatos com similaridade próxima do melhor match,
+      // prioriza o mais "famoso" — pra Mercado Livre o sinal de fama
+      // disponível é `sold_quantity` (vendas), não avaliações. Ver
+      // rankCandidates.ts.
+      const ranked = pickBestCandidate(
+        name,
+        candidates,
+        (c) => c.title!,
+        (c) => popularityScore(c.sold_quantity, null)
+      );
+      if (!ranked || typeof ranked.candidate.price !== "number") return;
+      const best = ranked.candidate;
+      const price = ranked.candidate.price;
 
       results[sku] = {
         marketplace: "mercadolivre",
         sku,
-        price: best.price,
+        price,
         competitorCount: Math.max(0, candidates.length - 1),
         buyBoxEligible: true,
-        confidence: confidenceFromSimilarity(bestSimilarity),
+        confidence: confidenceFromSimilarity(ranked.similarity),
         link: best.permalink,
         matchedTitle: best.title,
         imageUrl: best.thumbnail,

@@ -18,10 +18,16 @@ import { signIn, signOutUser, signUp, type AuthUser } from "../lib/auth";
 import {
   deleteUserSerpApiKey,
   deleteUserRapidApiKey,
+  deleteUserSearchApiKey,
+  deleteUserUnwrangleApiKey,
   getUserSerpApiKey,
   getUserRapidApiKey,
+  getUserSearchApiKey,
+  getUserUnwrangleApiKey,
   saveUserSerpApiKey,
   saveUserRapidApiKey,
+  saveUserSearchApiKey,
+  saveUserUnwrangleApiKey,
 } from "../lib/userSecrets";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
@@ -129,6 +135,38 @@ const RAPIDAPI_INTRO = (
   </>
 );
 
+// Segunda fonte de busca por FOTO (provider "searchapi_lens", ver
+// Dashboard.tsx) — vendor diferente da SerpApi, só pra redundância
+// (cota/downtime de um não afeta o outro). Opcional: sem essa chave, a
+// busca por imagem continua funcionando normalmente via SerpApi.
+const SEARCHAPI_INTRO = (
+  <>
+    Opcional — segunda fonte de busca por foto (redundância à SerpApi acima), mesmo tipo de
+    resultado (Google Lens), vendor diferente.{" "}
+    <a href="https://www.searchapi.io/users/sign_up" target="_blank" rel="noreferrer">
+      crie grátis em searchapi.io
+    </a>{" "}
+    (100 buscas/mês, sem cartão) e cole a API key abaixo.
+  </>
+);
+
+// Alternativa PAGA ao endpoint público do Mercado Livre — não aparece
+// como opção normal no seletor de API do Dashboard; só é oferecida
+// quando a busca pública falhar (HTTP 403), como "tentar de novo com
+// sua chave". Sem tier grátis (a partir de $99/mês na Unwrangle) — só
+// vale cadastrar se a instabilidade do endpoint público estiver
+// atrapalhando de verdade.
+const UNWRANGLE_INTRO = (
+  <>
+    Opcional — alternativa paga ao Mercado Livre público, usada só quando ele falhar (sem tier
+    grátis, a partir de $99/mês).{" "}
+    <a href="https://console.unwrangle.com/signup" target="_blank" rel="noreferrer">
+      criar conta na unwrangle.com
+    </a>{" "}
+    e cole a API key abaixo.
+  </>
+);
+
 // 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
 // contador do dia atual, sem histórico por dia no back-end ainda. Só a
 // última barra (hoje) é dado real; o resto é só pra dar forma ao
@@ -174,6 +212,22 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [rapidKeyMsg, setRapidKeyMsg] = useState<string | null>(null);
   const [rapidKeyError, setRapidKeyError] = useState<string | null>(null);
 
+  // BYOK — chave SearchApi.io própria (2ª fonte de busca por foto).
+  // Mesmo padrão de estado das chaves acima.
+  const [hasSearchApiKey, setHasSearchApiKey] = useState(false);
+  const [searchApiKeyInput, setSearchApiKeyInput] = useState("");
+  const [savingSearchApiKey, setSavingSearchApiKey] = useState(false);
+  const [searchApiKeyMsg, setSearchApiKeyMsg] = useState<string | null>(null);
+  const [searchApiKeyError, setSearchApiKeyError] = useState<string | null>(null);
+
+  // BYOK — chave Unwrangle própria (alternativa paga ao Mercado Livre
+  // público, usada só no fallback de erro — ver Dashboard.tsx).
+  const [hasUnwrangleKey, setHasUnwrangleKey] = useState(false);
+  const [unwrangleKeyInput, setUnwrangleKeyInput] = useState("");
+  const [savingUnwrangleKey, setSavingUnwrangleKey] = useState(false);
+  const [unwrangleKeyMsg, setUnwrangleKeyMsg] = useState<string | null>(null);
+  const [unwrangleKeyError, setUnwrangleKeyError] = useState<string | null>(null);
+
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
@@ -182,6 +236,8 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     if (!user) return;
     getUserSerpApiKey(user.uid).then((key) => setHasSerpKey(Boolean(key)));
     getUserRapidApiKey(user.uid).then((key) => setHasRapidKey(Boolean(key)));
+    getUserSearchApiKey(user.uid).then((key) => setHasSearchApiKey(Boolean(key)));
+    getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
 
@@ -216,6 +272,76 @@ export default function Account({ user, profile, preferences, onUpdatePreference
       setRapidKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingRapidKey(false);
+    }
+  }
+
+  async function handleSaveSearchApiKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user || !searchApiKeyInput.trim()) return;
+    setSavingSearchApiKey(true);
+    setSearchApiKeyError(null);
+    setSearchApiKeyMsg(null);
+    try {
+      await saveUserSearchApiKey(user.uid, searchApiKeyInput);
+      setHasSearchApiKey(true);
+      setSearchApiKeyInput("");
+      setSearchApiKeyMsg("Chave salva — já pode escolher \"SearchApi.io\" como API de busca por imagem.");
+    } catch (err) {
+      setSearchApiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingSearchApiKey(false);
+    }
+  }
+
+  async function handleRemoveSearchApiKey() {
+    if (!user) return;
+    setSavingSearchApiKey(true);
+    setSearchApiKeyError(null);
+    setSearchApiKeyMsg(null);
+    try {
+      await deleteUserSearchApiKey(user.uid);
+      setHasSearchApiKey(false);
+      setSearchApiKeyMsg("Chave removida.");
+    } catch (err) {
+      setSearchApiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingSearchApiKey(false);
+    }
+  }
+
+  async function handleSaveUnwrangleKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user || !unwrangleKeyInput.trim()) return;
+    setSavingUnwrangleKey(true);
+    setUnwrangleKeyError(null);
+    setUnwrangleKeyMsg(null);
+    try {
+      await saveUserUnwrangleApiKey(user.uid, unwrangleKeyInput);
+      setHasUnwrangleKey(true);
+      setUnwrangleKeyInput("");
+      setUnwrangleKeyMsg(
+        "Chave salva — se a busca pública do Mercado Livre falhar, você poderá tentar de novo com ela."
+      );
+    } catch (err) {
+      setUnwrangleKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingUnwrangleKey(false);
+    }
+  }
+
+  async function handleRemoveUnwrangleKey() {
+    if (!user) return;
+    setSavingUnwrangleKey(true);
+    setUnwrangleKeyError(null);
+    setUnwrangleKeyMsg(null);
+    try {
+      await deleteUserUnwrangleApiKey(user.uid);
+      setHasUnwrangleKey(false);
+      setUnwrangleKeyMsg("Chave removida.");
+    } catch (err) {
+      setUnwrangleKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingUnwrangleKey(false);
     }
   }
 
@@ -520,6 +646,104 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
               {rapidKeyMsg && <p className={styles.successText}>{rapidKeyMsg}</p>}
               {rapidKeyError && <p className={styles.errorText}>{rapidKeyError}</p>}
+            </form>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <KeyRound size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>SearchApi.io</h2>
+              <span className={hasSearchApiKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasSearchApiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasSearchApiKey ? "configurada" : "não configurada"}
+              </span>
+            </div>
+
+            <form className={styles.compactKeyForm} onSubmit={handleSaveSearchApiKey}>
+              <p className={styles.cardIntro}>{SEARCHAPI_INTRO}</p>
+
+              <div className={styles.compactKeyRow}>
+                <input
+                  className={styles.input}
+                  type="password"
+                  placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
+                  value={searchApiKeyInput}
+                  onChange={(e) => setSearchApiKeyInput(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={savingSearchApiKey || !searchApiKeyInput.trim()}
+                >
+                  {savingSearchApiKey ? "Salvando…" : "Salvar"}
+                </button>
+                {hasSearchApiKey && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    title="Remover chave"
+                    onClick={() => void handleRemoveSearchApiKey()}
+                    disabled={savingSearchApiKey}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {searchApiKeyMsg && <p className={styles.successText}>{searchApiKeyMsg}</p>}
+              {searchApiKeyError && <p className={styles.errorText}>{searchApiKeyError}</p>}
+            </form>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <KeyRound size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>Unwrangle (Mercado Livre alt.)</h2>
+              <span className={hasUnwrangleKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasUnwrangleKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasUnwrangleKey ? "configurada" : "não configurada"}
+              </span>
+            </div>
+
+            <form className={styles.compactKeyForm} onSubmit={handleSaveUnwrangleKey}>
+              <p className={styles.cardIntro}>{UNWRANGLE_INTRO}</p>
+
+              <div className={styles.compactKeyRow}>
+                <input
+                  className={styles.input}
+                  type="password"
+                  placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
+                  value={unwrangleKeyInput}
+                  onChange={(e) => setUnwrangleKeyInput(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={savingUnwrangleKey || !unwrangleKeyInput.trim()}
+                >
+                  {savingUnwrangleKey ? "Salvando…" : "Salvar"}
+                </button>
+                {hasUnwrangleKey && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    title="Remover chave"
+                    onClick={() => void handleRemoveUnwrangleKey()}
+                    disabled={savingUnwrangleKey}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {unwrangleKeyMsg && <p className={styles.successText}>{unwrangleKeyMsg}</p>}
+              {unwrangleKeyError && <p className={styles.errorText}>{unwrangleKeyError}</p>}
             </form>
           </section>
 

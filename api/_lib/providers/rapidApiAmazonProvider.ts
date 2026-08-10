@@ -1,6 +1,7 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
+import { confidenceFromSimilarity } from "../textSimilarity.js";
+import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 
 const HOST = "real-time-amazon-data.p.rapidapi.com";
 const ENDPOINT = `https://${HOST}/search`;
@@ -132,15 +133,18 @@ export async function fetchRapidApiAmazonPrices(
       const candidates = products.filter((p) => p.product_title && parseMoney(p.product_price) != null);
       if (candidates.length === 0) return;
 
-      let best = candidates[0];
-      let bestSimilarity = textSimilarity(name, best.product_title!);
-      for (const candidate of candidates.slice(1)) {
-        const similarity = textSimilarity(name, candidate.product_title!);
-        if (similarity > bestSimilarity) {
-          best = candidate;
-          bestSimilarity = similarity;
-        }
-      }
+      // Entre os candidatos com similaridade próxima do melhor match,
+      // prioriza o mais "famoso" (nº de avaliações/rating) — ver
+      // rankCandidates.ts. `product_star_rating` vem como string
+      // ("4.5"), por isso o parseFloat antes de repassar.
+      const ranked = pickBestCandidate(
+        name,
+        candidates,
+        (c) => c.product_title!,
+        (c) => popularityScore(c.product_num_ratings, parseFloat(c.product_star_rating ?? "0"))
+      );
+      if (!ranked) return;
+      const best = ranked.candidate;
 
       const price = parseMoney(best.product_price);
       if (price == null) return;
@@ -151,7 +155,7 @@ export async function fetchRapidApiAmazonPrices(
         price,
         competitorCount: Math.max(0, products.length - 1),
         buyBoxEligible: true,
-        confidence: confidenceFromSimilarity(bestSimilarity),
+        confidence: confidenceFromSimilarity(ranked.similarity),
         // `product_url` normalmente vem preenchido (ver amostra pública da
         // API), mas não é documentado como garantido em 100% dos
         // resultados — cai pro `asin` (chave primária do produto,

@@ -1,6 +1,7 @@
 import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity, textSimilarity } from "../textSimilarity.js";
+import { confidenceFromSimilarity } from "../textSimilarity.js";
+import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de
@@ -17,6 +18,10 @@ interface SerpShoppingResult {
   product_link?: string;
   link?: string;
   thumbnail?: string;
+  /** Confirmado na doc pública da SerpApi (shopping_results) — usado pro ranking por popularidade, ver rankCandidates.ts. */
+  rating?: number;
+  /** Idem — contagem de avaliações. */
+  reviews?: number;
 }
 
 interface SerpShoppingResponse {
@@ -71,8 +76,10 @@ export const GOOGLE_SHOPPING_MATCHERS: MarketplaceMatcher[] = [
  * catálogo e o título do anúncio (`textSimilarity.ts`), não um valor
  * fixo — um valor travado (ex: sempre 50%) não carrega informação
  * nenhuma e passa a impressão de número fabricado (ver Session 3 do
- * critique de design). Entre os candidatos da mesma loja, escolhe o de
- * maior similaridade — não necessariamente o primeiro da lista.
+ * critique de design). Entre os candidatos da mesma loja com
+ * similaridade próxima (ver `pickBestCandidate`, rankCandidates.ts),
+ * escolhe o mais "famoso" (mais avaliações, rating maior) — não
+ * necessariamente o primeiro nem o de maior similaridade bruta.
  * `matchedTitle` sempre volta junto pra conferência manual.
  */
 export async function searchGoogleShoppingShared(
@@ -148,30 +155,27 @@ export async function searchGoogleShoppingShared(
         );
         if (candidates.length === 0) continue;
 
-        // Entre os candidatos da loja certa, pega o de título mais
-        // parecido com o nome do catálogo — não necessariamente o
-        // primeiro que o Google Shopping retornou.
-        let best = candidates[0];
-        let bestSimilarity = textSimilarity(name, best.title);
-        for (const candidate of candidates.slice(1)) {
-          const similarity = textSimilarity(name, candidate.title);
-          if (similarity > bestSimilarity) {
-            best = candidate;
-            bestSimilarity = similarity;
-          }
-        }
-        if (best.extracted_price == null) continue;
+        // Entre os candidatos da loja certa com similaridade próxima do
+        // melhor match, prioriza o mais "famoso" (rating/reviews) — ver
+        // rankCandidates.ts.
+        const ranked = pickBestCandidate(
+          name,
+          candidates,
+          (c) => c.title,
+          (c) => popularityScore(c.reviews, c.rating)
+        );
+        if (!ranked || ranked.candidate.extracted_price == null) continue;
 
         results[marketplace][sku] = {
           marketplace,
           sku,
-          price: best.extracted_price,
+          price: ranked.candidate.extracted_price,
           competitorCount: Math.max(0, shoppingResults.length - 1),
           buyBoxEligible: true,
-          confidence: confidenceFromSimilarity(bestSimilarity),
-          link: best.product_link ?? best.link,
-          matchedTitle: best.title,
-          imageUrl: best.thumbnail,
+          confidence: confidenceFromSimilarity(ranked.similarity),
+          link: ranked.candidate.product_link ?? ranked.candidate.link,
+          matchedTitle: ranked.candidate.title,
+          imageUrl: ranked.candidate.thumbnail,
         };
       }
     } catch (err) {

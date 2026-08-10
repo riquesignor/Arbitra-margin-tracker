@@ -36,7 +36,12 @@ import {
   type CatalogUploadRecord,
 } from "../lib/catalogHistory";
 import { getTodayUsage, addTodayUsage } from "../lib/usageQuota";
-import { getUserSerpApiKey, getUserRapidApiKey } from "../lib/userSecrets";
+import {
+  getUserSerpApiKey,
+  getUserRapidApiKey,
+  getUserSearchApiKey,
+  getUserUnwrangleApiKey,
+} from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import type { SharedCatalog } from "../lib/sharedCatalogs";
@@ -89,7 +94,7 @@ const SEARCH_PROVIDERS: {
   note: string;
   marketplaces: MarketplaceId[];
   icon: typeof Store;
-  needsKey: "serpApiKey" | "rapidApiKey" | null;
+  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | null;
 }[] = [
   {
     id: "serpapi",
@@ -123,14 +128,31 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "serpApiKey",
   },
+  {
+    id: "searchapi_lens",
+    label: "Busca por imagem (SearchApi.io)",
+    note: "Amazon + Mercado Livre · 2ª fonte por foto, redundância à SerpApi",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Camera,
+    needsKey: "searchApiKey",
+  },
 ];
 
-// "Busca por imagem" só funciona com PDF que tem foto de produto — CSV
-// nunca tem imagem pra extrair. Nome genérico ("Faca de corte") busca
-// qualquer coisa por TEXTO; por foto, o critério de match é visual —
-// ver api/_lib/providers/googleLensProvider.ts.
+// Providers que buscam por FOTO (não por nome) — precisam de imagem
+// extraída do PDF (ver catalogImages.ts). Dois vendors possíveis
+// (SerpApi vs SearchApi.io), mesmo comportamento de UI pros dois — ver
+// api/_lib/types.ts pro porquê de dois vendors pro mesmo tipo de busca.
+const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>(["google_lens_products", "searchapi_lens"]);
+/** Mantido pra checagens legadas isoladas (default do seletor) — ver IMAGE_MODE_PROVIDERS pro conjunto completo. */
 const IMAGE_MODE_PROVIDER: SearchProviderId = "google_lens_products";
 
+/**
+ * "mercadolivre_alt" (Unwrangle, ver unwrangleMercadoLivreProvider.ts)
+ * de propósito NÃO entra aqui — não é uma opção normal de busca, só é
+ * usada via `providerOverride` em finishWithRows quando
+ * "mercadolivre_direct" falha e o usuário já tem a chave cadastrada (ver
+ * mlFallbackOffer mais abaixo).
+ */
 /** Grid principal de seleção (seção 01) — sem "serpapi" (ver comentário em SEARCH_PROVIDERS acima). */
 const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi");
 
@@ -230,6 +252,25 @@ export default function Dashboard({
   // SerpApi acima, provider diferente.
   const [rapidApiKey, setRapidApiKey] = useState<string | null>(null);
 
+  // BYOK — chave SearchApi.io própria (2ª fonte de busca por imagem).
+  const [searchApiKey, setSearchApiKey] = useState<string | null>(null);
+
+  // BYOK — chave Unwrangle própria (alternativa paga ao Mercado Livre
+  // público). Não é lida via `activeProviderKey` normal — só usada no
+  // fluxo de fallback (ver mlFallbackOffer/handleRetryWithUnwrangle).
+  const [unwrangleApiKey, setUnwrangleApiKey] = useState<string | null>(null);
+
+  // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
+  // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
+  // E o usuário já tem `unwrangleApiKey` cadastrada (ver finishWithRows).
+  // Guarda o suficiente pra repetir a MESMA busca trocando só o
+  // provider/chave, sem precisar reprocessar o arquivo.
+  const [mlFallbackOffer, setMlFallbackOffer] = useState<{
+    rows: CatalogRow[];
+    meta: Parameters<typeof finishWithRows>[1];
+    imagesBySku?: Record<string, string>;
+  } | null>(null);
+
   // Progresso real da busca (item 8+9 do roadmap) — preenchido só
   // durante state === "fetching", em lotes de CHUNK_SIZE produtos.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -248,6 +289,22 @@ export default function Dashboard({
       return;
     }
     getUserRapidApiKey(userId).then(setRapidApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setSearchApiKey(null);
+      return;
+    }
+    getUserSearchApiKey(userId).then(setSearchApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setUnwrangleApiKey(null);
+      return;
+    }
+    getUserUnwrangleApiKey(userId).then(setUnwrangleApiKey);
   }, [userId]);
 
   useEffect(() => {
@@ -293,13 +350,15 @@ export default function Dashboard({
 
   const activeProvider = SEARCH_PROVIDERS.find((p) => p.id === searchProvider)!;
   // Chave exigida pelo provider ativo — "mercadolivre_direct" não pede
-  // nenhuma (endpoint público), os outros dois pedem a própria (BYOK).
+  // nenhuma (endpoint público), os outros pedem a própria (BYOK).
   const activeProviderKey =
     activeProvider.needsKey === "serpApiKey"
       ? serpApiKey
       : activeProvider.needsKey === "rapidApiKey"
         ? rapidApiKey
-        : null;
+        : activeProvider.needsKey === "searchApiKey"
+          ? searchApiKey
+          : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
@@ -326,7 +385,7 @@ export default function Dashboard({
   function selectProvider(id: SearchProviderId) {
     setSearchProvider(id);
     const config = SEARCH_PROVIDERS.find((p) => p.id === id)!;
-    const isMultiMarketplace = id === "serpapi" || id === "google_lens_products";
+    const isMultiMarketplace = id === "serpapi" || IMAGE_MODE_PROVIDERS.has(id);
     if (!isMultiMarketplace) {
       setSelectedMarketplaces(config.marketplaces);
     } else if (selectedMarketplaces.length === 0) {
@@ -424,29 +483,46 @@ export default function Dashboard({
       /** true se o PDF precisou de OCR (sem texto real) — ver ParseOutcome/ExtractResult. */
       usedOcr?: boolean;
     },
-    imagesBySku?: Record<string, string>
+    imagesBySku?: Record<string, string>,
+    /**
+     * Override de provider/chave — usado SÓ pelo retry de
+     * "mercadolivre_alt" (ver handleRetryWithUnwrangle). Sem override,
+     * usa `searchProvider`/`activeProviderKey` normais (fluxo comum).
+     */
+    providerOverride?: SearchProviderId,
+    apiKeyOverride?: string | null
   ) {
+    setMlFallbackOffer(null);
+    const effectiveProvider = providerOverride ?? searchProvider;
+    const effectiveProviderKey = providerOverride ? apiKeyOverride : activeProviderKey;
+
     // BYOK obrigatório pros providers que pedem chave (SerpApi,
-    // RapidAPI) — não existe mais chave compartilhada do servidor pra
-    // nenhum dos dois. Mercado Livre direto não pede chave (endpoint
-    // público). Sem usuário logado ou sem a chave que ESSE provider
-    // exige, a busca nem começa: bloqueia aqui, num único ponto, em vez
-    // de deixar a API de terceiro falhar lá na frente com erro genérico.
-    if (!userId) {
-      setState("error");
-      setError("Faça login (ou crie uma conta) em Conta antes de buscar preço.");
-      return;
+    // RapidAPI, SearchApi.io) — não existe mais chave compartilhada do
+    // servidor pra nenhum deles. Mercado Livre direto não pede chave
+    // (endpoint público). Sem usuário logado ou sem a chave que ESSE
+    // provider exige, a busca nem começa: bloqueia aqui, num único
+    // ponto, em vez de deixar a API de terceiro falhar lá na frente com
+    // erro genérico. Pulado no retry com override — quem chamou já
+    // garantiu que a chave existe (ver handleRetryWithUnwrangle).
+    if (!providerOverride) {
+      if (!userId) {
+        setState("error");
+        setError("Faça login (ou crie uma conta) em Conta antes de buscar preço.");
+        return;
+      }
+      if (!hasRequiredKey) {
+        setState("error");
+        setError(
+          activeProvider.needsKey === "serpApiKey"
+            ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (card \"SerpApi\")."
+            : activeProvider.needsKey === "rapidApiKey"
+              ? "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
+              : "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
+        );
+        return;
+      }
     }
-    if (!hasRequiredKey) {
-      setState("error");
-      setError(
-        activeProvider.needsKey === "serpApiKey"
-          ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (card \"SerpApi\")."
-          : "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
-      );
-      return;
-    }
-    if (searchProvider === IMAGE_MODE_PROVIDER && (!imagesBySku || Object.keys(imagesBySku).length === 0)) {
+    if (IMAGE_MODE_PROVIDERS.has(effectiveProvider) && (!imagesBySku || Object.keys(imagesBySku).length === 0)) {
       setState("error");
       setError(
         "Não consegui extrair/subir nenhuma foto deste PDF (recorte ou upload falhou pra todo " +
@@ -457,10 +533,11 @@ export default function Dashboard({
     // Catálogo sem texto real (nomes vieram de OCR de imagem, ver
     // usedOcr/ExtractResult) — busca por NOME tende a errar o produto
     // nesse caso (nome pode ter saído torto do OCR, ou ser só o código
-    // do modelo). Só "busca por imagem" (Google Lens, casa pela foto, não
-    // pelo nome) é confiável aqui — trava os outros providers com um erro
-    // claro em vez de deixar rodar e devolver preço errado silenciosamente.
-    if (meta.usedOcr && searchProvider !== IMAGE_MODE_PROVIDER) {
+    // do modelo). Só "busca por imagem" (Google Lens/SearchApi.io, casa
+    // pela foto, não pelo nome) é confiável aqui — trava os outros
+    // providers com um erro claro em vez de deixar rodar e devolver
+    // preço errado silenciosamente.
+    if (meta.usedOcr && !IMAGE_MODE_PROVIDERS.has(effectiveProvider)) {
       setState("error");
       setError(
         "Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME " +
@@ -512,8 +589,8 @@ export default function Dashboard({
         const fetched = await fetchMultipleMarketplacePrices(
           meta.marketplaces,
           chunkItems,
-          activeProviderKey,
-          searchProvider
+          effectiveProviderKey,
+          effectiveProvider
         );
         // ms/item deste lote — vira 1 amostra do comparativo de
         // velocidade (ver providerSpeedStats.ts e o card "Velocidade por
@@ -521,7 +598,7 @@ export default function Dashboard({
         // (chunkItems.length > 0 sempre aqui, mas a guarda existe pra
         // não dividir por zero se isso mudar).
         if (chunkItems.length > 0) {
-          recordSample(searchProvider, (performance.now() - chunkStartedAt) / chunkItems.length);
+          recordSample(effectiveProvider, (performance.now() - chunkStartedAt) / chunkItems.length);
         }
 
         for (const marketplace of meta.marketplaces) {
@@ -536,6 +613,29 @@ export default function Dashboard({
             : p
         );
       }
+    } catch (err) {
+      // Caso específico: busca pública do Mercado Livre falhou (HTTP
+      // 403, instabilidade conhecida desde fev/2026 — ver
+      // mercadoLivreDirectProvider.ts) E o usuário já tem a chave
+      // Unwrangle cadastrada (alternativa paga, ver
+      // unwrangleMercadoLivreProvider.ts). Em vez de só mostrar o erro,
+      // guarda o suficiente pra oferecer "tentar de novo com sua chave"
+      // sem precisar reprocessar o catálogo (ver mlFallbackOffer/
+      // handleRetryWithUnwrangle). Qualquer outro erro segue o caminho
+      // normal (propaga pro catch do chamador — processFile etc.).
+      const message = err instanceof Error ? err.message : String(err);
+      if (
+        !providerOverride &&
+        effectiveProvider === "mercadolivre_direct" &&
+        message.includes("Mercado Livre bloqueou a busca pública") &&
+        unwrangleApiKey
+      ) {
+        setState("error");
+        setError(message);
+        setMlFallbackOffer({ rows, meta, imagesBySku });
+        return;
+      }
+      throw err;
     } finally {
       setProgress(null);
       setSpeedSummary(getSpeedSummary());
@@ -635,7 +735,7 @@ export default function Dashboard({
     setSkippedInfo(null);
 
     const { file, sourceType, pageRange } = lastUpload;
-    const withImages = sourceType === "pdf" && searchProvider === IMAGE_MODE_PROVIDER;
+    const withImages = sourceType === "pdf" && IMAGE_MODE_PROVIDERS.has(searchProvider);
     const parse = (): Promise<ParseOutcome> =>
       sourceType === "pdf"
         ? parsePdfCatalogFile(file, pageRange ?? undefined, { withImages, userId: userId ?? undefined })
@@ -668,8 +768,22 @@ export default function Dashboard({
     }
   }
 
+  /**
+   * "Tentar de novo com sua chave Unwrangle" — repete a MESMA busca que
+   * acabou de falhar (mercadolivre_direct, HTTP 403), trocando só o
+   * provider/chave via override em finishWithRows, sem reprocessar o
+   * arquivo (rows já estão prontas, guardadas em mlFallbackOffer no
+   * momento da falha).
+   */
+  async function handleRetryWithUnwrangle() {
+    if (!mlFallbackOffer || !unwrangleApiKey) return;
+    const { rows, meta, imagesBySku } = mlFallbackOffer;
+    setMlFallbackOffer(null);
+    await finishWithRows(rows, meta, imagesBySku, "mercadolivre_alt", unwrangleApiKey);
+  }
+
   async function handleCsv(file: File) {
-    if (searchProvider === IMAGE_MODE_PROVIDER) {
+    if (IMAGE_MODE_PROVIDERS.has(searchProvider)) {
       setError(
         "\"Busca por imagem\" precisa de foto do produto — catálogo .csv não tem. " +
           "Troque de provider ou suba um .pdf com foto."
@@ -703,7 +817,7 @@ export default function Dashboard({
     const pageRange: PageRange = { from: pageFrom, to: pageTo };
     setPendingPdf(null);
     setPdfPageCount(null);
-    const withImages = searchProvider === IMAGE_MODE_PROVIDER;
+    const withImages = IMAGE_MODE_PROVIDERS.has(searchProvider);
     await processFile(
       file,
       () =>
@@ -802,7 +916,7 @@ export default function Dashboard({
                 })}
               </div>
 
-              {searchProvider === "google_lens_products" && (
+              {IMAGE_MODE_PROVIDERS.has(searchProvider) && (
                 <div className={styles.subGroup}>
                   <span className={styles.subGroupLabel}>API em uso agora</span>
                   <div className={styles.apiSwitchRow}>
@@ -832,7 +946,7 @@ export default function Dashboard({
                 </div>
               )}
 
-              {(searchProvider === "serpapi" || searchProvider === "google_lens_products") && (
+              {(searchProvider === "serpapi" || IMAGE_MODE_PROVIDERS.has(searchProvider)) && (
                 <div className={styles.subGroup}>
                   <span className={styles.subGroupLabel}>
                     onde comparar ({activeProvider.label} cobre os dois — escolha um ou os dois)
@@ -911,7 +1025,7 @@ export default function Dashboard({
                       />
                     </label>
                   </div>
-                  {searchProvider === IMAGE_MODE_PROVIDER && (
+                  {IMAGE_MODE_PROVIDERS.has(searchProvider) && (
                     <p className={styles.warningNote}>
                       <Camera size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
                       Modo imagem ativo — vai renderizar cada página e subir uma foto por produto
@@ -972,7 +1086,7 @@ export default function Dashboard({
               )}
             </div>
 
-            {(state !== "idle" || error || historyInfo || skippedInfo || !userId || !hasRequiredKey) && (
+            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || !userId || !hasRequiredKey) && (
               <div className={styles.cardFooter}>
                 {state === "parsing" && (
                   <p className={styles.status}>
@@ -1001,6 +1115,19 @@ export default function Dashboard({
                     {error}
                   </p>
                 )}
+                {mlFallbackOffer && (
+                  <p className={styles.warningNote}>
+                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                    Quer tentar de novo usando sua chave Unwrangle no lugar do Mercado Livre público?{" "}
+                    <button
+                      className={styles.linkButton}
+                      type="button"
+                      onClick={() => void handleRetryWithUnwrangle()}
+                    >
+                      Tentar com Unwrangle
+                    </button>
+                  </p>
+                )}
                 {historyInfo && (
                   <p className={styles.status}>
                     <History size={14} /> {historyInfo}{" "}
@@ -1026,7 +1153,9 @@ export default function Dashboard({
                       ? "Faça login ou crie uma conta em Conta pra poder buscar preço."
                       : activeProvider.needsKey === "serpApiKey"
                         ? "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."
-                        : "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."}
+                        : activeProvider.needsKey === "rapidApiKey"
+                          ? "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
+                          : "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."}
                   </p>
                 )}
               </div>
@@ -1127,7 +1256,9 @@ export default function Dashboard({
                     ? "Chave SerpApi própria"
                     : activeProvider.needsKey === "rapidApiKey"
                       ? "Chave RapidAPI própria"
-                      : "Chave de API"}
+                      : activeProvider.needsKey === "searchApiKey"
+                        ? "Chave SearchApi.io própria"
+                        : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>
                   {activeProvider.needsKey === null

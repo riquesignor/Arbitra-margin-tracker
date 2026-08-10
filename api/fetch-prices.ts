@@ -9,8 +9,10 @@ import { getCachedPrices, writeCachedPrices } from "./_lib/cache.js";
 import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/registry.js";
 import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider.js";
 import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
+import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
+import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
@@ -18,21 +20,28 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "serpapi",
   "rapidapi_amazon",
   "mercadolivre_direct",
+  "mercadolivre_alt",
   "google_lens_products",
+  "searchapi_lens",
 ];
 
 // Providers que só cobrem UM marketplace fixo cada — ver
-// SearchProviderId em _lib/types.ts. "serpapi" e "google_lens_products"
-// NÃO entram aqui: os dois cobrem amazon+mercadolivre numa busca só,
-// só mudando o insumo (nome em texto vs. foto do produto) — ver branch
-// "shared" mais abaixo.
-type DirectProvider = "rapidapi_amazon" | "mercadolivre_direct";
+// SearchProviderId em _lib/types.ts. "serpapi", "google_lens_products" e
+// "searchapi_lens" NÃO entram aqui: os três cobrem amazon+mercadolivre
+// numa busca só (dois insumos possíveis — nome em texto ou foto do
+// produto — e dois vendors pro insumo foto) — ver branch "shared" mais
+// abaixo. "mercadolivre_alt" é a alternativa PAGA (Unwrangle) ao
+// endpoint público — mesmo grupo "direto" que "mercadolivre_direct",
+// só muda o vendor por trás; não aparece no seletor normal (ver
+// Dashboard.tsx), só no fluxo de fallback quando o público falha.
+type DirectProvider = "rapidapi_amazon" | "mercadolivre_direct" | "mercadolivre_alt";
 const DIRECT_PROVIDER_MARKETPLACE: Record<DirectProvider, MarketplaceId> = {
   rapidapi_amazon: "amazon",
   mercadolivre_direct: "mercadolivre",
+  mercadolivre_alt: "mercadolivre",
 };
 function isDirectProvider(p: SearchProviderId): p is DirectProvider {
-  return p === "rapidapi_amazon" || p === "mercadolivre_direct";
+  return p === "rapidapi_amazon" || p === "mercadolivre_direct" || p === "mercadolivre_alt";
 }
 
 interface RequestBody {
@@ -71,17 +80,21 @@ function isValidProvider(value: unknown): value is SearchProviderId {
  *
  * `provider` (default "serpapi", ver SearchProviderId em _lib/types.ts)
  * escolhe QUAL API resolve o preço, eixo independente de `marketplaces`:
- *   - "serpapi" e "google_lens_products" aceitam VÁRIOS marketplaces
- *     numa chamada só (contrato mudou de `marketplace: string` singular
- *     pra `marketplaces: string[]` — ver docs/architecture-review.md
- *     item 15): amazon + mercadolivre numa busca só por produto, em vez
- *     de uma busca por produto POR marketplace. Os dois só diferem no
- *     INSUMO — nome em texto (SerpApi/Google Shopping) ou foto do
- *     produto (Google Lens, via `item.imageUrl`) — não em quantos
- *     marketplaces cobrem.
- *   - "rapidapi_amazon" e "mercadolivre_direct" só cobrem UM marketplace
- *     fixo cada (ver DIRECT_PROVIDER_MARKETPLACE) — branch separado logo
- *     no início do handler, mais simples que o caminho compartilhado.
+ *   - "serpapi", "google_lens_products" e "searchapi_lens" aceitam
+ *     VÁRIOS marketplaces numa chamada só (contrato mudou de
+ *     `marketplace: string` singular pra `marketplaces: string[]` — ver
+ *     docs/architecture-review.md item 15): amazon + mercadolivre numa
+ *     busca só por produto, em vez de uma busca por produto POR
+ *     marketplace. Os três só diferem no INSUMO/vendor — nome em texto
+ *     (SerpApi/Google Shopping) ou foto do produto via `item.imageUrl`
+ *     (Google Lens por SerpApi OU por SearchApi.io, vendors diferentes,
+ *     mesmo formato de busca) — não em quantos marketplaces cobrem.
+ *   - "rapidapi_amazon", "mercadolivre_direct" e "mercadolivre_alt" só
+ *     cobrem UM marketplace fixo cada (ver DIRECT_PROVIDER_MARKETPLACE) —
+ *     branch separado logo no início do handler, mais simples que o
+ *     caminho compartilhado. "mercadolivre_alt" (Unwrangle, BYOK) é a
+ *     alternativa paga oferecida só quando "mercadolivre_direct" falha —
+ *     ver fluxo de fallback em Dashboard.tsx.
  * Cache (`market_prices`) é por provider+marketplace: o mesmo SKU pode
  * estar em cache pra "serpapi/amazon" e não pra "rapidapi_amazon/amazon"
  * (fontes diferentes, preços podem divergir) — ver cache.ts.
@@ -155,7 +168,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         fresh =
           provider === "rapidapi_amazon"
             ? await fetchRapidApiAmazonPrices(missItems, body.apiKey)
-            : await fetchMercadoLivreDirectPrices(missItems);
+            : provider === "mercadolivre_alt"
+              ? await fetchUnwrangleMercadoLivrePrices(missItems, body.apiKey)
+              : await fetchMercadoLivreDirectPrices(missItems);
 
         try {
           await writeCachedPrices(uid, provider, expectedMarketplace, fresh);
@@ -213,12 +228,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       if (missItems.length > 0) {
         const matchers = GOOGLE_SHOPPING_MATCHERS.filter((g) => sharedMarketplaces.includes(g.marketplace));
         // Mesmo grupo de marketplaces, upstream diferente: busca por
-        // texto (SerpApi/Shopping) ou por foto (Google Lens) — ver
-        // comentário no topo do arquivo.
+        // texto (SerpApi/Shopping) ou por foto — e por foto ainda tem 2
+        // vendors possíveis (SerpApi vs SearchApi.io, ver
+        // IMAGE_SEARCH_PROVIDERS acima) — ver comentário no topo do arquivo.
         const fresh =
           provider === "google_lens_products"
             ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
-            : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+            : provider === "searchapi_lens"
+              ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
+              : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);

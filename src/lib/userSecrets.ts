@@ -136,3 +136,95 @@ export async function deleteUserRapidApiKey(userId: string): Promise<void> {
   batch.set(doc(db, "users", userId), { hasRapidApiKey: false }, { merge: true });
   await batch.commit();
 }
+
+/**
+ * Chave SearchApi.io própria do usuário — segunda fonte de busca por
+ * IMAGEM (provider "searchapi_lens", ver searchApiLensProvider.ts),
+ * vendor diferente da SerpApi só pra dar redundância (cota/downtime de
+ * um não afeta o outro). Mesmo padrão BYOK e mesmo doc
+ * `users/{uid}/secrets/keys` dos campos acima.
+ */
+export async function getUserSearchApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().searchApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave SearchApi.io do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserSearchApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { searchApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasSearchApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserSearchApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { searchApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasSearchApiKey: false }, { merge: true });
+  await batch.commit();
+}
+
+/**
+ * Chave Unwrangle própria do usuário — alternativa PAGA ao endpoint
+ * público do Mercado Livre (provider "mercadolivre_alt", ver
+ * unwrangleMercadoLivreProvider.ts). Diferente das chaves acima, esta
+ * não aparece num seletor de provider normal — só é consultada pelo
+ * fluxo de fallback em Dashboard.tsx quando a busca pública do Mercado
+ * Livre falha (HTTP 403), oferecendo "tentar de novo com sua chave" só
+ * se ela já estiver cadastrada.
+ */
+export async function getUserUnwrangleApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().unwrangleApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave Unwrangle do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserUnwrangleApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { unwrangleApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasUnwrangleApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserUnwrangleApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { unwrangleApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasUnwrangleApiKey: false }, { merge: true });
+  await batch.commit();
+}

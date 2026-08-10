@@ -4,54 +4,54 @@ import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
-const ENDPOINT = "https://serpapi.com/search.json";
-const CONCURRENCY = 2; // mesma cota SerpApi da busca por texto — ver googleShoppingProvider.ts
+const ENDPOINT = "https://www.searchapi.io/api/v1/search";
+const CONCURRENCY = 2; // mesmo motivo de cautela de throughput da SerpApi — ver googleShoppingProvider.ts
 
-interface LensPrice {
+interface SearchApiLensPrice {
   value?: string;
   extracted_value?: number;
   currency?: string;
 }
 
-interface LensVisualMatch {
+interface SearchApiLensMatch {
   title?: string;
   link?: string;
   source?: string;
-  price?: LensPrice;
+  price?: SearchApiLensPrice;
   in_stock?: boolean;
-  thumbnail?: string;
-  /** Confirmado na doc pública da SerpApi (google-lens-products-api) — usado pro ranking por popularidade, ver rankCandidates.ts. */
   rating?: number;
-  /** Idem — contagem de avaliações. */
   reviews?: number;
+  thumbnail?: string;
 }
 
-interface LensResponse {
-  visual_matches?: LensVisualMatch[];
+interface SearchApiLensResponse {
+  visual_matches?: SearchApiLensMatch[];
   error?: string;
 }
 
 /**
- * Busca de preço por FOTO do produto — Google Lens (`engine=google_lens`,
- * `type=products`), via SerpApi (mesma chave/cota da busca por texto em
- * googleShoppingProvider.ts, é a mesma conta SerpApi, só um engine
- * diferente). Existe pra catálogos com nome genérico demais ("Faca de
- * corte", sem marca/modelo) onde busca por TEXTO acha qualquer coisa
- * parecida — a foto do catálogo é o critério de match, não o nome.
+ * Busca de preço por FOTO — SearchApi.io, `engine=google_lens` (mesmo
+ * parâmetro da SerpApi, confirmado na doc pública searchapi.io/docs/
+ * google-lens: `?engine=google_lens&url=<imagem>&api_key=<chave>`).
+ * Existe como SEGUNDA fonte de busca por imagem, vendor diferente da
+ * SerpApi (googleLensProvider.ts) — mesma ideia de redundância que
+ * "rapidapi_amazon" dá pra Amazon: se a SerpApi estiver sem cota ou fora
+ * do ar, esta aqui continua funcionando com uma chave/cota própria e
+ * independente (BYOK, campo `searchApiKey`, ver userSecrets.ts).
  *
- * Precisa de uma URL PÚBLICA de imagem por item (`item.imageUrl`, ver
- * src/lib/catalogImages.ts + api/catalog-image.ts) — item sem foto é
- * pulado silenciosamente (fica de fora do resultado, não conta como
- * erro sistêmico). O shape da resposta (`visual_matches[]` com `title`,
- * `source`, `price.extracted_value`, `link`) já veio confirmado direto
- * da documentação pública da SerpApi (google-lens-products-api),
- * inclusive com `type=products` — não é um campo adivinhado.
+ * SearchApi.io espelha o mesmo motor (Google Lens) que a SerpApi, então
+ * o shape de `visual_matches[]` documentado é equivalente — `rating` e
+ * `reviews` foram confirmados presentes na doc pública ao lado de
+ * `price`/`in_stock`, mas como qualquer integração de terceiro (mesma
+ * ressalva já feita em rapidApiAmazonProvider.ts) vale conferir contra
+ * uma resposta real assim que tiver uma chave e ajustar se algum campo
+ * tiver mudado.
  *
- * Reaproveita os MESMOS `GOOGLE_SHOPPING_MATCHERS` (amazon/mercado) pra
- * filtrar `source` — é o mesmo critério "essa loja é a Amazon/Mercado
- * Livre?" usado na busca por texto, só aplicado a um payload diferente.
+ * Reaproveita os mesmos `GOOGLE_SHOPPING_MATCHERS` (amazon/mercado) pra
+ * filtrar `source` — mesmo critério "essa loja é a Amazon/Mercado
+ * Livre?" usado nos outros providers de busca por texto/imagem.
  */
-export async function searchGoogleLensProductsShared(
+export async function searchSearchApiLensShared(
   items: CatalogItemQuery[],
   matchers: MarketplaceMatcher[] = GOOGLE_SHOPPING_MATCHERS,
   userApiKey?: string
@@ -59,7 +59,7 @@ export async function searchGoogleLensProductsShared(
   const apiKey = userApiKey?.trim();
   if (!apiKey) {
     throw new Error(
-      "Nenhuma chave SerpApi própria configurada. Cadastre a sua em Conta antes de buscar por imagem."
+      "Nenhuma chave SearchApi.io própria configurada. Cadastre a sua em Conta antes de buscar por imagem."
     );
   }
 
@@ -76,10 +76,9 @@ export async function searchGoogleLensProductsShared(
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("engine", "google_lens");
-      url.searchParams.set("type", "products");
       url.searchParams.set("url", imageUrl!);
       url.searchParams.set("hl", "pt-br");
-      url.searchParams.set("country", "br");
+      url.searchParams.set("gl", "br");
       url.searchParams.set("api_key", apiKey);
 
       const response = await fetch(url.toString());
@@ -87,17 +86,17 @@ export async function searchGoogleLensProductsShared(
         errorCount++;
         lastApiError =
           response.status === 429
-            ? "SerpApi sem cota disponível (HTTP 429) — mesma cota da busca por texto, ver Conta."
-            : `SerpApi (Google Lens) retornou HTTP ${response.status}`;
-        console.warn(`Google Lens "${name}" (${sku}) retornou ${response.status}`);
+            ? "SearchApi.io sem cota disponível (HTTP 429) — confira o consumo em searchapi.io/dashboard."
+            : `SearchApi.io (Google Lens) retornou HTTP ${response.status}`;
+        console.warn(`SearchApi.io Lens "${name}" (${sku}) retornou ${response.status}`);
         return;
       }
 
-      const data = (await response.json()) as LensResponse;
+      const data = (await response.json()) as SearchApiLensResponse;
       if (data.error) {
         errorCount++;
         lastApiError = data.error;
-        console.warn(`Google Lens "${name}" (${sku}): ${data.error}`);
+        console.warn(`SearchApi.io Lens "${name}" (${sku}): ${data.error}`);
         return;
       }
 
@@ -109,10 +108,6 @@ export async function searchGoogleLensProductsShared(
         );
         if (candidates.length === 0) continue;
 
-        // Entre os candidatos da loja certa com similaridade de texto
-        // próxima do melhor match (mesmo que o nome do catálogo seja
-        // genérico), prioriza o mais "famoso" (rating/reviews) — ver
-        // rankCandidates.ts.
         const ranked = pickBestCandidate(
           name,
           candidates,
@@ -127,10 +122,8 @@ export async function searchGoogleLensProductsShared(
           price: ranked.candidate.price.extracted_value,
           competitorCount: Math.max(0, visualMatches.length - 1),
           buyBoxEligible: true,
-          // Piso mais alto que a busca por texto: veio de match VISUAL
-          // (a mesma foto do catálogo), não só similaridade de string —
-          // mas ainda não é 1.0, porque o recorte da foto é heurístico
-          // (pode ter pego texto/vizinho junto, ver parsePdfCatalog.ts).
+          // Mesmo piso da busca por imagem via SerpApi — match visual,
+          // não só similaridade de string (ver googleLensProvider.ts).
           confidence: Math.max(0.5, confidenceFromSimilarity(ranked.similarity)),
           link: ranked.candidate.link,
           matchedTitle: ranked.candidate.title,
@@ -140,7 +133,7 @@ export async function searchGoogleLensProductsShared(
     } catch (err) {
       errorCount++;
       lastApiError = err instanceof Error ? err.message : String(err);
-      console.error(`Google Lens falhou pra "${name}":`, err);
+      console.error(`SearchApi.io Lens falhou pra "${name}":`, err);
     }
   });
 

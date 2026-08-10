@@ -4,6 +4,7 @@ import {
   SlidersHorizontal,
   BarChart3,
   PackageSearch,
+  Truck,
   UserRound,
   Boxes,
   Sun,
@@ -28,6 +29,7 @@ const NAV_ITEMS: { screen: Screen; icon: typeof LayoutDashboard; label: string }
   { screen: "pricing", icon: SlidersHorizontal, label: "Precificação" },
   { screen: "results", icon: BarChart3, label: "Resultados" },
   { screen: "portfolio", icon: PackageSearch, label: "Meus produtos" },
+  { screen: "suppliers", icon: Truck, label: "Fornecedores" },
 ];
 
 export default function Sidebar({
