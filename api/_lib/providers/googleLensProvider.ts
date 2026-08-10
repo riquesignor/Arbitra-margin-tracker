@@ -54,6 +54,17 @@ interface LensResponse {
  * nenhum exemplo de `visual_matches[]` traz esses campos) — por isso o
  * ranking aqui usa só similaridade de texto (`getPopularity` sempre 0),
  * SEM fingir um sinal de popularidade que a API não entrega.
+ *
+ * `q` (adicionado ago/2026): SerpApi documenta explicitamente que o
+ * parâmetro de busca por texto pode ser combinado com `url` quando
+ * `type` é `all`, `visual_matches` ou `products` — usa o NOME do
+ * catálogo como sinal textual adicional além da foto, pra reduzir o
+ * caso "match visualmente parecido mas produto errado" (mesma
+ * categoria/formato, modelo diferente) relatado em uso real. Trade-off
+ * consciente: combinar texto pode também FILTRAR candidatos que um
+ * match puramente visual acharia (nome do catálogo ruim/genérico vira
+ * ruído em vez de sinal) — requer validação empírica de taxa de acerto
+ * antes/depois, não é garantia unilateral de melhora.
  */
 export async function searchGoogleLensProductsShared(
   items: CatalogItemQuery[],
@@ -82,6 +93,10 @@ export async function searchGoogleLensProductsShared(
       url.searchParams.set("engine", "google_lens");
       url.searchParams.set("type", "products");
       url.searchParams.set("url", imageUrl!);
+      // Sinal textual além da foto (ver comentário no topo do arquivo) —
+      // só envia se o nome do catálogo tiver conteúdo real (evita mandar
+      // "q=" vazio ou um SKU sintético sem valor semântico como filtro).
+      if (name?.trim()) url.searchParams.set("q", name.trim());
       url.searchParams.set("hl", "pt-br");
       url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);

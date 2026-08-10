@@ -13,19 +13,50 @@
  */
 const DIACRITICS_PATTERN = /[̀-ͯ]/g;
 
-function normalize(text: string): string[] {
-  return text
+// Palavras genéricas de catálogo (embalagem/unidade/qualificador de
+// marketing) que aparecem em produtos DIFERENTES e não ajudam a
+// distinguir um do outro — ao contrário, contam a favor da similaridade
+// mesmo entre produtos não relacionados, inflando falso-positivo em
+// buildSupplierComparison (ver comentário lá: "sempre traz nomes
+// errados"). Números NÃO entram aqui de propósito — "kit 5" vs "kit 10"
+// são produtos diferentes, o dígito é sinal real, só o rótulo "kit" que
+// é ruído.
+const GENERIC_TOKENS = new Set([
+  "kit", "kits", "unidade", "unidades", "unid", "und", "uni", "un",
+  "cx", "caixa", "caixas", "pacote", "pacotes", "pct", "pc", "pcs",
+  "peca", "pecas", "profissional", "premium", "original", "novo", "nova",
+  "novos", "novas", "modelo", "tipo", "com", "sem", "de", "da", "do",
+  "das", "dos", "para", "pra", "e", "ou", "a", "o", "as", "os",
+]);
+
+function normalize(text: string, filterGeneric: boolean): string[] {
+  const tokens = text
     .toLowerCase()
     .normalize("NFD")
     .replace(DIACRITICS_PATTERN, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
+
+  if (!filterGeneric) return tokens;
+
+  // Se filtrar deixar a lista vazia (nome era só termos genéricos, ex.
+  // "Kit Profissional"), volta pro conjunto sem filtro — melhor
+  // comparar por algo do que não ter token nenhum pra comparar.
+  const filtered = tokens.filter((t) => !GENERIC_TOKENS.has(t));
+  return filtered.length > 0 ? filtered : tokens;
 }
 
-export function textSimilarity(a: string, b: string): number {
-  const tokensA = new Set(normalize(a));
-  const tokensB = new Set(normalize(b));
+/**
+ * `ignoreGenericTerms` (default true): descarta rótulos genéricos de
+ * catálogo (ver GENERIC_TOKENS) antes de comparar — reduz falso-
+ * positivo no matching entre fornecedores (buildSupplierComparison),
+ * onde dois produtos DIFERENTES que só compartilham "Kit Profissional
+ * Inox" batiam acima do threshold por causa só do texto genérico.
+ */
+export function textSimilarity(a: string, b: string, ignoreGenericTerms = true): number {
+  const tokensA = new Set(normalize(a, ignoreGenericTerms));
+  const tokensB = new Set(normalize(b, ignoreGenericTerms));
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
 
   let intersection = 0;

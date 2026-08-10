@@ -60,7 +60,6 @@ function latestUploadPerFile(history: CatalogUploadRecord[]): CatalogUploadRecor
 
 interface Cluster {
   offersByFile: Map<string, SupplierOffer>;
-  representativeName: string;
 }
 
 export function buildSupplierComparison(history: CatalogUploadRecord[]): SupplierComparisonResult {
@@ -87,13 +86,30 @@ export function buildSupplierComparison(history: CatalogUploadRecord[]): Supplie
 
       // Só considera clusters que AINDA não têm oferta deste fornecedor
       // — evita juntar duas linhas do mesmo catálogo no mesmo grupo.
+      //
+      // ⚠️ Bug corrigido (ago/2026): a versão anterior comparava contra
+      // um `representativeName` CONGELADO (nome do 1º fornecedor
+      // adicionado ao cluster, nunca atualizado depois). Conforme mais
+      // fornecedores entravam, a comparação ficava presa numa referência
+      // cada vez mais arbitrária — gerando tanto falso-negativo (o MESMO
+      // produto, com nome ligeiramente diferente do 3º/4º fornecedor, não
+      // batia mais contra a referência antiga) quanto falso-positivo (uma
+      // referência genérica de menor discriminação atraía produto
+      // errado). Agora compara contra o MELHOR match entre TODOS os
+      // membros já no cluster — mais caro (O(clusters × ofertas por
+      // cluster), mas o número de fornecedores por comparação é sempre
+      // pequeno) e bem mais robusto.
       let bestCluster: Cluster | null = null;
       let bestSimilarity = MATCH_THRESHOLD;
       for (const cluster of clusters) {
         if (cluster.offersByFile.has(upload.fileName)) continue;
-        const similarity = textSimilarity(row.name, cluster.representativeName);
-        if (similarity >= bestSimilarity) {
-          bestSimilarity = similarity;
+        let clusterBestSimilarity = 0;
+        for (const existing of cluster.offersByFile.values()) {
+          const similarity = textSimilarity(row.name, existing.name);
+          if (similarity > clusterBestSimilarity) clusterBestSimilarity = similarity;
+        }
+        if (clusterBestSimilarity >= bestSimilarity) {
+          bestSimilarity = clusterBestSimilarity;
           bestCluster = cluster;
         }
       }
@@ -103,7 +119,6 @@ export function buildSupplierComparison(history: CatalogUploadRecord[]): Supplie
       } else {
         clusters.push({
           offersByFile: new Map([[upload.fileName, offer]]),
-          representativeName: row.name,
         });
       }
     }

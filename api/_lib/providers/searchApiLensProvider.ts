@@ -59,6 +59,14 @@ interface SearchApiLensResponse {
  * Reaproveita os mesmos `GOOGLE_SHOPPING_MATCHERS` (amazon/mercado) pra
  * filtrar `source` — mesmo critério "essa loja é a Amazon/Mercado
  * Livre?" usado nos outros providers de busca por texto/imagem.
+ *
+ * `q` (adicionado ago/2026): confirmado na doc pública (searchapi.io/
+ * docs/google-lens, seção "Search Type - Products with Query") que o
+ * parâmetro aceita texto combinado com `url` quando `search_type` é
+ * `all`, `visual_matches` ou `products` — usa o NOME do catálogo como
+ * sinal adicional, mesma motivação e mesmo trade-off documentado em
+ * googleLensProvider.ts (pode reduzir resultado quando o nome do
+ * catálogo é ruim/genérico, em troca de menos falso-positivo visual).
  */
 export async function searchSearchApiLensShared(
   items: CatalogItemQuery[],
@@ -87,6 +95,8 @@ export async function searchSearchApiLensShared(
       url.searchParams.set("engine", "google_lens");
       url.searchParams.set("search_type", "products");
       url.searchParams.set("url", imageUrl!);
+      // Sinal textual além da foto (ver comentário no topo do arquivo).
+      if (name?.trim()) url.searchParams.set("q", name.trim());
       url.searchParams.set("hl", "pt-br");
       url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);

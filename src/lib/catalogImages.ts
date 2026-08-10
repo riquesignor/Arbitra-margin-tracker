@@ -38,35 +38,76 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000;
  */
 export class CatalogImageError extends Error {}
 
-/**
- * Redimensiona e comprime uma imagem (crop de linha do PDF, já um
- * `HTMLCanvasElement`) pra um JPEG pequeno o bastante pra caber num doc
- * Firestore com folga. 480px de largura já é mais que suficiente pro
- * Google Lens reconhecer o produto — não precisamos de resolução alta.
- */
-async function compressForUpload(source: HTMLCanvasElement, maxWidth = 480): Promise<Blob> {
-  const scale = Math.min(1, maxWidth / source.width);
-  const targetWidth = Math.max(1, Math.round(source.width * scale));
-  const targetHeight = Math.max(1, Math.round(source.height * scale));
+// Teto de segurança pro BLOB (antes do base64) — Firestore limita o doc
+// inteiro a 1MB; base64 adiciona ~33% de overhead e o doc ainda carrega
+// sku/timestamps/etc., então 700KB de blob dá margem confortável pro
+// doc final não estourar. Usado só pelo loop de compressão adaptativa
+// abaixo, não é o teto do Firestore em si.
+const BLOB_SAFETY_BYTES = 700 * 1024;
 
-  let canvas: HTMLCanvasElement = source;
-  if (scale < 1) {
-    const resized = document.createElement("canvas");
-    resized.width = targetWidth;
-    resized.height = targetHeight;
-    const ctx = resized.getContext("2d");
-    if (!ctx) throw new CatalogImageError("Não consegui redimensionar a imagem (canvas 2d indisponível).");
-    ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
-    canvas = resized;
-  }
+function resizeCanvas(source: HTMLCanvasElement, targetWidth: number): HTMLCanvasElement {
+  const scale = Math.min(1, targetWidth / source.width);
+  if (scale >= 1) return source;
 
+  const resized = document.createElement("canvas");
+  resized.width = Math.max(1, Math.round(source.width * scale));
+  resized.height = Math.max(1, Math.round(source.height * scale));
+  const ctx = resized.getContext("2d");
+  if (!ctx) throw new CatalogImageError("Não consegui redimensionar a imagem (canvas 2d indisponível).");
+  ctx.drawImage(source, 0, 0, resized.width, resized.height);
+  return resized;
+}
+
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => (blob ? resolve(blob) : reject(new CatalogImageError("Falha ao gerar JPEG da imagem."))),
       "image/jpeg",
-      0.72
+      quality
     );
   });
+}
+
+/**
+ * Redimensiona e comprime uma imagem (crop de linha/cartão do PDF, já um
+ * `HTMLCanvasElement`) pra um JPEG que caiba num doc Firestore com folga
+ * (ver BLOB_SAFETY_BYTES).
+ *
+ * ⚠️ Ajustado ago/2026: o valor antigo (480px, qualidade 0.72) era
+ * conservador demais — feedback de uso real mostrou taxa de acerto
+ * pior no Google Lens (SearchApi.io e, em menor grau, SerpApi) quando o
+ * recorte de origem já é pequeno/comprimido pelo PDF (crops de catálogo
+ * em grade tendem a ser menores que uma linha inteira). 960px/0.85
+ * preserva bem mais detalhe fino (textura, logotipo, acabamento) que
+ * distingue produtos visualmente parecidos mas diferentes — o cenário
+ * que o usuário reportou ("mesmo produto, mas na verdade é outro,
+ * design diferente"). Compressão é ADAPTATIVA (não um valor fixo
+ * otimista): começa em 960px/0.85 e só degrada (qualidade primeiro,
+ * depois largura) se o blob passar do teto de segurança — catálogo com
+ * fotos simples/pouco detalhe continua barato, só o caso complexo paga
+ * o custo extra de reduzir.
+ */
+async function compressForUpload(source: HTMLCanvasElement, maxWidth = 960): Promise<Blob> {
+  let width = maxWidth;
+  let quality = 0.85;
+
+  let canvas = resizeCanvas(source, width);
+  let blob = await canvasToJpegBlob(canvas, quality);
+
+  // Degrada até caber no teto de segurança — qualidade primeiro (afeta
+  // menos a informação estrutural que o Lens usa pra reconhecer forma/
+  // cor do que reduzir resolução), largura só como último recurso.
+  while (blob.size > BLOB_SAFETY_BYTES && (quality > 0.5 || width > 480)) {
+    if (quality > 0.5) {
+      quality = Math.max(0.5, quality - 0.1);
+    } else {
+      width = Math.round(width * 0.85);
+      canvas = resizeCanvas(source, width);
+    }
+    blob = await canvasToJpegBlob(canvas, quality);
+  }
+
+  return blob;
 }
 
 function blobToBase64(blob: Blob): Promise<string> {
