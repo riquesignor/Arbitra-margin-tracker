@@ -611,6 +611,28 @@
   color: var(--color-text-dim);
 }
 
+/* Tag "Aproximado" — match que NÃO é do marketplace pedido, ou com
+   similaridade baixa demais pra afirmar que é o mesmo produto (ver
+   `approximate` em types.ts). Cor de aviso, igual ao badge "Revisar":
+   o dado é utilizável, mas exige conferência humana antes de decidir
+   compra. Fica na célula de produto (e não na de status) porque o que
+   está em dúvida é O PRODUTO encontrado, não a recomendação de margem. */
+.approxBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: var(--space-2);
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  cursor: help;
+}
+
 .productLink {
   display: inline-flex;
   align-items: center;

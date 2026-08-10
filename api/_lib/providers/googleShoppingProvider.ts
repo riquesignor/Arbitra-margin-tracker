@@ -11,6 +11,16 @@ const ENDPOINT = "https://serpapi.com/search.json";
 // VELOCIDADE, não sobre cota restante — sobra mês, mas estoura hora.
 const CONCURRENCY = 2;
 
+/**
+ * Abaixo disso o match entra marcado como aproximado (ver `approximate`
+ * em types.ts). Mais alto que o dos providers de FOTO (0.2, ver
+ * googleLensProvider.ts) porque aqui a busca foi feita PELO NOME: se o
+ * título do anúncio mal se parece com o que foi buscado, o Google
+ * devolveu categoria parecida, não o produto — exatamente o caso que
+ * merece aviso.
+ */
+const APPROXIMATE_BELOW_SIMILARITY = 0.35;
+
 interface SerpShoppingResult {
   title: string;
   source?: string;
@@ -146,13 +156,14 @@ export async function searchGoogleShoppingShared(
       }
 
       const shoppingResults = data.shopping_results ?? [];
+      const priced = shoppingResults.filter((r) => r.extracted_price != null);
+
+      let matchedRequestedMarketplace = false;
 
       // A MESMA resposta alimenta todos os marketplaces pedidos — cada
       // um filtra pelo próprio `matchesSource`, sem repetir a chamada.
       for (const { marketplace, matchesSource } of matchers) {
-        const candidates = shoppingResults.filter(
-          (r) => r.source && r.extracted_price != null && matchesSource(r.source.toLowerCase())
-        );
+        const candidates = priced.filter((r) => r.source && matchesSource(r.source.toLowerCase()));
         if (candidates.length === 0) continue;
 
         // Entre os candidatos da loja certa com similaridade próxima do
@@ -166,6 +177,7 @@ export async function searchGoogleShoppingShared(
         );
         if (!ranked || ranked.candidate.extracted_price == null) continue;
 
+        matchedRequestedMarketplace = true;
         results[marketplace][sku] = {
           marketplace,
           sku,
@@ -176,7 +188,42 @@ export async function searchGoogleShoppingShared(
           link: ranked.candidate.product_link ?? ranked.candidate.link,
           matchedTitle: ranked.candidate.title,
           imageUrl: ranked.candidate.thumbnail,
+          approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+          matchedSource: ranked.candidate.source,
         };
+      }
+
+      // Fallback aproximado: o Google Shopping achou o produto, mas em
+      // loja fora da lista pedida (Shopee, Magalu, loja própria...). Sem
+      // isto o item era descartado em silêncio e sumia da tela inteira
+      // (marginCalculator.ts corta linha sem preço) — ver a justificativa
+      // completa em googleLensProvider.ts. Entra marcado `approximate`,
+      // com a loja real em `matchedSource` e confiança reduzida.
+      if (!matchedRequestedMarketplace && priced.length > 0 && matchers.length > 0) {
+        const ranked = pickBestCandidate(
+          name,
+          priced,
+          (c) => c.title,
+          (c) => popularityScore(c.reviews, c.rating)
+        );
+        if (ranked && ranked.candidate.extracted_price != null) {
+          // Só no primeiro marketplace pedido — o preço não é de nenhum
+          // deles, replicá-lo em todos inventaria ofertas inexistentes.
+          const { marketplace } = matchers[0];
+          results[marketplace][sku] = {
+            marketplace,
+            sku,
+            price: ranked.candidate.extracted_price,
+            competitorCount: Math.max(0, shoppingResults.length - 1),
+            buyBoxEligible: false,
+            confidence: Math.min(0.45, confidenceFromSimilarity(ranked.similarity)),
+            link: ranked.candidate.product_link ?? ranked.candidate.link,
+            matchedTitle: ranked.candidate.title,
+            imageUrl: ranked.candidate.thumbnail,
+            approximate: true,
+            matchedSource: ranked.candidate.source,
+          };
+        }
       }
     } catch (err) {
       errorCount++;

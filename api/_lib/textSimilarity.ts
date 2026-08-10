@@ -31,6 +31,27 @@ export function textSimilarity(a: string, b: string): number {
 }
 
 /**
+ * O nome serve como termo de busca de verdade? Usado pelos providers de
+ * busca por FOTO (googleLensProvider.ts, searchApiLensProvider.ts), que
+ * mandam o nome do catálogo em `q` junto com a imagem: um nome
+ * degradado (resto de OCR, um fragmento só, um SKU solto) usado como
+ * `q` FILTRA os resultados do Lens em vez de refiná-los — some com o
+ * match que a foto teria achado sozinha. Nesse caso é melhor buscar só
+ * pela imagem.
+ *
+ * Critério: pelo menos duas palavras de 3+ letras, ou uma palavra longa
+ * (5+) — o suficiente pra ser uma descrição, não um fragmento. Note que
+ * o nome já chega aqui limpo pelo `sanitizeProductName` do parser
+ * (src/lib/parsePdfCatalog.ts); esta checagem é a segunda linha de
+ * defesa, e também cobre catálogo CSV, que não passa pelo parser de PDF.
+ */
+export function isUsableSearchTerm(name: string | undefined | null): boolean {
+  if (!name?.trim()) return false;
+  const words = normalize(name).filter((token) => token.length >= 3);
+  return words.length >= 2 || words.some((word) => word.length >= 5);
+}
+
+/**
  * Mapeia similaridade (0-1) pra confiança exibida (0.3-0.9). Nunca cai
  * a 0 (achou um resultado, então tem alguma base) nem sobe a 1.0 (é
  * heurística de texto, nunca é garantia de ser o mesmo produto/SKU).

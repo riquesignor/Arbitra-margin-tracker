@@ -1,11 +1,23 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity } from "../textSimilarity.js";
+import { confidenceFromSimilarity, isUsableSearchTerm } from "../textSimilarity.js";
 import { pickBestCandidate } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 const CONCURRENCY = 2; // mesma cota SerpApi da busca por texto — ver googleShoppingProvider.ts
+
+/**
+ * Abaixo disso, o match da loja certa ainda entra no resultado, mas
+ * marcado como aproximado (ver `approximate` em types.ts). Limiar BAIXO
+ * de propósito neste provider: aqui quem casa o produto é a IMAGEM, e o
+ * nome do catálogo costuma ser ruim (é justamente por isso que se usa
+ * busca por foto) — então similaridade de texto é um sinal fraco, e um
+ * limiar alto marcaria praticamente tudo como aproximado, virando ruído
+ * em vez de aviso. Ver o valor mais alto usado em googleShoppingProvider.ts,
+ * onde a busca foi FEITA pelo nome e os títulos têm que bater mesmo.
+ */
+const APPROXIMATE_BELOW_SIMILARITY = 0.2;
 
 interface LensPrice {
   value?: string;
@@ -93,10 +105,11 @@ export async function searchGoogleLensProductsShared(
       url.searchParams.set("engine", "google_lens");
       url.searchParams.set("type", "products");
       url.searchParams.set("url", imageUrl!);
-      // Sinal textual além da foto (ver comentário no topo do arquivo) —
-      // só envia se o nome do catálogo tiver conteúdo real (evita mandar
-      // "q=" vazio ou um SKU sintético sem valor semântico como filtro).
-      if (name?.trim()) url.searchParams.set("q", name.trim());
+      // Sinal textual além da foto (ver comentário no topo do arquivo).
+      // Nome degradado NÃO é enviado: como `q` funciona de filtro, um
+      // fragmento de OCR reduziria os resultados em vez de refiná-los —
+      // ver isUsableSearchTerm em textSimilarity.ts.
+      if (isUsableSearchTerm(name)) url.searchParams.set("q", name.trim());
       url.searchParams.set("hl", "pt-br");
       url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);
@@ -121,11 +134,14 @@ export async function searchGoogleLensProductsShared(
       }
 
       const visualMatches = data.visual_matches ?? [];
+      // Qualquer match com preço, de QUALQUER loja — base tanto do
+      // filtro por marketplace (abaixo) quanto do fallback aproximado.
+      const priced = visualMatches.filter((m) => m.price?.extracted_value != null);
+
+      let matchedRequestedMarketplace = false;
 
       for (const { marketplace, matchesSource } of matchers) {
-        const candidates = visualMatches.filter(
-          (m) => m.source && m.price?.extracted_value != null && matchesSource(m.source.toLowerCase())
-        );
+        const candidates = priced.filter((m) => m.source && matchesSource(m.source.toLowerCase()));
         if (candidates.length === 0) continue;
 
         // Sem sinal de popularidade neste engine (ver comentário no topo
@@ -141,6 +157,7 @@ export async function searchGoogleLensProductsShared(
         );
         if (!ranked || ranked.candidate.price?.extracted_value == null) continue;
 
+        matchedRequestedMarketplace = true;
         results[marketplace][sku] = {
           marketplace,
           sku,
@@ -155,7 +172,53 @@ export async function searchGoogleLensProductsShared(
           link: ranked.candidate.link,
           matchedTitle: ranked.candidate.title,
           imageUrl: ranked.candidate.thumbnail,
+          approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+          matchedSource: ranked.candidate.source,
         };
+      }
+
+      // ── Fallback aproximado ────────────────────────────────────────
+      // O Google Lens devolve match de QUALQUER loja da web (Shopee,
+      // AliExpress, Magalu, loja própria do fabricante...), mas o filtro
+      // acima só aceita Amazon/Mercado Livre. Resultado do comportamento
+      // antigo: o produto que o Lens ACHOU, mas em loja fora da lista,
+      // era descartado em silêncio — e como marginCalculator.ts corta
+      // linha sem preço, ele sumia da tela inteira. Catálogo de dezenas
+      // de itens voltava com 2 linhas e nenhuma explicação.
+      //
+      // Agora, quando nenhum marketplace pedido tem oferta, o melhor
+      // match COM preço de qualquer loja entra assim mesmo — marcado
+      // `approximate` e com `matchedSource` dizendo de onde veio, e com
+      // confiança abaixo do piso dos matches "de verdade" (0.5), pra
+      // nunca se confundir com um match do marketplace pedido. É uma
+      // referência de preço de mercado pra conferência manual, não uma
+      // oferta do marketplace — a tag na UI deixa isso explícito.
+      if (!matchedRequestedMarketplace && priced.length > 0 && matchers.length > 0) {
+        const ranked = pickBestCandidate(
+          name,
+          priced,
+          (c) => c.title ?? "",
+          () => 0
+        );
+        if (ranked && ranked.candidate.price?.extracted_value != null) {
+          // Atribuído a UM marketplace só (o primeiro pedido) de
+          // propósito — o preço não é de nenhum deles, e duplicá-lo em
+          // todos inventaria ofertas que não existem.
+          const { marketplace } = matchers[0];
+          results[marketplace][sku] = {
+            marketplace,
+            sku,
+            price: ranked.candidate.price.extracted_value,
+            competitorCount: Math.max(0, visualMatches.length - 1),
+            buyBoxEligible: false,
+            confidence: Math.min(0.45, confidenceFromSimilarity(ranked.similarity)),
+            link: ranked.candidate.link,
+            matchedTitle: ranked.candidate.title,
+            imageUrl: ranked.candidate.thumbnail,
+            approximate: true,
+            matchedSource: ranked.candidate.source,
+          };
+        }
       }
     } catch (err) {
       errorCount++;

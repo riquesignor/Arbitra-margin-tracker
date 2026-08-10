@@ -20,6 +20,7 @@ import {
   BarChart3,
   Users,
   Crown,
+  AlertTriangle,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -107,6 +108,33 @@ export function CompetitionBadge({
     >
       {buyBoxEligible ? <Crown size={10} /> : <Users size={10} />}
       {competitorCount}
+    </span>
+  );
+}
+
+/**
+ * Tag de match aproximado — ver `approximate` em types.ts. Aparece
+ * quando o preço NÃO veio do marketplace pedido (o provider achou o
+ * produto em outra loja) ou quando o título encontrado se parece pouco
+ * demais com o nome do catálogo.
+ *
+ * Existe por uma razão concreta: antes, esses casos eram descartados em
+ * silêncio e o produto sumia da tela — um catálogo de dezenas de itens
+ * voltava com duas linhas, sem explicação. Mostrar o resultado com um
+ * aviso explícito é mais útil (e mais honesto) do que esconder.
+ */
+export function ApproximateBadge({ matchedSource }: { matchedSource?: string }) {
+  return (
+    <span
+      className={styles.approxBadge}
+      title={
+        matchedSource
+          ? `Match aproximado — preço encontrado em "${matchedSource}", não no marketplace selecionado. ` +
+            "Confira o anúncio antes de usar como referência."
+          : "Match aproximado — o produto encontrado pode não ser exatamente o do seu catálogo. Confira o anúncio."
+      }
+    >
+      <AlertTriangle size={10} /> Aproximado
     </span>
   );
 }
@@ -285,6 +313,10 @@ export default function ResultsTable({
       Recomendação: BADGE_LABEL[r.recommendation],
       Concorrentes: r.competitorCount,
       "Elegível Buy Box": r.buyBoxEligible ? "Sim" : "Não",
+      // Match aproximado precisa sobreviver à exportação — quem analisa
+      // a planilha fora do app não pode confundir chute com match real.
+      Aproximado: r.approximate ? "Sim" : "Não",
+      "Loja de origem": r.matchedSource ?? "",
       Link: r.link ?? "",
     }));
 
@@ -498,6 +530,7 @@ export default function ResultsTable({
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
                         {r.name}
+                        {r.approximate && <ApproximateBadge matchedSource={r.matchedSource} />}
                       </div>
                       {r.link ? (
                         <a
@@ -572,6 +605,11 @@ export default function ResultsTable({
                       <td className={styles.productCell}>
                         <div className={styles.productName} title={best.name}>
                           {best.name}
+                          {group.some((r) => r.approximate) && (
+                            <ApproximateBadge
+                              matchedSource={group.find((r) => r.approximate)?.matchedSource}
+                            />
+                          )}
                         </div>
                       </td>
                       {marketplacesPresent.map((m) => {
@@ -649,6 +687,9 @@ export default function ResultsTable({
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={best.name}>
                             {best.name}
+                            {best.approximate && (
+                              <ApproximateBadge matchedSource={best.matchedSource} />
+                            )}
                           </div>
                           {rest.length > 0 && (
                             <button

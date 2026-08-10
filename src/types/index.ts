@@ -104,6 +104,10 @@ export interface MarketplacePriceResult {
    * quando o provider/item encontrado não trouxe foto nenhuma.
    */
   imageUrl?: string;
+  /** Ver mesmo campo (com a justificativa completa) em api/_lib/types.ts. */
+  approximate?: boolean;
+  /** Loja de onde o anúncio veio de fato — usada na tag "Aproximado". */
+  matchedSource?: string;
 }
 
 export interface MarketplaceFee {
@@ -158,6 +162,16 @@ export interface MarginResult {
   matchedTitle?: string;
   /** Ver mesmo campo em CatalogRow — copiado ao calcular a margem (marginCalculator.ts). */
   imageUrl?: string;
+  /**
+   * Match não confiável (outra loja ou similaridade baixa) — copiado de
+   * MarketplacePriceResult em calculateMargin(). Vira a tag "Aproximado"
+   * na tela de Resultados; margem calculada em cima de um preço
+   * aproximado continua sendo uma estimativa, não um número pra decidir
+   * compra sem conferir o anúncio.
+   */
+  approximate?: boolean;
+  /** Loja real de origem do preço — mostrada junto da tag "Aproximado". */
+  matchedSource?: string;
   /**
    * Nº de outros vendedores encontrados pro mesmo anúncio e se este
    * resultado é elegível ao "ganha-compra" (Buy Box/comprar com este

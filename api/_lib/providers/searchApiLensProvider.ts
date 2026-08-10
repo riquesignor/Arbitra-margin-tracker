@@ -1,11 +1,14 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity } from "../textSimilarity.js";
+import { confidenceFromSimilarity, isUsableSearchTerm } from "../textSimilarity.js";
 import { pickBestCandidate } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 const ENDPOINT = "https://www.searchapi.io/api/v1/search";
 const CONCURRENCY = 2; // mesmo motivo de cautela de throughput da SerpApi — ver googleShoppingProvider.ts
+
+/** Mesmo limiar e mesma justificativa de googleLensProvider.ts (busca por foto: similaridade de texto é sinal fraco). */
+const APPROXIMATE_BELOW_SIMILARITY = 0.2;
 
 /**
  * Shape CORRIGIDO em ago/2026 contra a doc real (searchapi.io/docs/
@@ -95,8 +98,9 @@ export async function searchSearchApiLensShared(
       url.searchParams.set("engine", "google_lens");
       url.searchParams.set("search_type", "products");
       url.searchParams.set("url", imageUrl!);
-      // Sinal textual além da foto (ver comentário no topo do arquivo).
-      if (name?.trim()) url.searchParams.set("q", name.trim());
+      // Sinal textual além da foto — mesma regra do googleLensProvider.ts:
+      // nome degradado é omitido pra não filtrar resultado à toa.
+      if (isUsableSearchTerm(name)) url.searchParams.set("q", name.trim());
       url.searchParams.set("hl", "pt-br");
       url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);
@@ -121,11 +125,12 @@ export async function searchSearchApiLensShared(
       }
 
       const visualMatches = data.visual_matches ?? [];
+      const priced = visualMatches.filter((m) => m.extracted_price != null);
+
+      let matchedRequestedMarketplace = false;
 
       for (const { marketplace, matchesSource } of matchers) {
-        const candidates = visualMatches.filter(
-          (m) => m.source && m.extracted_price != null && matchesSource(m.source.toLowerCase())
-        );
+        const candidates = priced.filter((m) => m.source && matchesSource(m.source.toLowerCase()));
         if (candidates.length === 0) continue;
 
         // Sem sinal de popularidade neste engine (ver comentário no topo
@@ -139,6 +144,7 @@ export async function searchSearchApiLensShared(
         );
         if (!ranked || ranked.candidate.extracted_price == null) continue;
 
+        matchedRequestedMarketplace = true;
         results[marketplace][sku] = {
           marketplace,
           sku,
@@ -151,7 +157,37 @@ export async function searchSearchApiLensShared(
           link: ranked.candidate.link,
           matchedTitle: ranked.candidate.title,
           imageUrl: ranked.candidate.thumbnail,
+          approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+          matchedSource: ranked.candidate.source,
         };
+      }
+
+      // Fallback aproximado — mesma lógica e mesma justificativa
+      // detalhada em googleLensProvider.ts: sem isso, todo produto que o
+      // Lens acha numa loja fora de Amazon/Mercado Livre some da tela.
+      if (!matchedRequestedMarketplace && priced.length > 0 && matchers.length > 0) {
+        const ranked = pickBestCandidate(
+          name,
+          priced,
+          (c) => c.title ?? "",
+          () => 0
+        );
+        if (ranked && ranked.candidate.extracted_price != null) {
+          const { marketplace } = matchers[0];
+          results[marketplace][sku] = {
+            marketplace,
+            sku,
+            price: ranked.candidate.extracted_price,
+            competitorCount: Math.max(0, visualMatches.length - 1),
+            buyBoxEligible: false,
+            confidence: Math.min(0.45, confidenceFromSimilarity(ranked.similarity)),
+            link: ranked.candidate.link,
+            matchedTitle: ranked.candidate.title,
+            imageUrl: ranked.candidate.thumbnail,
+            approximate: true,
+            matchedSource: ranked.candidate.source,
+          };
+        }
       }
     } catch (err) {
       errorCount++;

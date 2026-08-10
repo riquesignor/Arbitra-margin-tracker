@@ -75,4 +75,17 @@ export interface MarketplacePriceResult {
   matchedTitle?: string;
   /** Foto do anúncio encontrado (thumbnail do marketplace) — ver mesmo campo em src/types/index.ts. */
   imageUrl?: string;
+  /**
+   * true = este resultado NÃO é um match confiável do marketplace pedido
+   * — ou veio de outra loja (fallback, ver providers), ou a similaridade
+   * com o nome do catálogo ficou baixa demais pra afirmar que é o mesmo
+   * produto. A UI marca com a tag "Aproximado" (ver ResultsTable.tsx).
+   * Existe porque descartar esses resultados em silêncio fazia um
+   * catálogo de dezenas de produtos voltar com 2 linhas, sem nenhuma
+   * pista do porquê — melhor mostrar tudo e ser explícito sobre o que é
+   * chute.
+   */
+  approximate?: boolean;
+  /** Loja de onde o anúncio veio de fato (`source` cru do provider) — sem isso a tag "Aproximado" não teria como dizer de ONDE veio o preço. */
+  matchedSource?: string;
 }

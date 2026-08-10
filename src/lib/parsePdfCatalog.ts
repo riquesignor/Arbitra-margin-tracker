@@ -207,6 +207,112 @@ const MODEL_LABEL_COUNT_PATTERN = /MODELO:?/gi;
 // mesclada, não um nome de produto real.
 const MAX_PLAUSIBLE_NAME_LENGTH = 120;
 
+// ── Limpeza de nome (lixo de OCR / arte da página) ───────────────────
+//
+// Problema real observado: com OCR (ou PDF cuja arte tem texto solto), o
+// nome do produto vinha assim —
+//   'Timm 15 sda E o SE E e "Econ. NS ss. YE, rs ZA Kit: Organizadores de'
+// — ou seja, o nome de verdade ("Kit: Organizadores...") afogado em
+// fragmentos que o OCR leu de logotipo, selo e textura de fundo. Esse
+// nome ruim é usado em DOIS lugares críticos: como texto da busca por
+// preço e como rótulo na tela — então lixo aqui contamina tudo.
+//
+// Estratégia (deliberadamente conservadora): não tentar "adivinhar" o
+// nome certo, e sim CORTAR a string nos tokens que são inequivocamente
+// ruído, e ficar com o maior pedaço contíguo que sobrar. Nome limpo não
+// tem nenhum token de ruído → nenhum corte → string inalterada. Isso dá
+// a propriedade que importa: catálogo que já funcionava não muda em
+// nada, só o caso quebrado é tocado.
+
+/** Tokens curtos que SÃO conteúdo real em catálogo BR (unidade, medida, conector) — sem isso, "kit", "cm", "un" cairiam na regra de "token curto = ruído". */
+const REAL_SHORT_TOKENS = new Set([
+  "de", "da", "do", "das", "dos", "e", "em", "no", "na", "ao", "a", "o", "as", "os",
+  "com", "sem", "por", "para", "pra", "kit", "cm", "mm", "ml", "kg", "un", "pc", "cx",
+  "tv", "led", "usb", "abs", "pvc", "pet", "gg", "xl", "p", "m", "g", "l",
+]);
+
+/** Conectores que nunca abrem um nome de produto — um nome que COMEÇA com eles é sinal de recorte no meio de uma frase. */
+const LEADING_CONNECTORS = new Set([
+  "de", "da", "do", "das", "dos", "e", "em", "no", "na", "ao", "com", "sem", "por", "para", "pra",
+]);
+
+function normalizeToken(raw: string): string {
+  return raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Ruído inequívoco: só pontuação/aspas, sigla curta solta ("SE", "NS",
+ * "YE", "ZA", "rs", "ss") ou sequência sem nenhuma vogal. Qualquer token
+ * com dígito passa direto — número é quase sempre informação real
+ * (medida, capacidade, modelo), e é justamente o que distingue um
+ * produto do outro na busca.
+ */
+function isNoiseToken(raw: string): boolean {
+  const normalized = normalizeToken(raw);
+  if (!normalized) return true;
+  if (/\d/.test(normalized)) return false;
+  if (REAL_SHORT_TOKENS.has(normalized)) return false;
+  if (normalized.length <= 2) return true;
+  return !/[aeiou]/.test(normalized);
+}
+
+/**
+ * Devolve o maior trecho contíguo do nome sem tokens de ruído (ver
+ * comentário do bloco acima). "Maior" por soma de caracteres úteis, não
+ * por número de tokens — um trecho com uma palavra longa e específica
+ * ("Organizadores") vale mais que três fragmentos curtos.
+ *
+ * Exportado pra teste unitário direto — ver parsePdfCatalog.test.ts.
+ */
+export function sanitizeProductName(raw: string): string {
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "";
+
+  const segments: string[][] = [];
+  let current: string[] = [];
+  for (const token of tokens) {
+    if (isNoiseToken(token)) {
+      if (current.length > 0) segments.push(current);
+      current = [];
+    } else {
+      current.push(token);
+    }
+  }
+  if (current.length > 0) segments.push(current);
+  if (segments.length === 0) return "";
+
+  const weigh = (segment: string[]) =>
+    segment.reduce((sum, token) => sum + normalizeToken(token).length, 0);
+
+  let best = segments[0];
+  let bestWeight = weigh(best);
+  for (const segment of segments.slice(1)) {
+    const weight = weigh(segment);
+    if (weight > bestWeight) {
+      best = segment;
+      bestWeight = weight;
+    }
+  }
+
+  // Conector solto na frente ("de Organizadores") denuncia recorte no
+  // meio de uma frase — não se tira do FIM de propósito: "POR" e afins
+  // no fim podem ser parte legítima do texto da linha (ver o caso
+  // "VIDEOGAME SONY POR" em parsePdfCatalog.test.ts).
+  while (best.length > 1 && LEADING_CONNECTORS.has(normalizeToken(best[0]))) {
+    best = best.slice(1);
+  }
+
+  // Pontuação órfã que sobrou na borda do corte (aspas, vírgula, ponto).
+  return best
+    .join(" ")
+    .replace(/^[^A-Za-zÀ-ÿ0-9]+/, "")
+    .trim();
+}
+
 /**
  * Hash determinístico simples (djb2) — só precisa ser estável e barato,
  * não criptográfico. Usado pra gerar SKU sintético a partir do NOME do
@@ -326,7 +432,11 @@ function extractRowsIndexed(lines: string[], seenSyntheticSkus: Set<string> = ne
 
     const withoutPrice = line.replace(priceMatch[0], "").trim();
     const skuMatch = withoutPrice.match(SKU_PATTERN);
-    const name = (skuMatch ? withoutPrice.replace(skuMatch[0], "") : withoutPrice).trim();
+    const rawName = (skuMatch ? withoutPrice.replace(skuMatch[0], "") : withoutPrice).trim();
+    // Corta lixo de OCR/arte da página (ver sanitizeProductName) — no-op
+    // pra linha limpa. Se sobrar vazio, a linha era só ruído e cai no
+    // mesmo caminho de "nome implausível" logo abaixo.
+    const name = sanitizeProductName(rawName);
 
     if (!name || name.length > MAX_PLAUSIBLE_NAME_LENGTH) {
       skippedAmbiguous++;
@@ -516,10 +626,17 @@ export function extractGridBlocks(
       const nameLines = blockLines.filter(
         (l) => l !== modelLine && !l.text.startsWith("•") && !PRICE_PATTERN.test(l.text) && !/^\d+\s?PCS\/CX$/i.test(l.text.trim())
       );
-      let name = nameLines
-        .map((l) => l.text)
-        .join(" ")
-        .trim();
+      // Catálogo em grade é o caso que MAIS sofre com lixo de OCR: o
+      // cartão inteiro (selo, logo, textura) cai dentro do bounding box,
+      // e todas as linhas viram "nome". sanitizeProductName corta os
+      // fragmentos e fica com o maior trecho coerente — ver o bloco de
+      // comentário acima da função.
+      let name = sanitizeProductName(
+        nameLines
+          .map((l) => l.text)
+          .join(" ")
+          .trim()
+      );
       // Nome baixado do PDF vem vazio quando o nome/descrição do
       // produto está "gravado" na própria foto (gráfico), não como
       // texto real — comum nesse tipo de catálogo. Cai pro SKU como

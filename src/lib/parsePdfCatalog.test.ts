@@ -1,5 +1,38 @@
 import { describe, expect, it } from "vitest";
-import { extractGridBlocks, extractRows } from "./parsePdfCatalog";
+import { extractGridBlocks, extractRows, sanitizeProductName } from "./parsePdfCatalog";
+
+describe("sanitizeProductName", () => {
+  it("não mexe em nome limpo (garantia de não-regressão pra catálogo que já funcionava)", () => {
+    for (const name of [
+      "Caneta Azul BIC",
+      "Videogame Sony PS5",
+      "Suporte para moto e bike",
+      "Organizador de Gaveta 6 peças",
+      "Bicicleta Aro 29",
+    ]) {
+      expect(sanitizeProductName(name)).toBe(name);
+    }
+  });
+
+  it("extrai o nome real de um nome afogado em lixo de OCR (caso real reportado)", () => {
+    const raw = 'Timm 15 sda E o SE E e "Econ. NS ss. YE, rs ZA Kit: Organizadores de';
+
+    expect(sanitizeProductName(raw)).toBe("Kit: Organizadores de");
+  });
+
+  it("preserva números e medidas (é o que distingue um produto do outro na busca)", () => {
+    expect(sanitizeProductName("XX Suporte 500ml 3 unidades")).toBe("Suporte 500ml 3 unidades");
+  });
+
+  it("devolve string vazia quando a linha inteira é ruído — o chamador trata como linha descartada", () => {
+    expect(sanitizeProductName('NS ss YE rs ZA "')).toBe("");
+    expect(sanitizeProductName("   ")).toBe("");
+  });
+
+  it("descarta conector solto no início (recorte no meio de uma frase)", () => {
+    expect(sanitizeProductName("NS de Organizadores Multiuso")).toBe("Organizadores Multiuso");
+  });
+});
 
 describe("extractRows", () => {
   it("extrai sku, nome e preço de uma linha simples", () => {

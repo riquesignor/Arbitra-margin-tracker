@@ -80,6 +80,11 @@ export function calculateMargin(
     // provider/item não trouxe nenhuma (ex: Mercado Livre direto sem
     // thumbnail nesse resultado específico).
     imageUrl: priceResult.imageUrl ?? row.imageUrl,
+    // Match não confiável (outra loja ou similaridade baixa) — a margem
+    // é calculada normalmente, mas a UI precisa poder avisar que o preço
+    // de referência é um chute (ver tag "Aproximado" em ResultsTable.tsx).
+    approximate: priceResult.approximate,
+    matchedSource: priceResult.matchedSource,
   };
 }
 
