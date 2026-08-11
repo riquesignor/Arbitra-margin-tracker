@@ -25,6 +25,17 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  * página de busca das lojas, sem chave e sem custo por busca — virou o
  * default da busca por texto. Com ele, "serpapi" saiu do fluxo de PDF
  * simples e ficou reservada à busca por FOTO.
+ *
+ * "vision_internal" (ago/2026) — MOTOR INTERNO + IA: busca por FOTO sem
+ * depender de SerpApi/SearchApi.io. Uma IA de visão (Gemini, BYOK, chave
+ * própria em Conta) descreve a foto do catálogo em texto, a descrição
+ * alimenta o mesmo motor interno de "internal_search", e os candidatos
+ * achados são confirmados comparando a FOTO de cada um com a foto
+ * original — ver visionInternalSearchProvider.ts. Existe pra tirar a
+ * dependência de API paga por busca de foto também, não só na busca por
+ * texto; ainda é opção adicional ao lado de "google_lens_products"/
+ * "searchapi_lens", não substituição — precisa validar taxa de acerto em
+ * uso real antes de virar default.
  */
 export type SearchProviderId =
   | "internal_search"
@@ -33,7 +44,8 @@ export type SearchProviderId =
   | "mercadolivre_direct"
   | "mercadolivre_alt"
   | "google_lens_products"
-  | "searchapi_lens";
+  | "searchapi_lens"
+  | "vision_internal";
 
 /**
  * "home" — tela de entrada (ver docs/design-critique-log.md, Session 4):

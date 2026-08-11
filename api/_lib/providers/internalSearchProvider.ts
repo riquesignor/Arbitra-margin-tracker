@@ -607,6 +607,57 @@ async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<strin
   }
 }
 
+/** Ofertas cruas de UMA loja pra UMA query — saída de `fetchStoreOffers`, ainda sem ranking nenhum aplicado. */
+export interface StoreOffers {
+  marketplace: MarketplaceId;
+  label: string;
+  offers: ScrapedOffer[];
+}
+
+/**
+ * Busca ofertas CRUAS (sem `pickBestCandidate`, sem `MarketplacePriceResult`)
+ * pra uma única query de texto, nas lojas presentes em `matchers`.
+ *
+ * Extraída da mesma raspagem que `searchInternalShared` usa (STORE_SCRAPERS,
+ * `fetchStoreHtml`, `scraper.parse`) — existe pra não duplicar a lógica de
+ * scraping no motor interno + IA (ver visionInternalSearchProvider.ts): lá a
+ * decisão de qual candidato é o produto certo não é por similaridade de
+ * TEXTO (a query já veio de uma descrição gerada por IA, não do nome do
+ * catálogo), e sim por comparação visual das fotos — então o consumidor
+ * precisa da lista de ofertas em si, não de um único "melhor" já escolhido
+ * por `pickBestCandidate`. `getTopCandidates` (rankCandidates.ts) entra
+ * DEPOIS desta função, sobre a lista aqui devolvida.
+ *
+ * Erro por loja é isolado (uma bloqueada não derruba a outra) — só propaga
+ * se TODAS as lojas tentadas falharem, mesmo critério de `searchInternalShared`.
+ */
+export async function fetchStoreOffers(query: string, matchers: MarketplaceMatcher[]): Promise<StoreOffers[]> {
+  const scrapers = STORE_SCRAPERS.filter((s) => matchers.some((m) => m.marketplace === s.marketplace));
+  if (scrapers.length === 0) return [];
+
+  const results: StoreOffers[] = [];
+  let lastError: string | null = null;
+  let failures = 0;
+
+  await mapWithConcurrency(scrapers, CONCURRENCY, async (scraper) => {
+    try {
+      const html = await fetchStoreHtml(scraper.buildUrl(query), scraper);
+      const offers = scraper.parse(html);
+      results.push({ marketplace: scraper.marketplace, label: scraper.label, offers });
+    } catch (err) {
+      failures++;
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(`[motor-interno+IA] ${scraper.label} falhou pra "${query}":`, err);
+    }
+  });
+
+  if (failures === scrapers.length && lastError) {
+    throw new Error(lastError);
+  }
+
+  return results;
+}
+
 /**
  * Busca de preço pelo motor interno. Mesma assinatura dos outros
  * providers multi-marketplace (`searchGoogleShoppingShared` etc.) pra

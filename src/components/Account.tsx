@@ -20,14 +20,17 @@ import {
   deleteUserRapidApiKey,
   deleteUserSearchApiKey,
   deleteUserUnwrangleApiKey,
+  deleteUserGeminiApiKey,
   getUserSerpApiKey,
   getUserRapidApiKey,
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
+  getUserGeminiApiKey,
   saveUserSerpApiKey,
   saveUserRapidApiKey,
   saveUserSearchApiKey,
   saveUserUnwrangleApiKey,
+  saveUserGeminiApiKey,
 } from "../lib/userSecrets";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
@@ -167,6 +170,23 @@ const UNWRANGLE_INTRO = (
   </>
 );
 
+// Motor de busca por foto SEM SerpApi/SearchApi.io (provider
+// "vision_internal", ver Dashboard.tsx): uma IA de visão (Gemini) descreve
+// a foto do catálogo e confirma o candidato achado comparando as fotos —
+// ver visionInternalSearchProvider.ts. BYOK: tem tier gratuito permanente
+// sem cartão, mas com limite de RATE (não de dinheiro) — por isso continua
+// sendo uma chave própria, não uma cota compartilhada da Arbitra.
+const GEMINI_INTRO = (
+  <>
+    Opcional — motor de busca por foto sem SerpApi/SearchApi.io: uma IA descreve a foto do
+    catálogo e confirma o produto certo comparando as imagens.{" "}
+    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+      crie grátis no Google AI Studio
+    </a>{" "}
+    (sem cartão, cota diária generosa) e cole a API key abaixo.
+  </>
+);
+
 // 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
 // contador do dia atual, sem histórico por dia no back-end ainda. Só a
 // última barra (hoje) é dado real; o resto é só pra dar forma ao
@@ -228,6 +248,14 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [unwrangleKeyMsg, setUnwrangleKeyMsg] = useState<string | null>(null);
   const [unwrangleKeyError, setUnwrangleKeyError] = useState<string | null>(null);
 
+  // BYOK — chave Gemini própria (motor interno + IA, provider
+  // "vision_internal"). Mesmo padrão de estado das chaves acima.
+  const [hasGeminiKey, setHasGeminiKey] = useState(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState("");
+  const [savingGeminiKey, setSavingGeminiKey] = useState(false);
+  const [geminiKeyMsg, setGeminiKeyMsg] = useState<string | null>(null);
+  const [geminiKeyError, setGeminiKeyError] = useState<string | null>(null);
+
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
@@ -238,6 +266,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     getUserRapidApiKey(user.uid).then((key) => setHasRapidKey(Boolean(key)));
     getUserSearchApiKey(user.uid).then((key) => setHasSearchApiKey(Boolean(key)));
     getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
+    getUserGeminiApiKey(user.uid).then((key) => setHasGeminiKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
 
@@ -342,6 +371,40 @@ export default function Account({ user, profile, preferences, onUpdatePreference
       setUnwrangleKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingUnwrangleKey(false);
+    }
+  }
+
+  async function handleSaveGeminiKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user || !geminiKeyInput.trim()) return;
+    setSavingGeminiKey(true);
+    setGeminiKeyError(null);
+    setGeminiKeyMsg(null);
+    try {
+      await saveUserGeminiApiKey(user.uid, geminiKeyInput);
+      setHasGeminiKey(true);
+      setGeminiKeyInput("");
+      setGeminiKeyMsg("Chave salva — já pode escolher \"Motor interno + IA\" como API de busca por imagem.");
+    } catch (err) {
+      setGeminiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingGeminiKey(false);
+    }
+  }
+
+  async function handleRemoveGeminiKey() {
+    if (!user) return;
+    setSavingGeminiKey(true);
+    setGeminiKeyError(null);
+    setGeminiKeyMsg(null);
+    try {
+      await deleteUserGeminiApiKey(user.uid);
+      setHasGeminiKey(false);
+      setGeminiKeyMsg("Chave removida.");
+    } catch (err) {
+      setGeminiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingGeminiKey(false);
     }
   }
 
@@ -695,6 +758,55 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
               {searchApiKeyMsg && <p className={styles.successText}>{searchApiKeyMsg}</p>}
               {searchApiKeyError && <p className={styles.errorText}>{searchApiKeyError}</p>}
+            </form>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <KeyRound size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>Gemini (motor interno + IA)</h2>
+              <span className={hasGeminiKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasGeminiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasGeminiKey ? "configurada" : "não configurada"}
+              </span>
+            </div>
+
+            <form className={styles.compactKeyForm} onSubmit={handleSaveGeminiKey}>
+              <p className={styles.cardIntro}>{GEMINI_INTRO}</p>
+
+              <div className={styles.compactKeyRow}>
+                <input
+                  className={styles.input}
+                  type="password"
+                  placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
+                  value={geminiKeyInput}
+                  onChange={(e) => setGeminiKeyInput(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={savingGeminiKey || !geminiKeyInput.trim()}
+                >
+                  {savingGeminiKey ? "Salvando…" : "Salvar"}
+                </button>
+                {hasGeminiKey && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    title="Remover chave"
+                    onClick={() => void handleRemoveGeminiKey()}
+                    disabled={savingGeminiKey}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {geminiKeyMsg && <p className={styles.successText}>{geminiKeyMsg}</p>}
+              {geminiKeyError && <p className={styles.errorText}>{geminiKeyError}</p>}
             </form>
           </section>
 

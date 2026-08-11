@@ -11,6 +11,7 @@ import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/pro
 import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
 import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
 import { searchInternalShared } from "./_lib/providers/internalSearchProvider.js";
+import { searchVisionInternalShared } from "./_lib/providers/visionInternalSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
@@ -25,6 +26,7 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "mercadolivre_alt",
   "google_lens_products",
   "searchapi_lens",
+  "vision_internal",
 ];
 
 // Providers que só cobrem UM marketplace fixo cada — ver
@@ -82,15 +84,18 @@ function isValidProvider(value: unknown): value is SearchProviderId {
  *
  * `provider` (default "serpapi", ver SearchProviderId em _lib/types.ts)
  * escolhe QUAL API resolve o preço, eixo independente de `marketplaces`:
- *   - "serpapi", "google_lens_products" e "searchapi_lens" aceitam
- *     VÁRIOS marketplaces numa chamada só (contrato mudou de
- *     `marketplace: string` singular pra `marketplaces: string[]` — ver
- *     docs/architecture-review.md item 15): amazon + mercadolivre numa
- *     busca só por produto, em vez de uma busca por produto POR
- *     marketplace. Os três só diferem no INSUMO/vendor — nome em texto
- *     (SerpApi/Google Shopping) ou foto do produto via `item.imageUrl`
- *     (Google Lens por SerpApi OU por SearchApi.io, vendors diferentes,
- *     mesmo formato de busca) — não em quantos marketplaces cobrem.
+ *   - "serpapi", "internal_search", "google_lens_products",
+ *     "searchapi_lens" e "vision_internal" aceitam VÁRIOS marketplaces
+ *     numa chamada só (contrato mudou de `marketplace: string` singular
+ *     pra `marketplaces: string[]` — ver docs/architecture-review.md item
+ *     15): amazon + mercadolivre numa busca só por produto, em vez de uma
+ *     busca por produto POR marketplace. Os cinco só diferem no
+ *     INSUMO/vendor — nome em texto (SerpApi/Google Shopping ou motor
+ *     interno) ou foto do produto via `item.imageUrl` (Google Lens por
+ *     SerpApi, por SearchApi.io, ou motor interno + IA via Gemini —
+ *     `apiKey` muda de significado conforme o provider: chave
+ *     SerpApi/SearchApi.io nos dois primeiros, chave Gemini em
+ *     "vision_internal") — não em quantos marketplaces cobrem.
  *   - "rapidapi_amazon", "mercadolivre_direct" e "mercadolivre_alt" só
  *     cobrem UM marketplace fixo cada (ver DIRECT_PROVIDER_MARKETPLACE) —
  *     branch separado logo no início do handler, mais simples que o
@@ -243,11 +248,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
               // chave, é a característica que justifica ele existir (ver
               // internalSearchProvider.ts).
               await searchInternalShared(missItems, matchers)
-            : provider === "google_lens_products"
-              ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
-              : provider === "searchapi_lens"
-                ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
-                : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+            : provider === "vision_internal"
+              ? // Motor interno + IA: `apiKey` aqui é a chave GEMINI do
+                // usuário (BYOK), não SerpApi/SearchApi.io — ver
+                // visionInternalSearchProvider.ts.
+                await searchVisionInternalShared(missItems, matchers, body.apiKey)
+              : provider === "google_lens_products"
+                ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
+                : provider === "searchapi_lens"
+                  ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
+                  : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);

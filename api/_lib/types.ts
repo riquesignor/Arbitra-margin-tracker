@@ -51,6 +51,14 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  *     de terceiro nem de cota. É o default da busca por TEXTO desde
  *     ago/2026; "serpapi" saiu do seletor de PDF simples e ficou só como
  *     motor da busca por FOTO (google_lens_products).
+ *   - "vision_internal" → MOTOR INTERNO + IA (ago/2026): busca por FOTO
+ *     sem SerpApi/SearchApi.io. Gemini (BYOK, chave própria em Conta)
+ *     descreve a foto do catálogo, a descrição vira query pro mesmo
+ *     "internal_search", e os candidatos achados são confirmados
+ *     comparando foto-com-foto via IA — ver
+ *     visionInternalSearchProvider.ts e geminiVision.ts. Opção adicional
+ *     ao lado de "google_lens_products"/"searchapi_lens", não
+ *     substituição — só vira default depois de validado em uso real.
  */
 export type SearchProviderId =
   | "internal_search"
@@ -59,7 +67,8 @@ export type SearchProviderId =
   | "mercadolivre_direct"
   | "mercadolivre_alt"
   | "google_lens_products"
-  | "searchapi_lens";
+  | "searchapi_lens"
+  | "vision_internal";
 
 export interface CatalogItemQuery {
   sku: string;

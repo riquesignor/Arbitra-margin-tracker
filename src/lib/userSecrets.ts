@@ -228,3 +228,55 @@ export async function deleteUserUnwrangleApiKey(userId: string): Promise<void> {
   batch.set(doc(db, "users", userId), { hasUnwrangleApiKey: false }, { merge: true });
   await batch.commit();
 }
+
+/**
+ * Chave Gemini (Google AI Studio) própria do usuário — motor da busca por
+ * IMAGEM do provider "vision_internal" (motor interno + IA, ver
+ * api/_lib/providers/visionInternalSearchProvider.ts e geminiVision.ts).
+ * Mesmo padrão BYOK das chaves acima, mesmo doc `users/{uid}/secrets/keys`
+ * (campo `geminiApiKey`).
+ *
+ * BYOK aqui não é só isolamento de cota (como nas outras chaves) — é o
+ * que torna esse provider de busca por foto o único SEM custo de
+ * assinatura embutido pro operador da plataforma: o free tier do Gemini
+ * (aistudio.google.com/apikey, sem cartão) cobre um catálogo de porte
+ * pequeno/médio sozinho, e o limite é da conta do PRÓPRIO usuário, não
+ * de uma cota compartilhada que a Arbitra precisaria pagar.
+ */
+export async function getUserGeminiApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().geminiApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave Gemini do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserGeminiApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { geminiApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasGeminiApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserGeminiApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { geminiApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasGeminiApiKey: false }, { merge: true });
+  await batch.commit();
+}

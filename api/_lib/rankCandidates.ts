@@ -70,6 +70,39 @@ export function pickBestCandidate<T>(
 }
 
 /**
+ * Mesma lógica de filtro/ordenação de `pickBestCandidate`, mas devolve
+ * até `k` candidatos em vez de só o melhor — usado pela re-ranqueação
+ * visual (ver visionInternalSearchProvider.ts): a IA de visão precisa de
+ * um PUNHADO de candidatos pra comparar a foto contra, não só o vencedor
+ * da similaridade de texto (que pode não ser o certo — é só o melhor
+ * TEXTO, a foto ainda não entrou na decisão nesse ponto).
+ */
+export function getTopCandidates<T>(
+  catalogName: string,
+  candidates: T[],
+  getTitle: (candidate: T) => string,
+  getPopularity: (candidate: T) => number,
+  k: number
+): RankedCandidate<T>[] {
+  if (candidates.length === 0) return [];
+
+  const scored = candidates.map((candidate) => ({
+    candidate,
+    similarity: textSimilarity(catalogName, getTitle(candidate)),
+  }));
+
+  const maxSimilarity = Math.max(...scored.map((s) => s.similarity));
+  const contenders = scored.filter((s) => s.similarity >= maxSimilarity - SIMILARITY_TOLERANCE);
+
+  return contenders
+    .sort((a, b) => {
+      const popDiff = getPopularity(b.candidate) - getPopularity(a.candidate);
+      return popDiff !== 0 ? popDiff : b.similarity - a.similarity;
+    })
+    .slice(0, k);
+}
+
+/**
  * Score de popularidade combinando contagem de avaliações/vendas (escala
  * log — a diferença entre 10 e 100 avaliações importa mais que entre
  * 10.000 e 10.090) com a nota média como desempate leve. `count` cobre

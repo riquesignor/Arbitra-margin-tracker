@@ -41,6 +41,7 @@ import {
   getUserRapidApiKey,
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
+  getUserGeminiApiKey,
 } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -96,7 +97,7 @@ const SEARCH_PROVIDERS: {
   note: string;
   marketplaces: MarketplaceId[];
   icon: typeof Store;
-  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | null;
+  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | null;
 }[] = [
   {
     id: "internal_search",
@@ -146,13 +147,32 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "searchApiKey",
   },
+  // 6ª opção (ago/2026) — motor interno + IA (ver
+  // visionInternalSearchProvider.ts): busca por foto sem SerpApi/
+  // SearchApi.io, usando Gemini (BYOK) pra descrever e confirmar
+  // visualmente o produto. Adicionada como opção A MAIS, sem tocar nas
+  // 5 acima — combinar/reorganizar o seletor fica pra depois de validar
+  // a taxa de acerto real (instrução explícita do produto, não decisão
+  // técnica: só reduz opção quando esta aqui provar que funciona bem).
+  {
+    id: "vision_internal",
+    label: "Motor interno + IA (Gemini)",
+    note: "Amazon + Mercado Livre · foto do catálogo, sem SerpApi/SearchApi.io",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Camera,
+    needsKey: "geminiApiKey",
+  },
 ];
 
 // Providers que buscam por FOTO (não por nome) — precisam de imagem
 // extraída do PDF (ver catalogImages.ts). Dois vendors possíveis
 // (SerpApi vs SearchApi.io), mesmo comportamento de UI pros dois — ver
 // api/_lib/types.ts pro porquê de dois vendors pro mesmo tipo de busca.
-const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>(["google_lens_products", "searchapi_lens"]);
+const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
+  "google_lens_products",
+  "searchapi_lens",
+  "vision_internal",
+]);
 
 /**
  * Providers que cobrem amazon + mercadolivre na mesma busca (o usuário
@@ -166,6 +186,7 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "serpapi",
   "google_lens_products",
   "searchapi_lens",
+  "vision_internal",
 ]);
 
 /** Default da tela: motor interno — único sem chave e sem custo por busca, então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
@@ -286,6 +307,10 @@ export default function Dashboard({
   // fluxo de fallback (ver mlFallbackOffer/handleRetryWithUnwrangle).
   const [unwrangleApiKey, setUnwrangleApiKey] = useState<string | null>(null);
 
+  // BYOK — chave Gemini própria (motor interno + IA, busca por foto sem
+  // SerpApi/SearchApi.io). Mesma lógica das chaves acima.
+  const [geminiApiKey, setGeminiApiKey] = useState<string | null>(null);
+
   // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
   // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
   // E o usuário já tem `unwrangleApiKey` cadastrada (ver finishWithRows).
@@ -331,6 +356,14 @@ export default function Dashboard({
       return;
     }
     getUserUnwrangleApiKey(userId).then(setUnwrangleApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setGeminiApiKey(null);
+      return;
+    }
+    getUserGeminiApiKey(userId).then(setGeminiApiKey);
   }, [userId]);
 
   useEffect(() => {
@@ -384,7 +417,9 @@ export default function Dashboard({
         ? rapidApiKey
         : activeProvider.needsKey === "searchApiKey"
           ? searchApiKey
-          : null;
+          : activeProvider.needsKey === "geminiApiKey"
+            ? geminiApiKey
+            : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
@@ -543,7 +578,9 @@ export default function Dashboard({
             ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (card \"SerpApi\")."
             : activeProvider.needsKey === "rapidApiKey"
               ? "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
-              : "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
+              : activeProvider.needsKey === "searchApiKey"
+                ? "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
+                : "Cadastre sua chave Gemini em Conta antes de buscar preço (card \"Gemini (motor interno + IA)\")."
         );
         return;
       }
@@ -966,10 +1003,12 @@ export default function Dashboard({
                     })}
                   </div>
                   <p className={styles.subGroupHint}>
-                    "Busca por imagem" usa a foto do catálogo pra achar o produto, mas por baixo
-                    ainda é a sua chave/cota SerpApi (ou SearchApi.io) que resolve o preço — o motor
-                    interno ainda não faz busca por foto. Clique acima pra voltar pra busca por
-                    texto (Motor interno, Amazon direto ou Mercado Livre) a qualquer momento.
+                    "Busca por imagem" usa a foto do catálogo pra achar o produto. Duas SerpApi/
+                    SearchApi.io resolvem o preço com a chave/cota de Google Lens; "Motor interno +
+                    IA (Gemini)" faz o mesmo sem essas duas, usando a chave Gemini pra descrever e
+                    confirmar visualmente o produto no motor interno. Clique acima pra voltar pra
+                    busca por texto (Motor interno, Amazon direto ou Mercado Livre) a qualquer
+                    momento.
                   </p>
                 </div>
               )}
@@ -1196,7 +1235,9 @@ export default function Dashboard({
                         ? "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."
                         : activeProvider.needsKey === "rapidApiKey"
                           ? "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
-                          : "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."}
+                          : activeProvider.needsKey === "searchApiKey"
+                            ? "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
+                            : "Cadastre sua chave Gemini em Conta (grátis, sem cartão) pra poder buscar preço."}
                   </p>
                 )}
               </div>
@@ -1299,7 +1340,9 @@ export default function Dashboard({
                       ? "Chave RapidAPI própria"
                       : activeProvider.needsKey === "searchApiKey"
                         ? "Chave SearchApi.io própria"
-                        : "Chave de API"}
+                        : activeProvider.needsKey === "geminiApiKey"
+                          ? "Chave Gemini própria"
+                          : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>
                   {activeProvider.needsKey === null
