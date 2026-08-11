@@ -246,4 +246,35 @@ describe("extractGridBlocks", () => {
 
     expect(result).toBeNull();
   });
+
+  // Regressão real: catálogo com banner de preço colorido/diagonal
+  // (ex.: bmax_broxa.pdf, reportado pelo usuário) sai SEM camada de
+  // texto real -> cai pro fallback de OCR (Tesseract) -> "MODELO:"/nome
+  // saem legíveis, mas o banner de preço não. Sem `priceless`, o cartão
+  // era descartado sem deixar rastro nenhum do SKU pra tentar recuperar
+  // via Gemini depois (ver parsePdfCatalogFile). Este teste trava o
+  // contrato: cartão sem preço vira `priceless` (com SKU/nome/bounding
+  // box), não some.
+  it("cartão sem preço legível vira `priceless` (não é descartado sem rastro) — base pra correção via Gemini", () => {
+    const items = [
+      { text: "MODELO:", x: 30, y: 700, width: 55 },
+      { text: "A1", x: 90, y: 700, width: 20 },
+      { text: "Produto Com Preco", x: 30, y: 650, width: 100 },
+      { text: "Unid.CX: 12,00", x: 30, y: 500, width: 70 },
+
+      { text: "MODELO:", x: 250, y: 700, width: 55 },
+      { text: "B2", x: 310, y: 700, width: 20 },
+      { text: "Produto Sem Preco", x: 250, y: 650, width: 100 },
+    ];
+
+    const result = extractGridBlocks(items, 595);
+
+    expect(result).not.toBeNull();
+    expect(result!.blocks).toHaveLength(1);
+    expect(result!.blocks[0]).toMatchObject({ sku: "A1", name: "Produto Com Preco", supplierPrice: 12 });
+
+    expect(result!.priceless).toHaveLength(1);
+    expect(result!.priceless[0]).toMatchObject({ sku: "B2", name: "Produto Sem Preco" });
+    expect(result!.skippedAmbiguous).toBe(1);
+  });
 });

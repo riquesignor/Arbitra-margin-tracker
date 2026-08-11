@@ -2,6 +2,7 @@ import type { CatalogRow } from "../types";
 import { parseCurrency } from "./parseCatalog";
 import { mapWithConcurrency } from "./concurrency";
 import { assertPubliclyReachable, uploadCatalogImage } from "./catalogImages";
+import { extractCatalogPageWithGemini, normalizeSkuForMatch } from "./geminiCatalogVision";
 
 export class PdfParseError extends Error {}
 
@@ -553,6 +554,27 @@ export interface GridBlock {
   xMax: number;
 }
 
+/**
+ * Cartão de grade com MODELO/nome reconhecidos mas SEM preço legível (ver
+ * findPriceInBlockLines) — carrega o mesmo bounding box de `GridBlock`
+ * (pra permitir recorte de imagem e, se recuperado depois, virar produto
+ * de verdade) mas nenhum `supplierPrice`. Existe especificamente pro caso
+ * de correção via Gemini (ver extractCatalogPageWithGemini,
+ * geminiCatalogVision.ts, e uso em `parsePdfCatalogFile`): páginas que
+ * passaram por OCR podem ter o preço "invisível" pro Tesseract (banner
+ * colorido/diagonal) mesmo com MODELO/nome lidos corretamente — sem esse
+ * registro, o cartão seria descartado direto e não sobraria SKU nenhum
+ * pra tentar recuperar.
+ */
+export interface GridBlockPriceless {
+  sku: string;
+  name: string;
+  yTop: number;
+  yBottom: number;
+  xMin: number;
+  xMax: number;
+}
+
 /** Acha, entre as linhas locais de UM cartão, a que contém o preço — prioriza linha com "Unid" (rótulo padrão desse tipo de catálogo) pra não confundir com preço promocional tipo "5CXS: 27,60". */
 function findPriceInBlockLines(lines: PositionedLine[]): number | null {
   const withUnid = lines.filter((l) => /unid/i.test(l.text) && PRICE_PATTERN.test(l.text));
@@ -574,7 +596,7 @@ function findPriceInBlockLines(lines: PositionedLine[]): number | null {
 export function extractGridBlocks(
   items: PositionedText[],
   pageWidth: number
-): { blocks: GridBlock[]; skippedAmbiguous: number } | null {
+): { blocks: GridBlock[]; skippedAmbiguous: number; priceless: GridBlockPriceless[] } | null {
   const lines = groupItemsIntoLines(items);
 
   const headerLines = lines.filter((lineItems) => {
@@ -598,6 +620,7 @@ export function extractGridBlocks(
   }));
 
   const blocks: GridBlock[] = [];
+  const priceless: GridBlockPriceless[] = [];
   let skippedAmbiguous = 0;
 
   for (const row of rowBands) {
@@ -617,12 +640,10 @@ export function extractGridBlocks(
       const sku = skuCleanMatch ? skuCleanMatch[1] : skuRaw;
       if (!sku) continue;
 
-      const price = findPriceInBlockLines(blockLines);
-      if (price == null) {
-        skippedAmbiguous++;
-        continue;
-      }
-
+      // Nome calculado ANTES do preço de propósito: mesmo um cartão sem
+      // preço legível (ver GridBlockPriceless acima) precisa do nome pra
+      // virar produto de verdade se a correção via Gemini recuperar o
+      // preço depois.
       const nameLines = blockLines.filter(
         (l) => l !== modelLine && !l.text.startsWith("•") && !PRICE_PATTERN.test(l.text) && !/^\d+\s?PCS\/CX$/i.test(l.text.trim())
       );
@@ -645,11 +666,18 @@ export function extractGridBlocks(
       if (!name) name = sku;
       if (name.length > MAX_PLAUSIBLE_NAME_LENGTH) name = name.slice(0, MAX_PLAUSIBLE_NAME_LENGTH).trim();
 
+      const price = findPriceInBlockLines(blockLines);
+      if (price == null) {
+        skippedAmbiguous++;
+        priceless.push({ sku, name, yTop: row.yTop, yBottom: row.yBottom, xMin: col.xMin, xMax: col.xMax });
+        continue;
+      }
+
       blocks.push({ sku, name, supplierPrice: price, yTop: row.yTop, yBottom: row.yBottom, xMin: col.xMin, xMax: col.xMax });
     }
   }
 
-  return { blocks, skippedAmbiguous };
+  return { blocks, skippedAmbiguous, priceless };
 }
 
 // Resolução de renderização pro modo imagem — alta o bastante pra o
@@ -864,6 +892,15 @@ export interface ParsePdfOptions {
    */
   withImages?: boolean;
   userId?: string;
+  /**
+   * Chave Gemini própria do usuário (BYOK, mesma de Conta/motor interno +
+   * IA) — quando presente, é usada pra CORRIGIR preço em páginas que
+   * caíram no fallback de OCR e ficaram com produto sem preço legível
+   * (ver GridBlockPriceless e geminiCatalogVision.ts). Opcional e só tem
+   * efeito em página que precisou de OCR — catálogo com texto real nunca
+   * aciona isso, zero custo/latência extra pro caso comum.
+   */
+  geminiApiKey?: string;
 }
 
 // Uploads de imagem em paralelo controlado — mesmo motivo de concorrência
@@ -944,6 +981,13 @@ export async function parsePdfCatalogFile(
         return { canvas, viewport };
       };
 
+      // true só quando ESTA página precisou de OCR (diferente do
+      // `ocrAttempted` de escopo do catálogo inteiro, usado só na
+      // mensagem de erro final) — é o que decide se vale tentar a
+      // correção de preço via Gemini logo abaixo: catálogo com texto real
+      // nunca passa por aqui, então nunca paga esse custo extra.
+      let pageUsedOcr = false;
+
       // Página sem NENHUM texto embutido (ver comentário de
       // ocrPageToPositionedText acima) — só entra aqui quando pdfjs não
       // achou nada; página com texto real nunca passa por este bloco.
@@ -961,7 +1005,10 @@ export async function parsePdfCatalogFile(
           try {
             const { canvas: c, viewport: v } = await ensureCanvas();
             items = await ocrPageToPositionedText(c, v, IMAGE_RENDER_SCALE);
-            if (items.length > 0) ocrAttempted = true;
+            if (items.length > 0) {
+              ocrAttempted = true;
+              pageUsedOcr = true;
+            }
           } catch (err) {
             console.warn(`OCR falhou na página ${pageNum} (seguindo sem texto nesta página):`, err);
           }
@@ -976,12 +1023,61 @@ export async function parsePdfCatalogFile(
       const grid = extractGridBlocks(items, pageWidthPdf);
 
       if (grid) {
-        skippedAmbiguous += grid.skippedAmbiguous;
-        rows.push(...grid.blocks.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
+        let gridSkippedAmbiguous = grid.skippedAmbiguous;
+        const gridBlocks: GridBlock[] = [...grid.blocks];
 
-        if (withImages && grid.blocks.length > 0) {
+        // Correção de preço via Gemini — só quando ESTA página passou
+        // por OCR, sobrou pelo menos um cartão sem preço legível, e o
+        // usuário tem chave própria configurada (BYOK, opcional). Ver
+        // geminiCatalogVision.ts pro porquê: banner de preço
+        // colorido/diagonal (comum nesse tipo de catálogo) é ilegível
+        // pro Tesseract, mas não pra um modelo de visão. UMA chamada por
+        // PÁGINA (não por produto) — reaproveita o canvas já renderizado
+        // pro próprio OCR, sem custo de renderização extra.
+        if (pageUsedOcr && grid.priceless.length > 0 && options?.geminiApiKey) {
+          try {
+            const { canvas: c } = await ensureCanvas();
+            const pageDataUrl = c.toDataURL("image/jpeg", 0.92);
+            const geminiProducts = await extractCatalogPageWithGemini(pageDataUrl, options.geminiApiKey);
+            const bySku = new Map(geminiProducts.map((p) => [normalizeSkuForMatch(p.sku), p]));
+
+            for (const p of grid.priceless) {
+              const match = bySku.get(normalizeSkuForMatch(p.sku));
+              if (!match) continue; // Gemini não achou esse SKU na página — mantém como ambíguo, sem palpite
+
+              if (!match.inStock || match.price == null) {
+                // Esgotado/indisponível: é uma EXCLUSÃO real, não
+                // ambiguidade — não faz sentido levar pro catálogo um
+                // produto que a própria página marca como sem preço.
+                gridSkippedAmbiguous--;
+                continue;
+              }
+
+              gridBlocks.push({
+                sku: p.sku,
+                name: p.name,
+                supplierPrice: match.price,
+                yTop: p.yTop,
+                yBottom: p.yBottom,
+                xMin: p.xMin,
+                xMax: p.xMax,
+              });
+              gridSkippedAmbiguous--;
+            }
+          } catch (err) {
+            // Falha na correção (chave inválida, rede, cota) não derruba
+            // o catálogo inteiro — os produtos ficam como ambíguos, mesmo
+            // comportamento de antes dessa correção existir.
+            console.warn(`Correção de preço via Gemini falhou na página ${pageNum} (seguindo sem ela):`, err);
+          }
+        }
+
+        skippedAmbiguous += gridSkippedAmbiguous;
+        rows.push(...gridBlocks.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
+
+        if (withImages && gridBlocks.length > 0) {
           const { canvas: c, viewport: v } = await ensureCanvas();
-          await mapWithConcurrency(grid.blocks, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
+          await mapWithConcurrency(gridBlocks, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
             try {
               const cropped = cropGridBlock(c!, v!, IMAGE_RENDER_SCALE, block);
               const url = await uploadCatalogImage(options!.userId!, block.sku, cropped);

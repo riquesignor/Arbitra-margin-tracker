@@ -802,7 +802,11 @@ export default function Dashboard({
     const withImages = sourceType === "pdf" && IMAGE_MODE_PROVIDERS.has(searchProvider);
     const parse = (): Promise<ParseOutcome> =>
       sourceType === "pdf"
-        ? parsePdfCatalogFile(file, pageRange ?? undefined, { withImages, userId: userId ?? undefined })
+        ? parsePdfCatalogFile(file, pageRange ?? undefined, {
+            withImages,
+            userId: userId ?? undefined,
+            geminiApiKey: geminiApiKey ?? undefined,
+          })
         : parseCatalogFile(file).then((rows) => ({ rows, skippedAmbiguous: 0 }));
 
     try {
@@ -888,6 +892,7 @@ export default function Dashboard({
         parsePdfCatalogFile(file, pageRange, {
           withImages,
           userId: userId ?? undefined,
+          geminiApiKey: geminiApiKey ?? undefined,
         }),
       "pdf",
       pageRange
