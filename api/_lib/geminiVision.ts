@@ -23,17 +23,27 @@
  * `geminiApiKey`, ver userSecrets.ts) — mesmo padrão SerpApi/RapidAPI/
  * SearchApi.io do resto do app. Vendor escolhido por ser o único com
  * camada gratuita permanente sem cartão (ver comparação feita com o
- * usuário) — mas GRÁTIS aqui é limite de RATE (~15 req/min, ~1.500/dia
- * no free tier), não "sem chave"; por isso continua BYOK, não vira
- * mecanismo compartilhado sem custo pro usuário configurar.
+ * usuário) — mas GRÁTIS aqui é limite de RATE, não "sem chave"; por isso
+ * continua BYOK, não vira mecanismo compartilhado sem custo pro usuário
+ * configurar. Número exato de req/min e req/dia do tier gratuito varia
+ * por modelo e não é publicado de forma confiável na doc pública — quem
+ * quiser o valor exato do MOMENTO deve conferir em
+ * aistudio.google.com/rate-limit (por projeto, não por chave).
  *
- * Modelo fixo em `gemini-2.5-flash-lite`: é a variante com o MAIOR teto
- * diário gratuito (o objetivo aqui é throughput dentro do free tier, não
- * raciocínio complexo — descrever uma foto de produto e comparar duas
- * fotos são tarefas simples pra qualquer modelo de visão atual).
+ * Modelo em `gemini-3.1-flash-lite` (trocado de `gemini-2.5-flash-lite`
+ * em ago/2026 — a família 2.5 Flash-Lite passou a devolver HTTP 404
+ * "no longer available to new users" pra chave nova, ver
+ * ai.google.dev/gemini-api/docs/models). "Flash-Lite" continua sendo a
+ * família certa pro caso de uso (o objetivo aqui é throughput dentro do
+ * free tier, não raciocínio complexo — descrever uma foto de produto e
+ * comparar duas fotos são tarefas simples pra qualquer modelo de visão
+ * atual), só a versão específica mudou. Se este modelo também for
+ * descontinuado no futuro, o sintoma é o MESMO HTTP 404 "no longer
+ * available" — troque a constante abaixo consultando a lista atual de
+ * modelos "Stable" em ai.google.dev/gemini-api/docs/models.
  */
 
-const MODEL = "gemini-2.5-flash-lite";
+const MODEL = "gemini-3.1-flash-lite";
 const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 /** Teto de tempo por chamada — função serverless tem limite de execução total, e um lote inteiro depende de várias chamadas em sequência (ver CONCURRENCY em visionInternalSearchProvider.ts). */
@@ -108,8 +118,9 @@ async function callGemini(parts: GeminiPart[], apiKey: string): Promise<string> 
       const status = data.error?.status;
       throw new GeminiVisionError(
         status === "RESOURCE_EXHAUSTED"
-          ? "Gemini sem cota disponível agora (limite do free tier: ~15 buscas/min, ~1.500/dia) — " +
-            "tente novamente em alguns minutos, ou considere o tier pago se isso for frequente."
+          ? "Gemini sem cota disponível agora (limite de requisições do tier gratuito, ver " +
+            "aistudio.google.com/rate-limit) — tente novamente em alguns minutos, ou considere " +
+            "o tier pago se isso for frequente."
           : `Gemini retornou HTTP ${response.status}${data.error?.message ? `: ${data.error.message}` : ""}`
       );
     }

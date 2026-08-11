@@ -40,9 +40,12 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * mesmo padrão de SerpApi/RapidAPI/SearchApi.io.
  *
  * ── Por que a concorrência é 1 (não 2, como os outros providers) ──────
- * O free tier do Gemini tem teto de ~15 requisições/MINUTO. Cada item já
- * gera várias chamadas sozinho (ver custo acima) — processar itens em
- * paralelo multiplicaria isso e estouraria o limite em segundos, virando
+ * O free tier do Gemini tem teto de requisições por MINUTO relativamente
+ * baixo (valor exato varia por modelo/projeto — ver
+ * aistudio.google.com/rate-limit — e não é publicado de forma estável na
+ * doc pública o bastante pra hard-codar aqui). Cada item já gera várias
+ * chamadas sozinho (ver custo acima) — processar itens em paralelo
+ * multiplicaria isso e estouraria o limite em segundos, virando
  * `RESOURCE_EXHAUSTED` pro catálogo inteiro em vez de UM item lento.
  *
  * ── Diferença de contrato vs os outros providers de foto ──────────────
