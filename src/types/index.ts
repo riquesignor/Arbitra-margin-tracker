@@ -20,8 +20,14 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  * de corte"). "mercadolivre_alt" não aparece no seletor normal — é só a
  * alternativa paga oferecida quando "mercadolivre_direct" falha (ver
  * Dashboard.tsx > finishWithRows).
+ *
+ * "internal_search" é o MOTOR PRÓPRIO (ago/2026): lê o preço direto da
+ * página de busca das lojas, sem chave e sem custo por busca — virou o
+ * default da busca por texto. Com ele, "serpapi" saiu do fluxo de PDF
+ * simples e ficou reservada à busca por FOTO.
  */
 export type SearchProviderId =
+  | "internal_search"
   | "serpapi"
   | "rapidapi_amazon"
   | "mercadolivre_direct"

@@ -78,16 +78,18 @@ const AVAILABLE_MARKETPLACES: {
 
 // Qual API resolve o preço — eixo INDEPENDENTE de marketplace (ver
 // SearchProviderId em ../types e o comentário em api/fetch-prices.ts).
-// SerpApi cobre os dois marketplaces numa busca só; os providers
-// "diretos" cobrem só um marketplace fixo cada, então escolher um deles
-// já define `selectedMarketplaces` sozinho (ver selectProvider).
+// Motor interno e SerpApi cobrem os dois marketplaces numa busca só; os
+// providers "diretos" cobrem só um marketplace fixo cada, então escolher
+// um deles já define `selectedMarketplaces` sozinho (ver selectProvider).
 //
 // "serpapi" (texto puro) continua no array — ainda é um SearchProviderId
 // válido e resolve `activeProvider`/needsKey normalmente — mas NÃO entra
-// no grid principal de seleção (ver SELECTABLE_PROVIDERS abaixo): ficava
-// redundante ao lado de "Busca por imagem", que já é a mesma SerpApi por
-// baixo. Continua alcançável pelo chip "API em uso agora" dentro do
-// subgrupo de imagem (ver seção 01 no JSX).
+// no grid principal de seleção (ver SELECTABLE_PROVIDERS abaixo). Desde
+// ago/2026 o motivo mudou: o "Motor interno" assumiu a busca por TEXTO
+// (mesma cobertura, sem chave e sem custo por busca), então oferecer
+// SerpApi por texto só empurraria custo pro usuário sem ganho. A SerpApi
+// segue essencial no app, mas como motor da busca por FOTO
+// (google_lens_products), que o motor interno ainda não faz.
 const SEARCH_PROVIDERS: {
   id: SearchProviderId;
   label: string;
@@ -96,6 +98,14 @@ const SEARCH_PROVIDERS: {
   icon: typeof Store;
   needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | null;
 }[] = [
+  {
+    id: "internal_search",
+    label: "Motor interno (Arbitra)",
+    note: "Amazon + Mercado Livre · sem chave e sem custo por busca",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Store,
+    needsKey: null,
+  },
   {
     id: "serpapi",
     label: "SerpApi (Google Shopping)",
@@ -143,8 +153,23 @@ const SEARCH_PROVIDERS: {
 // (SerpApi vs SearchApi.io), mesmo comportamento de UI pros dois — ver
 // api/_lib/types.ts pro porquê de dois vendors pro mesmo tipo de busca.
 const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>(["google_lens_products", "searchapi_lens"]);
-/** Mantido pra checagens legadas isoladas (default do seletor) — ver IMAGE_MODE_PROVIDERS pro conjunto completo. */
-const IMAGE_MODE_PROVIDER: SearchProviderId = "google_lens_products";
+
+/**
+ * Providers que cobrem amazon + mercadolivre na mesma busca (o usuário
+ * escolhe o subconjunto por checkbox, em vez de ficar travado num
+ * marketplace só — ver selectProvider). Extraído pra constante porque a
+ * lista cresceu com o motor interno e estava repetida em três condições
+ * diferentes, cada uma com risco próprio de esquecer um provider novo.
+ */
+const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
+  "internal_search",
+  "serpapi",
+  "google_lens_products",
+  "searchapi_lens",
+]);
+
+/** Default da tela: motor interno — único sem chave e sem custo por busca, então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
+const DEFAULT_PROVIDER: SearchProviderId = "internal_search";
 
 /**
  * "mercadolivre_alt" (Unwrangle, ver unwrangleMercadoLivreProvider.ts)
@@ -222,10 +247,11 @@ export default function Dashboard({
 
   // Qual API usar pra essa busca — ver SEARCH_PROVIDERS acima. Escolhido
   // por busca, não fixo por conta (pedido explícito: "hoje quero amazon
-  // aí amanhã uso a de mercado livre e depois a serp"). Default =
-  // "Busca por imagem" — é o primeiro card do grid agora que "serpapi"
-  // saiu da seleção principal (ver SELECTABLE_PROVIDERS).
-  const [searchProvider, setSearchProvider] = useState<SearchProviderId>(IMAGE_MODE_PROVIDER);
+  // aí amanhã uso a de mercado livre e depois a serp"). Default = motor
+  // interno (ver DEFAULT_PROVIDER): é o único que roda sem o usuário
+  // cadastrar chave nenhuma, então é o único default honesto pra quem
+  // acabou de criar a conta.
+  const [searchProvider, setSearchProvider] = useState<SearchProviderId>(DEFAULT_PROVIDER);
 
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
@@ -385,7 +411,7 @@ export default function Dashboard({
   function selectProvider(id: SearchProviderId) {
     setSearchProvider(id);
     const config = SEARCH_PROVIDERS.find((p) => p.id === id)!;
-    const isMultiMarketplace = id === "serpapi" || IMAGE_MODE_PROVIDERS.has(id);
+    const isMultiMarketplace = MULTI_MARKETPLACE_PROVIDERS.has(id);
     if (!isMultiMarketplace) {
       setSelectedMarketplaces(config.marketplaces);
     } else if (selectedMarketplaces.length === 0) {
@@ -526,7 +552,8 @@ export default function Dashboard({
       setState("error");
       setError(
         "Não consegui extrair/subir nenhuma foto deste PDF (recorte ou upload falhou pra todo " +
-          "mundo) — troque pra SerpApi/RapidAPI, que buscam por texto, ou tente reprocessar."
+          "mundo) — troque pro Motor interno (ou RapidAPI/Mercado Livre), que buscam por texto, " +
+          "ou tente reprocessar."
       );
       return;
     }
@@ -940,13 +967,27 @@ export default function Dashboard({
                   </div>
                   <p className={styles.subGroupHint}>
                     "Busca por imagem" usa a foto do catálogo pra achar o produto, mas por baixo
-                    ainda é a sua chave/cota SerpApi que resolve o preço — clique acima pra trocar
-                    pra busca por texto (SerpApi, Amazon direto ou Mercado Livre) a qualquer momento.
+                    ainda é a sua chave/cota SerpApi (ou SearchApi.io) que resolve o preço — o motor
+                    interno ainda não faz busca por foto. Clique acima pra voltar pra busca por
+                    texto (Motor interno, Amazon direto ou Mercado Livre) a qualquer momento.
                   </p>
                 </div>
               )}
 
-              {(searchProvider === "serpapi" || IMAGE_MODE_PROVIDERS.has(searchProvider)) && (
+              {/* Motor interno: deixar explícito o que ele cobre e, principalmente,
+                  o que ele AINDA NÃO cobre. Sem esse aviso o usuário escolhe
+                  "sem custo por busca", sobe um catálogo cujo nome só existe
+                  dentro da foto, e não entende por que precisa de chave. */}
+              {searchProvider === "internal_search" && (
+                <p className={styles.subGroupHint}>
+                  Motor próprio da Arbitra: lê o preço direto do Mercado Livre e da Amazon, sem
+                  chave e sem custo por busca — funciona pra catálogo (PDF ou CSV) com nome de
+                  produto em texto. Busca por FOTO ainda depende de SerpApi/SearchApi.io, e é mais
+                  lento que as APIs pagas: aqui é uma consulta por produto em cada loja.
+                </p>
+              )}
+
+              {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider) && (
                 <div className={styles.subGroup}>
                   <span className={styles.subGroupLabel}>
                     onde comparar ({activeProvider.label} cobre os dois — escolha um ou os dois)

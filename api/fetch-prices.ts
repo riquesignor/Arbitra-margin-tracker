@@ -10,6 +10,7 @@ import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/regis
 import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider.js";
 import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
 import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
+import { searchInternalShared } from "./_lib/providers/internalSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
@@ -17,6 +18,7 @@ import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
 const VALID_PROVIDERS: SearchProviderId[] = [
+  "internal_search",
   "serpapi",
   "rapidapi_amazon",
   "mercadolivre_direct",
@@ -134,7 +136,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
   const marketplaces = body.marketplaces;
   const items = body.items;
-  const provider: SearchProviderId = isValidProvider(body.provider) ? body.provider : "serpapi";
+  // Default virou o motor interno (ago/2026): é o único sem custo por
+  // busca e sem chave, então é o comportamento certo pra quem não
+  // escolheu nada explicitamente. Antes era "serpapi", que falhava de
+  // cara sem BYOK configurado.
+  const provider: SearchProviderId = isValidProvider(body.provider) ? body.provider : "internal_search";
 
   console.log(
     `[fetch-prices] uid=${uid} provider=${provider} marketplaces=${marketplaces.join("+")} items=${items.length}`
@@ -232,11 +238,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         // vendors possíveis (SerpApi vs SearchApi.io, ver
         // IMAGE_SEARCH_PROVIDERS acima) — ver comentário no topo do arquivo.
         const fresh =
-          provider === "google_lens_products"
-            ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
-            : provider === "searchapi_lens"
-              ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
-              : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+          provider === "internal_search"
+            ? // Motor próprio: sem `apiKey` de propósito — não existe
+              // chave, é a característica que justifica ele existir (ver
+              // internalSearchProvider.ts).
+              await searchInternalShared(missItems, matchers)
+            : provider === "google_lens_products"
+              ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
+              : provider === "searchapi_lens"
+                ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
+                : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);

@@ -42,8 +42,18 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  *     redundância (cota/downtime de um não afeta o outro), ver
  *     searchApiLensProvider.ts. Mesmo grupo multi-marketplace de
  *     "google_lens_products".
+ *   - "internal_search" → MOTOR INTERNO, sem chave e sem custo por
+ *     busca: lê o preço direto da página de resultado do Mercado Livre e
+ *     da Amazon BR (ver internalSearchProvider.ts). Cobre amazon +
+ *     mercadolivre como "serpapi", mas com uma diferença de custo
+ *     importante: aqui é 1 requisição por produto POR LOJA (não existe
+ *     agregador no meio), então é mais lento — em troca de não depender
+ *     de terceiro nem de cota. É o default da busca por TEXTO desde
+ *     ago/2026; "serpapi" saiu do seletor de PDF simples e ficou só como
+ *     motor da busca por FOTO (google_lens_products).
  */
 export type SearchProviderId =
+  | "internal_search"
   | "serpapi"
   | "rapidapi_amazon"
   | "mercadolivre_direct"
