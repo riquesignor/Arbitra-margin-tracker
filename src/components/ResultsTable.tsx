@@ -139,6 +139,46 @@ export function ApproximateBadge({ matchedSource }: { matchedSource?: string }) 
   );
 }
 
+/** Coluna de custo — "—" quando o catálogo não tem preço de fornecedor (ver Recommendation "sem_custo" em types/index.ts). */
+function CostCell({ value }: { value?: number }) {
+  return (
+    <td>
+      {value != null ? (
+        `R$ ${value.toFixed(2)}`
+      ) : (
+        <span className={styles.noLink} title="Catálogo sem preço de custo pra este produto">
+          —
+        </span>
+      )}
+    </td>
+  );
+}
+
+/** Coluna de margem — sem barra/percentual quando não há custo cadastrado pra calcular margem nenhuma (ver CostCell). */
+function MarginCell({
+  marginPct,
+  targetMarginPct,
+  recommendation,
+}: {
+  marginPct?: number;
+  targetMarginPct: number;
+  recommendation: Recommendation;
+}) {
+  if (marginPct == null) {
+    return (
+      <td>
+        <span className={styles.noLink}>sem custo cadastrado</span>
+      </td>
+    );
+  }
+  return (
+    <td>
+      <MarginBar marginPct={marginPct} targetMarginPct={targetMarginPct} recommendation={recommendation} />
+      <span className={styles.marginValue}>{(marginPct * 100).toFixed(1)}%</span>
+    </td>
+  );
+}
+
 const SOURCE_LABEL: Record<"server" | "local", string> = {
   server: "servidor (cache)",
   local: "direto no navegador",
@@ -155,12 +195,14 @@ export const BADGE_CLASS: Record<Recommendation, string> = {
   recomendado: styles.badgeRecomendado,
   revisar: styles.badgeRevisar,
   evitar: styles.badgeEvitar,
+  sem_custo: styles.badgeSemCusto,
 };
 
 export const BADGE_LABEL: Record<Recommendation, string> = {
   recomendado: "Recomendado",
   revisar: "Revisar",
   evitar: "Evitar",
+  sem_custo: "Sem custo",
 };
 
 export const MARKETPLACE_LABEL: Record<MarketplaceId, string> = {
@@ -218,7 +260,14 @@ export default function ResultsTable({
     });
 
     const sorted = [...list].sort((a, b) => {
-      const diff = a[sortKey] - b[sortKey];
+      // supplierPrice/marginPct podem faltar (catálogo "sem_custo", ver
+      // types/index.ts) — trata ausência como "menor valor possível" pra
+      // ordenar de forma previsível em vez de NaN bagunçando a ordem.
+      const av = a[sortKey] ?? -Infinity;
+      const bv = b[sortKey] ?? -Infinity;
+      // -Infinity - -Infinity daria NaN (os dois sem o campo) — trata
+      // como empate em vez de deixar o comparador devolver NaN.
+      const diff = av === bv ? 0 : av - bv;
       return sortDir === "asc" ? diff : -diff;
     });
 
@@ -288,8 +337,10 @@ export default function ResultsTable({
       { label: "30–50%", min: 0.3, max: 0.5 },
       { label: "50%+", min: 0.5, max: Infinity },
     ];
+    // "sem_custo" (sem marginPct) fica de fora de todo bucket — não tem
+    // margem nenhuma pra classificar como negativa/positiva.
     const counts = buckets.map(
-      (b) => results.filter((r) => r.marginPct >= b.min && r.marginPct < b.max).length
+      (b) => results.filter((r) => r.marginPct != null && r.marginPct >= b.min && r.marginPct < b.max).length
     );
     const max = Math.max(1, ...counts);
     return buckets.map((b, i) => ({ label: b.label, count: counts[i], max }));
@@ -299,16 +350,19 @@ export default function ResultsTable({
   const totalToAvoid = results.filter((r) => r.recommendation === "evitar").length;
   // Mediana, não média — um único SKU com dado ruim (ex: extração de
   // PDF corrompida) não deve distorcer o KPI de destaque da tela.
-  const medianMarginPct = median(results.map((r) => r.marginPct));
+  // "sem_custo" fica de fora (não tem marginPct nenhum pra entrar na conta).
+  const medianMarginPct = median(
+    results.map((r) => r.marginPct).filter((v): v is number => v != null)
+  );
 
   function handleExportCsv() {
     const rows = filtered.map((r) => ({
       SKU: r.sku,
       Produto: r.name,
       Marketplace: MARKETPLACE_LABEL[r.marketplace],
-      "Custo (R$)": r.supplierPrice.toFixed(2),
+      "Custo (R$)": r.supplierPrice != null ? r.supplierPrice.toFixed(2) : "",
       "Preço (R$)": r.marketplacePrice.toFixed(2),
-      "Margem (%)": (r.marginPct * 100).toFixed(1),
+      "Margem (%)": r.marginPct != null ? (r.marginPct * 100).toFixed(1) : "",
       "Confiança (%)": (r.confidence * 100).toFixed(0),
       Recomendação: BADGE_LABEL[r.recommendation],
       Concorrentes: r.competitorCount,
@@ -442,7 +496,7 @@ export default function ResultsTable({
               onChange={(e) => setSearch(e.target.value)}
             />
           </span>
-          {(["todos", "recomendado", "revisar", "evitar"] as FilterOption[]).map((option) => (
+          {(["todos", "recomendado", "revisar", "evitar", "sem_custo"] as FilterOption[]).map((option) => (
             <button
               key={option}
               type="button"
@@ -551,16 +605,13 @@ export default function ResultsTable({
                       )}
                     </td>
                     <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
-                    <td>R$ {r.supplierPrice.toFixed(2)}</td>
+                    <CostCell value={r.supplierPrice} />
                     <td>R$ {r.marketplacePrice.toFixed(2)}</td>
-                    <td>
-                      <MarginBar
-                        marginPct={r.marginPct}
-                        targetMarginPct={targetMarginPct}
-                        recommendation={r.recommendation}
-                      />
-                      <span className={styles.marginValue}>{(r.marginPct * 100).toFixed(1)}%</span>
-                    </td>
+                    <MarginCell
+                      marginPct={r.marginPct}
+                      targetMarginPct={targetMarginPct}
+                      recommendation={r.recommendation}
+                    />
                     <td>{(r.confidence * 100).toFixed(0)}%</td>
                     <td>
                       <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
@@ -593,7 +644,9 @@ export default function ResultsTable({
               </thead>
               <tbody>
                 {groupedRows.map((group) => {
-                  const best = [...group].sort((a, b) => b.marginPct - a.marginPct)[0];
+                  const best = [...group].sort(
+                    (a, b) => (b.marginPct ?? -Infinity) - (a.marginPct ?? -Infinity)
+                  )[0];
                   const byMarket = new Map(group.map((r) => [r.marketplace, r]));
                   const priceA =
                     marketplacesPresent.length === 2 ? byMarket.get(marketplacesPresent[0])?.marketplacePrice : undefined;
@@ -624,7 +677,9 @@ export default function ResultsTable({
                               <>
                                 R$ {offer.marketplacePrice.toFixed(2)}
                                 <span className={styles.marginValue}>
-                                  {(offer.marginPct * 100).toFixed(1)}% margem
+                                  {offer.marginPct != null
+                                    ? `${(offer.marginPct * 100).toFixed(1)}% margem`
+                                    : "sem custo"}
                                 </span>
                               </>
                             ) : (
@@ -677,7 +732,9 @@ export default function ResultsTable({
               </thead>
               <tbody>
                 {groupedRows.map((group) => {
-                  const sorted = [...group].sort((a, b) => b.marginPct - a.marginPct);
+                  const sorted = [...group].sort(
+                    (a, b) => (b.marginPct ?? -Infinity) - (a.marginPct ?? -Infinity)
+                  );
                   const best = sorted[0];
                   const rest = sorted.slice(1);
                   const isExpanded = expandedSkus.has(best.sku);
@@ -707,16 +764,13 @@ export default function ResultsTable({
                           )}
                         </td>
                         <td className={styles.marketCell}>{MARKETPLACE_LABEL[best.marketplace]}</td>
-                        <td>R$ {best.supplierPrice.toFixed(2)}</td>
+                        <CostCell value={best.supplierPrice} />
                         <td>R$ {best.marketplacePrice.toFixed(2)}</td>
-                        <td>
-                          <MarginBar
-                            marginPct={best.marginPct}
-                            targetMarginPct={targetMarginPct}
-                            recommendation={best.recommendation}
-                          />
-                          <span className={styles.marginValue}>{(best.marginPct * 100).toFixed(1)}%</span>
-                        </td>
+                        <MarginCell
+                          marginPct={best.marginPct}
+                          targetMarginPct={targetMarginPct}
+                          recommendation={best.recommendation}
+                        />
                         <td>
                           <span className={`${styles.badge} ${BADGE_CLASS[best.recommendation]}`}>
                             {BADGE_LABEL[best.recommendation]}
@@ -736,10 +790,12 @@ export default function ResultsTable({
                               <span className={styles.subRowHint}>outra oferta</span>
                             </td>
                             <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
-                            <td>R$ {r.supplierPrice.toFixed(2)}</td>
+                            <CostCell value={r.supplierPrice} />
                             <td>R$ {r.marketplacePrice.toFixed(2)}</td>
                             <td>
-                              <span className={styles.marginValue}>{(r.marginPct * 100).toFixed(1)}%</span>
+                              <span className={styles.marginValue}>
+                                {r.marginPct != null ? `${(r.marginPct * 100).toFixed(1)}%` : "sem custo"}
+                              </span>
                             </td>
                             <td>
                               <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>

@@ -45,32 +45,12 @@ export function calculateMargin(
   priceResult: MarketplacePriceResult,
   rules: PricingRules
 ): MarginResult {
-  const feesCost = rules.marketplaceFees
-    .filter((f) => f.enabled)
-    .reduce((sum, fee) => sum + priceResult.price * fee.rate, 0);
-
-  const shippingCost = resolveShippingCost(row.supplierPrice, rules.shippingTiers);
-
-  const taxesCost = rules.taxRates
-    .filter((t) => t.enabled)
-    .reduce((sum, tax) => sum + priceResult.price * tax.rate, 0);
-
-  const totalCost = row.supplierPrice + feesCost + shippingCost + taxesCost;
-  const marginPct = row.supplierPrice > 0 ? (priceResult.price - totalCost) / row.supplierPrice : 0;
-
-  return {
+  const base = {
     sku: row.sku,
     name: row.name,
-    supplierPrice: row.supplierPrice,
     marketplacePrice: priceResult.price,
     marketplace: priceResult.marketplace,
-    feesCost: Number(feesCost.toFixed(2)),
-    shippingCost,
-    taxesCost: Number(taxesCost.toFixed(2)),
-    totalCost: Number(totalCost.toFixed(2)),
-    marginPct: Number(marginPct.toFixed(4)),
     confidence: priceResult.confidence,
-    recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
     link: priceResult.link,
     matchedTitle: priceResult.matchedTitle,
     competitorCount: priceResult.competitorCount,
@@ -85,6 +65,39 @@ export function calculateMargin(
     // de referência é um chute (ver tag "Aproximado" em ResultsTable.tsx).
     approximate: priceResult.approximate,
     matchedSource: priceResult.matchedSource,
+  };
+
+  // Catálogo sem preço de custo (ver CatalogRow.supplierPrice, catálogo
+  // "vitrine") — mostra o preço de mercado encontrado, mas não tem em
+  // cima de que calcular margem/taxa/frete/imposto. "sem_custo" fica de
+  // fora dos totais de recomendado/evitar (ver ResultsTable.tsx), não é
+  // um "evitar" disfarçado — é literalmente "sem dado pra julgar".
+  if (row.supplierPrice == null) {
+    return { ...base, recommendation: "sem_custo" };
+  }
+
+  const feesCost = rules.marketplaceFees
+    .filter((f) => f.enabled)
+    .reduce((sum, fee) => sum + priceResult.price * fee.rate, 0);
+
+  const shippingCost = resolveShippingCost(row.supplierPrice, rules.shippingTiers);
+
+  const taxesCost = rules.taxRates
+    .filter((t) => t.enabled)
+    .reduce((sum, tax) => sum + priceResult.price * tax.rate, 0);
+
+  const totalCost = row.supplierPrice + feesCost + shippingCost + taxesCost;
+  const marginPct = row.supplierPrice > 0 ? (priceResult.price - totalCost) / row.supplierPrice : 0;
+
+  return {
+    ...base,
+    supplierPrice: row.supplierPrice,
+    feesCost: Number(feesCost.toFixed(2)),
+    shippingCost,
+    taxesCost: Number(taxesCost.toFixed(2)),
+    totalCost: Number(totalCost.toFixed(2)),
+    marginPct: Number(marginPct.toFixed(4)),
+    recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
   };
 }
 
@@ -109,9 +122,13 @@ export function median(values: number[]): number {
 export function summarize(results: MarginResult[]): MarginSummary {
   const totalSkus = results.length;
   const totalProfitable = results.filter((r) => r.recommendation === "recomendado").length;
+  // "sem_custo" (catálogo sem preço de fornecedor) não entra na média/
+  // mediana de margem — não tem margem nenhuma pra pesar aqui, incluir
+  // como 0 distorceria o número pra baixo sem motivo real.
+  const withMargin = results.filter((r): r is MarginResult & { marginPct: number } => r.marginPct != null);
   const avgMarginPct =
-    totalSkus > 0 ? results.reduce((sum, r) => sum + r.marginPct, 0) / totalSkus : 0;
-  const medianMarginPct = median(results.map((r) => r.marginPct));
+    withMargin.length > 0 ? withMargin.reduce((sum, r) => sum + r.marginPct, 0) / withMargin.length : 0;
+  const medianMarginPct = median(withMargin.map((r) => r.marginPct));
 
   return {
     totalSkus,

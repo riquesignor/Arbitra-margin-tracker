@@ -76,6 +76,10 @@ export function buildSupplierComparison(history: CatalogUploadRecord[]): Supplie
   for (const upload of latestUploads) {
     const rows: CatalogRow[] = upload.rows;
     for (const row of rows) {
+      // Comparar CUSTO entre fornecedores não faz sentido pra produto sem
+      // preço de fornecedor nenhum (catálogo "vitrine", ver
+      // CatalogRow.supplierPrice) — não tem o que comparar.
+      if (row.supplierPrice == null) continue;
       const offer: SupplierOffer = {
         fileName: upload.fileName,
         sku: row.sku,

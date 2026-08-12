@@ -76,7 +76,16 @@ export type PlanId = "free" | "starter" | "pro";
 export interface CatalogRow {
   sku: string;
   name: string;
-  supplierPrice: number;
+  /**
+   * Preço de custo (fornecedor) — ausente em catálogos "vitrine" que só
+   * mostram SKU/nome/foto sem preço nenhum (ver extractProductBlocksWithoutPrice
+   * em parsePdfCatalog.ts). Nesse caso o app ainda busca preço de
+   * mercado normalmente, só não calcula margem (ver marginCalculator.ts
+   * e o valor "sem_custo" de Recommendation) — decisão explícita do
+   * usuário (ago/2026): melhor mostrar o preço de mercado sem margem do
+   * que descartar o produto inteiro.
+   */
+  supplierPrice?: number;
   /**
    * URL pública da foto do produto (ver catalogImages.ts) — só existe
    * quando a busca rodou em modo imagem (Google Lens). Persiste junto
@@ -161,19 +170,28 @@ export interface PricingRules {
   priceFloor: number;
 }
 
-export type Recommendation = "recomendado" | "revisar" | "evitar";
+/**
+ * "sem_custo" — catálogo sem preço de fornecedor (ver CatalogRow.supplierPrice);
+ * o produto tem preço de MERCADO encontrado, mas nenhuma margem calculável.
+ * Fica de fora dos badges normais (não é "recomendado" nem "evitar" — não
+ * há custo pra julgar) e fora dos totais de recomendado/evitar na tela de
+ * Resultados, mas segue visível e exportável (só sem coluna de margem).
+ */
+export type Recommendation = "recomendado" | "revisar" | "evitar" | "sem_custo";
 
 export interface MarginResult {
   sku: string;
   name: string;
-  supplierPrice: number;
+  /** Ver CatalogRow.supplierPrice — ausente quando `recommendation === "sem_custo"`, e só nesse caso. */
+  supplierPrice?: number;
   marketplacePrice: number;
   marketplace: MarketplaceId;
-  feesCost: number;
-  shippingCost: number;
-  taxesCost: number;
-  totalCost: number;
-  marginPct: number;
+  /** Indefinido junto com supplierPrice (ver acima) — sem custo não há como ratear taxa/frete/imposto em cima de margem nenhuma. */
+  feesCost?: number;
+  shippingCost?: number;
+  taxesCost?: number;
+  totalCost?: number;
+  marginPct?: number;
   confidence: number;
   recommendation: Recommendation;
   link?: string;

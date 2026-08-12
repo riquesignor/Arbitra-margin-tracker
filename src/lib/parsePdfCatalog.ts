@@ -457,6 +457,97 @@ export function extractRows(lines: string[]): ExtractResult {
   return { rows: rows.map(({ lineIndex: _lineIndex, ...row }) => row), skippedAmbiguous };
 }
 
+// ── Catálogo "vitrine" sem preço (bloco multi-linha, sem "MODELO:") ──
+//
+// Alguns catálogos (mostruário de fornecedor, ex.: catalogo_bonito.pdf)
+// não têm preço NENHUM por produto (fica só no orçamento à parte,
+// combinado fora do PDF) e não usam o rótulo "MODELO:" da grade
+// normal (ver extractGridBlocks) — cada produto é um bloco de VÁRIAS
+// linhas: um código de SKU sozinho numa linha própria (ex.: "TOP2905"),
+// seguido do nome, especificações (CX MASTER, NCM), cores, e às vezes
+// um código de referência numérico solto — sem "R$", sem decimal, então
+// nunca bate no PRICE_PATTERN. Nem `extractRowsIndexed` (exige preço na
+// MESMA linha) nem `extractGridBlocks` (exige "MODELO:") reconhecem
+// esse layout — os dois devolvem zero produto.
+//
+// Só roda como ÚLTIMO recurso (ver uso em parsePdfCatalogFile): a
+// página já tentou grade E linha-única e não achou nada. Zero risco de
+// regressão pra catálogo que já funciona — só entra em ação quando os
+// dois caminhos testados e estáveis já desistiram.
+//
+// ⚠️ Limitação conhecida: produtos lado a lado na MESMA linha Y (grade
+// de 2 colunas sem cabeçalho "MODELO:") viram uma linha só com os dois
+// códigos de SKU juntos (ex.: "TOP2977          TOP2978") — o marcador
+// abaixo exige a linha INTEIRA ser um código só, então essas linhas não
+// batem e os dois produtos ficam de fora. Produto empilhado numa coluna
+// só (a maioria, no catálogo real que motivou isso) é reconhecido
+// normalmente. Resolver o caso lado a lado exigiria detecção de coluna
+// por X como a grade — não implementado aqui de propósito (escopo
+// deliberadamente contido: melhor recuperar parte do catálogo agora do
+// que não recuperar nada esperando um parser perfeito).
+
+/** Linha que é SÓ um código de SKU (ex.: "TOP2905"), sem mais nada — marca o INÍCIO de um novo produto neste layout. Mais restrito que SKU_PATTERN (que casa um SKU embutido em qualquer lugar da linha): aqui a linha inteira precisa ser o código, senão qualquer medida/quantidade no meio de uma frase viraria marcador por engano. */
+const STANDALONE_SKU_LINE_PATTERN = /^[A-Z]{2,6}-?\d{3,6}$/;
+
+/** Linhas de metadado deste tipo de catálogo — nunca fazem parte do NOME do produto, mesmo dentro do bloco. */
+const BOILERPLATE_LINE_PATTERN = /^(CX\s*MASTER|NCM|CORES?)\s*:?/i;
+
+/** Linha que é só dígitos (código de referência/barra solto, sem "R$" nem decimal) — não é preço utilizável (ver PRICE_PATTERN) nem parte do nome. */
+const STANDALONE_DIGITS_LINE_PATTERN = /^\d+$/;
+
+/**
+ * Extrai produtos de um layout em BLOCO MULTI-LINHA sem preço (ver
+ * comentário acima). Devolve `[]` se não achar nenhum marcador de SKU
+ * standalone — chamador cai no comportamento de sempre (página sem
+ * produto reconhecido).
+ *
+ * Se o bloco tiver, por acaso, um preço reconhecível (raro nesse tipo de
+ * catálogo, mas acontece), ele é aproveitado — melhor usar um dado que
+ * existe do que descartar. Mais de um preço no mesmo bloco é ambíguo
+ * demais pra decidir sozinho: o produto ainda é aceito, só sem preço.
+ *
+ * Exportado pra teste unitário direto — ver parsePdfCatalog.test.ts.
+ */
+export function extractProductBlocksWithoutPrice(lines: string[]): CatalogRow[] {
+  const markers: { sku: string; index: number }[] = [];
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (STANDALONE_SKU_LINE_PATTERN.test(trimmed)) markers.push({ sku: trimmed, index });
+  });
+  if (markers.length === 0) return [];
+
+  const rows: CatalogRow[] = [];
+  for (let i = 0; i < markers.length; i++) {
+    const { sku, index } = markers[i];
+    const end = i + 1 < markers.length ? markers[i + 1].index : lines.length;
+    const bodyLines = lines.slice(index + 1, end);
+    const bodyText = bodyLines.join(" ");
+
+    const priceMatches = bodyText.match(PRICE_PATTERN_GLOBAL);
+    let supplierPrice: number | undefined;
+    if (priceMatches && priceMatches.length === 1) {
+      const priceMatch = bodyText.match(PRICE_PATTERN);
+      const price = priceMatch ? parseCurrency(extractPriceGroup(priceMatch)) : 0;
+      if (price > 0) supplierPrice = price;
+    }
+
+    const nameLines = bodyLines.filter((l) => {
+      const t = l.trim();
+      return t && !BOILERPLATE_LINE_PATTERN.test(t) && !STANDALONE_DIGITS_LINE_PATTERN.test(t);
+    });
+    let name = sanitizeProductName(nameLines.join(" ").trim());
+    // Ver mesmo fallback em extractGridBlocks: sem nome de texto (comum
+    // quando a descrição só existe gravada na foto), usa o SKU — melhor
+    // que descartar o produto inteiro.
+    if (!name) name = sku;
+    if (name.length > MAX_PLAUSIBLE_NAME_LENGTH) name = name.slice(0, MAX_PLAUSIBLE_NAME_LENGTH).trim();
+
+    rows.push(supplierPrice != null ? { sku, name, supplierPrice } : { sku, name });
+  }
+
+  return rows;
+}
+
 // ── Catálogo em GRADE (cartões) ──────────────────────────────────────
 //
 // Alguns catálogos (ex: fornecedores que exportam de um site pra PDF)
@@ -1130,25 +1221,36 @@ export async function parsePdfCatalogFile(
         seenSyntheticSkus
       );
       skippedAmbiguous += pageSkipped;
-      rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
 
-      if (withImages && pageRows.length > 0) {
-        const { canvas: c, viewport: v } = await ensureCanvas();
+      if (pageRows.length > 0) {
+        rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
 
-        await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
-          try {
-            const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
-            const nextY = row.lineIndex < pageLines.length - 1 ? pageLines[row.lineIndex + 1].y : null;
-            const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
-            const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
-            imagesBySku[row.sku] = url;
-          } catch (err) {
-            // Falha em UM item (upload, recorte) não derruba o catálogo
-            // inteiro — esse produto só fica sem imagem, busca por texto
-            // continua disponível pra ele.
-            console.warn(`Falha ao extrair/subir imagem do produto "${row.sku}":`, err);
-          }
-        });
+        if (withImages) {
+          const { canvas: c, viewport: v } = await ensureCanvas();
+
+          await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
+            try {
+              const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
+              const nextY = row.lineIndex < pageLines.length - 1 ? pageLines[row.lineIndex + 1].y : null;
+              const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
+              const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
+              imagesBySku[row.sku] = url;
+            } catch (err) {
+              // Falha em UM item (upload, recorte) não derruba o catálogo
+              // inteiro — esse produto só fica sem imagem, busca por texto
+              // continua disponível pra ele.
+              console.warn(`Falha ao extrair/subir imagem do produto "${row.sku}":`, err);
+            }
+          });
+        }
+      } else {
+        // Nem grade nem linha-única acharam produto nesta página — último
+        // recurso: layout "vitrine" sem preço (ver
+        // extractProductBlocksWithoutPrice acima). Sem suporte a foto
+        // nesta v1 (escopo contido) — busca por texto/nome continua
+        // disponível normalmente pra esses produtos.
+        const noPriceRows = extractProductBlocksWithoutPrice(pageLines.map((l) => l.text));
+        rows.push(...noPriceRows);
       }
     }
 

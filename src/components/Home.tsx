@@ -115,8 +115,11 @@ export default function Home({
 
   const thisMonthMargins = history
     .filter((h) => isThisMonth(h.uploadedAt))
-    .flatMap((h) => h.results.map((r) => r.marginPct));
-  const allMargins = history.flatMap((h) => h.results.map((r) => r.marginPct));
+    .flatMap((h) => h.results.map((r) => r.marginPct))
+    .filter((v): v is number => v != null);
+  const allMargins = history
+    .flatMap((h) => h.results.map((r) => r.marginPct))
+    .filter((v): v is number => v != null);
   const medianMargin = median(thisMonthMargins.length > 0 ? thisMonthMargins : allMargins);
 
   const recent = history.slice(0, 5);
@@ -209,7 +212,10 @@ export default function Home({
           ) : (
             <div className={styles.recentTable}>
               {recent.map((r) => {
-                const recordMargin = median(r.results.map((m) => m.marginPct));
+                const recordMargins = r.results
+                  .map((m) => m.marginPct)
+                  .filter((v): v is number => v != null);
+                const recordMargin = median(recordMargins);
                 return (
                   <button
                     key={r.id}
@@ -223,7 +229,7 @@ export default function Home({
                     <span className={styles.recentMeta}>{r.marketplaces.join(", ")}</span>
                     <span className={styles.recentMeta}>{r.results.length}/{r.rows.length} com preço</span>
                     <span className={styles.recentMargin}>
-                      {r.results.length > 0 ? `${(recordMargin * 100).toFixed(1)}%` : "—"}
+                      {recordMargins.length > 0 ? `${(recordMargin * 100).toFixed(1)}%` : "—"}
                     </span>
                   </button>
                 );

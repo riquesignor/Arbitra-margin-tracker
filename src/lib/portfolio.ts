@@ -26,9 +26,10 @@ export interface PortfolioItem {
   name: string;
   marketplace: MarketplaceId;
   imageUrl?: string;
-  supplierPrice: number;
+  /** Ausente quando o catálogo de origem não tinha preço de custo (ver CatalogRow.supplierPrice) — recommendation vem "sem_custo" nesse caso. */
+  supplierPrice?: number;
   marketplacePrice: number;
-  marginPct: number;
+  marginPct?: number;
   recommendation: Recommendation;
   competitorCount: number;
   buyBoxEligible: boolean;
@@ -59,7 +60,12 @@ export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] 
     const bestPerSkuThisUpload = new Map<string, MarginResult>();
     for (const r of upload.results) {
       const current = bestPerSkuThisUpload.get(r.sku);
-      if (!current || r.marginPct > current.marginPct) bestPerSkuThisUpload.set(r.sku, r);
+      // "sem_custo" (marginPct ausente) trata como pior possível aqui —
+      // se o mesmo SKU tiver uma oferta COM margem calculável, prefere
+      // essa; só fica com "sem_custo" se for a única opção pra este SKU.
+      if (!current || (r.marginPct ?? -Infinity) > (current.marginPct ?? -Infinity)) {
+        bestPerSkuThisUpload.set(r.sku, r);
+      }
     }
 
     for (const [sku, result] of bestPerSkuThisUpload) {

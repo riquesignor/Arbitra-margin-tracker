@@ -586,6 +586,12 @@
   color: var(--color-danger);
 }
 
+/* Catálogo sem preço de custo — não é bom nem ruim, é "sem dado pra julgar" (ver Recommendation em types/index.ts). Tom neutro (accent), não success/warning/danger. */
+.badgeSemCusto {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
 /* --- Concorrência / Buy Box (ao lado do badge de recomendação) --- */
 
 .buyBoxYes,

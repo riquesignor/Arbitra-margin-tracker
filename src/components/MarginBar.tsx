@@ -20,6 +20,10 @@ const FILL_CLASS: Record<Recommendation, string> = {
   recomendado: styles.fillRecomendado,
   revisar: styles.fillRevisar,
   evitar: styles.fillEvitar,
+  // Nunca renderizado na prática — ResultsTable pula a barra inteira pra
+  // linha "sem_custo" (não há margem pra desenhar). Só existe aqui pra
+  // satisfazer Record<Recommendation, string>, que agora tem 4 chaves.
+  sem_custo: styles.fillRevisar,
 };
 
 /** Barra de spread: eixo zero (linha sólida), eixo target (linha tracejada), fill colorido. */

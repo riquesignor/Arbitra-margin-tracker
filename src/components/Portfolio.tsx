@@ -208,7 +208,7 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                         <td>
                           <TrendTag item={item} />
                         </td>
-                        <td>{(item.marginPct * 100).toFixed(1)}%</td>
+                        <td>{item.marginPct != null ? `${(item.marginPct * 100).toFixed(1)}%` : "—"}</td>
                         <td>
                           <span className={`${styles.badge} ${BADGE_CLASS[item.recommendation]}`}>
                             {BADGE_LABEL[item.recommendation]}

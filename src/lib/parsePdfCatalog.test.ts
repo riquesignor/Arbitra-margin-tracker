@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractGridBlocks, extractRows, sanitizeProductName } from "./parsePdfCatalog";
+import {
+  extractGridBlocks,
+  extractProductBlocksWithoutPrice,
+  extractRows,
+  sanitizeProductName,
+} from "./parsePdfCatalog";
 
 describe("sanitizeProductName", () => {
   it("não mexe em nome limpo (garantia de não-regressão pra catálogo que já funcionava)", () => {
@@ -276,5 +281,80 @@ describe("extractGridBlocks", () => {
     expect(result!.priceless).toHaveLength(1);
     expect(result!.priceless[0]).toMatchObject({ sku: "B2", name: "Produto Sem Preco" });
     expect(result!.skippedAmbiguous).toBe(1);
+  });
+});
+
+describe("extractProductBlocksWithoutPrice", () => {
+  it("reconhece blocos empilhados (SKU sozinho na linha, nome + metadado depois) sem preço nenhum", () => {
+    const lines = [
+      "TOP2905",
+      "Kit Organizadores De Cozinha",
+      "CX MASTER: 20",
+      "NCM:39241000",
+      "CORES:",
+      "182734",
+      "TOP2906",
+      "Outro Produto Qualquer",
+      "CX MASTER: 10",
+      "NCM:39241000",
+      "CORES:",
+      "182735",
+    ];
+
+    const rows = extractProductBlocksWithoutPrice(lines);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ sku: "TOP2905", name: "Kit Organizadores De Cozinha" });
+    expect(rows[1]).toEqual({ sku: "TOP2906", name: "Outro Produto Qualquer" });
+    // Sem "R$", sem decimal em lugar nenhum do bloco — nenhuma das duas
+    // linhas ganha supplierPrice.
+    expect(rows[0].supplierPrice).toBeUndefined();
+    expect(rows[1].supplierPrice).toBeUndefined();
+  });
+
+  it("aproveita um preço reconhecível no bloco quando ele existe (raro, mas não descarta o dado)", () => {
+    const rows = extractProductBlocksWithoutPrice(["TOP2905", "Produto Com Preco Solto", "R$ 15,00"]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ sku: "TOP2905", name: "Produto Com Preco Solto", supplierPrice: 15 });
+  });
+
+  it("não atribui preço quando o bloco tem mais de um preço (ambíguo demais)", () => {
+    const rows = extractProductBlocksWithoutPrice([
+      "TOP2905",
+      "Produto Ambiguo",
+      "R$ 15,00 ou R$ 20,00",
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].supplierPrice).toBeUndefined();
+  });
+
+  it("cai pro próprio SKU como nome quando não sobra nenhuma linha de nome útil", () => {
+    const rows = extractProductBlocksWithoutPrice(["TOP2905", "CX MASTER: 20", "NCM:39241000", "182734"]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ sku: "TOP2905", name: "TOP2905" });
+  });
+
+  it("LIMITAÇÃO CONHECIDA: produtos lado a lado (2 SKUs mesclados na mesma linha) não são reconhecidos", () => {
+    // Grade de 2 colunas sem cabeçalho "MODELO:" — o agrupamento por Y do
+    // PDF cola os dois códigos numa linha só, e a linha inteira não bate
+    // em STANDALONE_SKU_LINE_PATTERN (que exige a linha ser exatamente 1
+    // código) — os dois produtos ficam de fora, documentado no comentário
+    // da função.
+    const rows = extractProductBlocksWithoutPrice([
+      "TOP2977          TOP2978",
+      "Nome Produto A",
+      "Nome Produto B",
+      "CX MASTER: 20",
+    ]);
+
+    expect(rows).toEqual([]);
+  });
+
+  it("é no-op (retorna []) quando não há nenhum marcador de SKU standalone — não interfere em catálogo que já funciona", () => {
+    expect(extractProductBlocksWithoutPrice(["MODELO: BM-F1324", "Produto Normal", "Unid.CX: 12,00"])).toEqual([]);
+    expect(extractProductBlocksWithoutPrice([])).toEqual([]);
   });
 });

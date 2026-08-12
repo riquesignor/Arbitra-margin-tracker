@@ -93,6 +93,47 @@ describe("calculateMargin", () => {
   });
 });
 
+describe("calculateMargin — catálogo sem preço de custo (sem_custo)", () => {
+  it("devolve recommendation 'sem_custo' e nenhum campo de custo/margem quando supplierPrice é undefined", () => {
+    const row = makeRow({ supplierPrice: undefined });
+    const price = makePrice({ price: 199.9, matchedTitle: "Achado no Mercado Livre" });
+
+    const result = calculateMargin(row, price, DEFAULT_PRICING_RULES);
+
+    expect(result.recommendation).toBe("sem_custo");
+    expect(result.supplierPrice).toBeUndefined();
+    expect(result.feesCost).toBeUndefined();
+    expect(result.shippingCost).toBeUndefined();
+    expect(result.taxesCost).toBeUndefined();
+    expect(result.totalCost).toBeUndefined();
+    expect(result.marginPct).toBeUndefined();
+    // Preço de mercado e o resto dos dados encontrados continuam presentes
+    // — só falta o que depende de custo, não o produto inteiro.
+    expect(result.marketplacePrice).toBe(199.9);
+    expect(result.matchedTitle).toBe("Achado no Mercado Livre");
+    expect(result.sku).toBe("SKU-1");
+  });
+});
+
+describe("summarize — exclui sem_custo da média/mediana", () => {
+  it("não deixa uma linha sem_custo puxar a média/mediana de margem pra baixo", () => {
+    const results = [
+      calculateMargin(makeRow({ sku: "A", supplierPrice: 100 }), makePrice({ sku: "A", price: 150 }), DEFAULT_PRICING_RULES),
+      calculateMargin(makeRow({ sku: "B", supplierPrice: 100 }), makePrice({ sku: "B", price: 150 }), DEFAULT_PRICING_RULES),
+      calculateMargin(makeRow({ sku: "C", supplierPrice: undefined }), makePrice({ sku: "C", price: 150 }), DEFAULT_PRICING_RULES),
+    ];
+
+    const summary = summarize(results);
+
+    expect(results[2].recommendation).toBe("sem_custo");
+    expect(summary.totalSkus).toBe(3); // conta as 3 linhas...
+    // ...mas a média/mediana só considera as 2 com margem calculável, não
+    // as 3 (senão a linha sem custo distorceria o número pra baixo).
+    expect(summary.avgMarginPct).toBe(results[0].marginPct);
+    expect(summary.medianMarginPct).toBe(results[0].marginPct);
+  });
+});
+
 describe("calculateMargins", () => {
   it("pula linhas sem preço encontrado no Record de preços", () => {
     const rows = [makeRow({ sku: "A" }), makeRow({ sku: "B" })];

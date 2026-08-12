@@ -128,7 +128,11 @@ export default function PricingConfig({
   // não tiver nenhum ainda, usa o exemplo ilustrativo — o preview nunca
   // fica vazio, e fica claro quando é exemplo vs dado real.
   const { previewRow, previewPrice, isRealData } = useMemo(() => {
-    const row = catalogRows?.[0];
+    // Preview do simulador é sempre sobre CUSTO — pula produto
+    // "sem_custo" (catálogo vitrine, ver CatalogRow.supplierPrice) mesmo
+    // que seja o primeiro da lista; sem custo não há frete/margem pra
+    // simular.
+    const row = catalogRows?.find((r) => r.supplierPrice != null);
     if (row && pricesByMarket) {
       for (const priceMap of Object.values(pricesByMarket)) {
         const price = priceMap?.[row.sku];
@@ -151,13 +155,19 @@ export default function PricingConfig({
 
   const preview = calculateMargin(previewRow, previewPrice, rules);
   const marketplacePrice = preview.marketplacePrice || 1; // evita divisão por zero no rollup
-  const profit = preview.marketplacePrice - preview.totalCost;
+  // `?? 0` abaixo é defensivo, não esperado na prática: previewRow SEMPRE
+  // tem supplierPrice (garantido na seleção acima), então calculateMargin
+  // nunca cai no ramo "sem_custo" aqui — os campos vêm preenchidos. O
+  // tipo de MarginResult é opcional porque a função também serve pra
+  // catálogo sem custo (ver marginCalculator.ts), não porque ESTE
+  // preview possa ficar sem eles.
+  const profit = preview.marketplacePrice - (preview.totalCost ?? 0);
 
   const costSegments = [
-    { label: "Produto", value: preview.supplierPrice, className: styles.segProduct },
-    { label: "Taxas", value: preview.feesCost, className: styles.segFees },
-    { label: "Frete", value: preview.shippingCost, className: styles.segShipping },
-    { label: "Impostos", value: preview.taxesCost, className: styles.segTaxes },
+    { label: "Produto", value: preview.supplierPrice ?? 0, className: styles.segProduct },
+    { label: "Taxas", value: preview.feesCost ?? 0, className: styles.segFees },
+    { label: "Frete", value: preview.shippingCost ?? 0, className: styles.segShipping },
+    { label: "Impostos", value: preview.taxesCost ?? 0, className: styles.segTaxes },
     { label: "Lucro", value: Math.max(0, profit), className: styles.segProfit },
   ];
 
@@ -165,7 +175,8 @@ export default function PricingConfig({
   // claro qual das três linhas afeta o número mostrado ao lado.
   const appliedTierId = useMemo(() => {
     const sorted = [...rules.shippingTiers].sort((a, b) => a.maxPrice - b.maxPrice);
-    return (sorted.find((t) => previewRow.supplierPrice <= t.maxPrice) ?? sorted[sorted.length - 1])?.id;
+    const previewSupplierPrice = previewRow.supplierPrice ?? 0;
+    return (sorted.find((t) => previewSupplierPrice <= t.maxPrice) ?? sorted[sorted.length - 1])?.id;
   }, [rules.shippingTiers, previewRow.supplierPrice]);
 
   const stats = useMemo(() => {
@@ -179,13 +190,25 @@ export default function PricingConfig({
       ];
     }
 
-    const medianMargin = median(results.map((r) => r.marginPct));
+    // Métricas de custo/margem só fazem sentido pra quem TEM custo (ver
+    // "sem_custo" em types/index.ts) — produto sem preço de fornecedor
+    // entra no total de itens processados (pro "N / total" abaixo), mas
+    // fica fora da média/mediana de margem e lucro, senão distorceria
+    // pra baixo com um "custo zero" que não é real.
+    const withCost = results.filter((r): r is typeof r & { marginPct: number } => r.marginPct != null);
+    const medianMargin = median(withCost.map((r) => r.marginPct));
     const recomendados = results.filter((r) => r.recommendation === "recomendado").length;
     const avgProfit =
-      results.reduce((sum, r) => sum + (r.marketplacePrice - r.totalCost), 0) / total;
-    const avgTicket = results.reduce((sum, r) => sum + r.marketplacePrice, 0) / total;
-    const totalPrice = results.reduce((sum, r) => sum + r.marketplacePrice, 0);
-    const totalLoad = results.reduce((sum, r) => sum + r.feesCost + r.shippingCost + r.taxesCost, 0);
+      withCost.length > 0
+        ? withCost.reduce((sum, r) => sum + (r.marketplacePrice - (r.totalCost ?? 0)), 0) / withCost.length
+        : 0;
+    const avgTicket =
+      withCost.length > 0 ? withCost.reduce((sum, r) => sum + r.marketplacePrice, 0) / withCost.length : 0;
+    const totalPrice = withCost.reduce((sum, r) => sum + r.marketplacePrice, 0);
+    const totalLoad = withCost.reduce(
+      (sum, r) => sum + (r.feesCost ?? 0) + (r.shippingCost ?? 0) + (r.taxesCost ?? 0),
+      0
+    );
 
     return [
       {
@@ -225,7 +248,9 @@ export default function PricingConfig({
 
     const buckets = HISTOGRAM_BUCKETS.map((b, i) => {
       const min = i === 0 ? -Infinity : HISTOGRAM_BUCKETS[i - 1].max;
-      const count = results.filter((r) => r.marginPct >= min && r.marginPct < b.max).length;
+      const count = results.filter(
+        (r) => r.marginPct != null && r.marginPct >= min && r.marginPct < b.max
+      ).length;
       return { label: b.label, count, isNegative: i === 0 };
     });
     const maxBucket = Math.max(1, ...buckets.map((b) => b.count));
@@ -241,7 +266,9 @@ export default function PricingConfig({
     const points = Array.from({ length: CURVE_STEPS }, (_, i) => {
       const factor = CURVE_FROM + ((CURVE_TO - CURVE_FROM) * i) / (CURVE_STEPS - 1);
       const price = basePrice * (1 + factor);
-      const margin = calculateMargin(previewRow, { ...previewPrice, price }, rules).marginPct;
+      // `?? 0` defensivo (ver comentário em `profit` acima) — previewRow
+      // sempre tem custo aqui, então na prática esse ramo nunca dispara.
+      const margin = calculateMargin(previewRow, { ...previewPrice, price }, rules).marginPct ?? 0;
       return { factor, price, margin };
     });
 
@@ -494,7 +521,8 @@ export default function PricingConfig({
             <div className={styles.previewBody}>
               <span className={styles.previewName}>{previewRow.name}</span>
               <span className={styles.previewMeta}>
-                Custo {brl(preview.supplierPrice)} · Venda {brl(preview.marketplacePrice)}
+                {/* `?? 0` defensivo (ver comentário em `profit` acima) — previewRow sempre tem custo aqui. */}
+                Custo {brl(preview.supplierPrice ?? 0)} · Venda {brl(preview.marketplacePrice)}
               </span>
               <div className={styles.costBar}>
                 {costSegments.map((seg) => (
@@ -520,9 +548,11 @@ export default function PricingConfig({
             </div>
             <div className={styles.previewResult}>
               <span
-                className={preview.marginPct >= 0 ? styles.previewMarginUp : styles.previewMarginDown}
+                className={
+                  (preview.marginPct ?? 0) >= 0 ? styles.previewMarginUp : styles.previewMarginDown
+                }
               >
-                {(preview.marginPct * 100).toFixed(1).replace(".", ",")}%
+                {((preview.marginPct ?? 0) * 100).toFixed(1).replace(".", ",")}%
               </span>
               <span className={styles.previewResultText}>
                 margem sobre o custo
