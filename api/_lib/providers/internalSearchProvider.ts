@@ -643,6 +643,20 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
     try {
       const html = await fetchStoreHtml(scraper.buildUrl(query), scraper);
       const offers = scraper.parse(html);
+      if (offers.length === 0) {
+        // Mesma checagem de `searchInternalShared` (busca por texto) —
+        // faltava aqui. Sem isso, HTML que passa por `detectBlock` (sem
+        // bloqueio explícito) mas que o parser não reconhece (layout
+        // mudou, ou é uma página de resultado vazio de verdade) virava
+        // "0 ofertas" 100% silencioso: nem erro, nem warning, nada no
+        // log — exatamente o cenário que fazia catálogo inteiro voltar
+        // zerado sem NENHUMA pista no log da function.
+        console.warn(
+          `[motor-interno+IA] ${scraper.label}: 0 ofertas pra "${query}" (HTML ${html.length} bytes — ` +
+            "se isso acontecer com TODOS os produtos, o layout da loja provavelmente mudou; " +
+            "ver os testes de parser em internalSearchProvider.test.ts)"
+        );
+      }
       results.push({ marketplace: scraper.marketplace, label: scraper.label, offers });
     } catch (err) {
       failures++;

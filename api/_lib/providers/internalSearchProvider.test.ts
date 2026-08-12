@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildAmazonSearchUrl,
   buildMercadoLivreSearchUrl,
   detectBlock,
+  fetchStoreOffers,
   parseAmazonHtml,
   parseBrazilianPrice,
   parseJsonLdOffers,
   parseMercadoLivreHtml,
 } from "./internalSearchProvider";
+import type { MarketplaceMatcher } from "./googleShoppingProvider";
 
 /**
  * Estes testes são a rede de segurança do motor interno. Diferente de um
@@ -235,6 +237,52 @@ describe("detectBlock", () => {
   it("não acusa bloqueio numa página de busca legítima", () => {
     expect(detectBlock(200, ML_HTML, "Mercado Livre")).toBeNull();
     expect(detectBlock(200, AMAZON_HTML, "Amazon")).toBeNull();
+  });
+});
+
+describe("fetchStoreOffers", () => {
+  const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it(
+    "avisa (console.warn) quando a página vem íntegra mas o parser não reconhece nenhuma oferta — " +
+      "sem isso, layout que mudou (ou bloqueio disfarçado de página normal) ficava 100% silencioso, " +
+      "sem NENHUM rastro no log (causa real de um catálogo inteiro voltar zerado sem erro visível)",
+    async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const paginaSemCardsReconheciveis = `<html><body><div class="layout-novo-desconhecido">${"x".repeat(2500)}</div></body></html>`;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          status: 200,
+          text: async () => paginaSemCardsReconheciveis,
+        } as unknown as Response)
+      );
+
+      const result = await fetchStoreOffers("produto qualquer", MATCHERS);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].offers).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/0 ofertas/));
+      warnSpy.mockRestore();
+    }
+  );
+
+  it("não avisa quando a página tem ofertas reconhecíveis (só o caminho de 0 ofertas é digno de aviso)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ status: 200, text: async () => ML_HTML } as unknown as Response)
+    );
+
+    const result = await fetchStoreOffers("fone bluetooth", MATCHERS);
+
+    expect(result[0].offers.length).toBeGreaterThan(0);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
 
