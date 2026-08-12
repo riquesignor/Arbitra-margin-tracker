@@ -474,9 +474,12 @@ export default function ResultsTable({
               : results.length === 0
                 ? "A busca rodou (fonte: " +
                   (SOURCE_LABEL[source] ?? source) +
-                  "), mas nenhum produto encontrou preço em nenhum marketplace selecionado. " +
-                  "Confira sua chave SerpApi em Conta (válida? ainda tem cota?) ou tente novamente — " +
-                  "produtos com nome muito genérico também podem não achar match no Google Shopping."
+                  "), mas nenhum produto encontrou preço em nenhum marketplace selecionado. Causas " +
+                  "comuns: chave do provider ativo inválida/sem cota (confira em Conta), produto com " +
+                  "nome/descrição genérica demais pra achar match, ou — se o provider ativo for o " +
+                  "motor interno (sem SerpApi/RapidAPI) — bloqueio de IP ou mudança de layout da loja " +
+                  "(abra o console do navegador: cada tentativa falha com o motivo específico registrado " +
+                  "ali, não só \"sem resultado\")."
                 : "Nenhum resultado com esse filtro ou busca — limpe o texto ou troque o status acima."}
           </p>
         ) : viewMode === "flat" ? (

@@ -209,6 +209,12 @@ const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi");
 // isso não muda o paralelismo real, só a granularidade do feedback.
 const CHUNK_SIZE = 20;
 
+// Lote menor pro motor interno + IA (`vision_internal`) — concorrência 1
+// de propósito (tier gratuito do Gemini) e várias chamadas sequenciais
+// por item deixam esse provider bem mais lento por item que os outros;
+// ver comentário completo em `finishWithRows`.
+const VISION_CHUNK_SIZE = 5;
+
 export interface DashboardResult {
   rows: CatalogRow[];
   pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>;
@@ -638,11 +644,35 @@ export default function Dashboard({
     // vez de um spinner genérico (item 8+9). Concorrência de verdade
     // continua no servidor (mapWithConcurrency, googleShoppingProvider.ts) —
     // isso aqui é só granularidade de feedback, não paralelismo extra.
-    try {
-      const chunks: CatalogRow[][] = [];
-      for (let i = 0; i < rowsWithImages.length; i += CHUNK_SIZE)
-        chunks.push(rowsWithImages.slice(i, i + CHUNK_SIZE));
+    //
+    // Tamanho do lote varia por provider: CHUNK_SIZE (20) pressupõe
+    // concorrência 5 no servidor (googleShoppingProvider.ts) — vale pros
+    // providers "rápidos" (1 chamada de API por item). O motor interno +
+    // IA (`vision_internal`) é OUTRA classe de custo: concorrência 1 DE
+    // PROPÓSITO (limite do tier gratuito do Gemini, ver
+    // visionInternalSearchProvider.ts) e várias chamadas sequenciais por
+    // item (descrever + comparar candidatos + raspagem) — um lote de 20
+    // nesse provider é lento o bastante pra estourar o teto de execução
+    // da function serverless (relato real: HTTP 504 em /api/fetch-prices
+    // com catálogo de ~45 produtos). VISION_CHUNK_SIZE menor reduz o
+    // trabalho por chamada, ficando com folga confortável do teto.
+    const chunkSize = effectiveProvider === "vision_internal" ? VISION_CHUNK_SIZE : CHUNK_SIZE;
+    const chunks: CatalogRow[][] = [];
+    for (let i = 0; i < rowsWithImages.length; i += chunkSize) chunks.push(rowsWithImages.slice(i, i + chunkSize));
 
+    // Falha de UM lote (timeout, 504, instabilidade pontual) não derruba
+    // os OUTROS lotes — mesma filosofia de isolamento de falha usada no
+    // resto do app (ver visionInternalSearchProvider.ts): melhor mostrar
+    // resultado PARCIAL (com aviso do que faltou) do que perder um
+    // catálogo inteiro por causa de um lote ruim. Só propaga erro de
+    // verdade se TODOS os lotes falharem — aí é sinal de problema
+    // sistêmico (chave inválida, servidor fora), não de um lote lento
+    // isolado.
+    let failedItems = 0;
+    let failedChunks = 0;
+    let lastChunkErrorMessage: string | null = null;
+
+    try {
       for (const chunk of chunks) {
         const chunkItems = chunk.map((r) => ({
           sku: r.sku,
@@ -650,12 +680,49 @@ export default function Dashboard({
           imageUrl: imagesBySku?.[r.sku],
         }));
         const chunkStartedAt = performance.now();
-        const fetched = await fetchMultipleMarketplacePrices(
-          meta.marketplaces,
-          chunkItems,
-          effectiveProviderKey,
-          effectiveProvider
-        );
+
+        let fetched: Awaited<ReturnType<typeof fetchMultipleMarketplacePrices>>;
+        try {
+          fetched = await fetchMultipleMarketplacePrices(
+            meta.marketplaces,
+            chunkItems,
+            effectiveProviderKey,
+            effectiveProvider
+          );
+        } catch (err) {
+          // Caso específico: busca pública do Mercado Livre falhou (HTTP
+          // 403, instabilidade conhecida desde fev/2026 — ver
+          // mercadoLivreDirectProvider.ts) E o usuário já tem a chave
+          // Unwrangle cadastrada (alternativa paga, ver
+          // unwrangleMercadoLivreProvider.ts). Isso é sistêmico (vai
+          // acontecer em TODO lote), não um lote ruim isolado — aborta
+          // já oferecendo "tentar de novo com sua chave" em vez de
+          // deixar rodar os lotes restantes sabendo que vão falhar igual.
+          const message = err instanceof Error ? err.message : String(err);
+          if (
+            !providerOverride &&
+            effectiveProvider === "mercadolivre_direct" &&
+            message.includes("Mercado Livre bloqueou a busca pública") &&
+            unwrangleApiKey
+          ) {
+            setState("error");
+            setError(message);
+            setMlFallbackOffer({ rows, meta, imagesBySku });
+            return;
+          }
+
+          failedChunks++;
+          failedItems += chunk.length;
+          lastChunkErrorMessage = message;
+          console.error(`[busca] lote de ${chunk.length} produto(s) falhou (seguindo com os próximos lotes):`, err);
+          setProgress((p) =>
+            p
+              ? { done: Math.min(p.done + chunk.length, rowsWithImages.length), total: rowsWithImages.length }
+              : p
+          );
+          continue;
+        }
+
         // ms/item deste lote — vira 1 amostra do comparativo de
         // velocidade (ver providerSpeedStats.ts e o card "Velocidade por
         // mecanismo" na aside). Só registra lote com item de verdade
@@ -677,29 +744,20 @@ export default function Dashboard({
             : p
         );
       }
-    } catch (err) {
-      // Caso específico: busca pública do Mercado Livre falhou (HTTP
-      // 403, instabilidade conhecida desde fev/2026 — ver
-      // mercadoLivreDirectProvider.ts) E o usuário já tem a chave
-      // Unwrangle cadastrada (alternativa paga, ver
-      // unwrangleMercadoLivreProvider.ts). Em vez de só mostrar o erro,
-      // guarda o suficiente pra oferecer "tentar de novo com sua chave"
-      // sem precisar reprocessar o catálogo (ver mlFallbackOffer/
-      // handleRetryWithUnwrangle). Qualquer outro erro segue o caminho
-      // normal (propaga pro catch do chamador — processFile etc.).
-      const message = err instanceof Error ? err.message : String(err);
-      if (
-        !providerOverride &&
-        effectiveProvider === "mercadolivre_direct" &&
-        message.includes("Mercado Livre bloqueou a busca pública") &&
-        unwrangleApiKey
-      ) {
-        setState("error");
-        setError(message);
-        setMlFallbackOffer({ rows, meta, imagesBySku });
-        return;
+
+      if (failedChunks > 0 && failedChunks === chunks.length) {
+        // TODOS os lotes falharam — não é "um lote lento", é sistêmico
+        // (chave inválida, servidor fora, etc.). Propaga erro de verdade
+        // em vez de seguir pra tela de resultado com "0 produtos"
+        // enganoso (parece busca vazia, não falha).
+        throw new Error(lastChunkErrorMessage ?? "Todos os lotes de busca falharam.");
       }
-      throw err;
+      if (failedItems > 0) {
+        setSkippedInfo(
+          `${failedItems} produto(s) não puderam ser buscados (erro/timeout num lote) — o resultado ` +
+            "abaixo é parcial. Tente reprocessar pra cobrir o restante."
+        );
+      }
     } finally {
       setProgress(null);
       setSpeedSummary(getSpeedSummary());

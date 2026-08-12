@@ -61,8 +61,13 @@ const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/$
 // Página inteira (várias fotos + texto) gera payload e resposta bem
 // maiores que o describe/compare de item único (api/_lib/geminiVision.ts,
 // timeout 15s) — teto maior de propósito pra não abortar antes da hora
-// numa página com bastante produto.
-const REQUEST_TIMEOUT_MS = 30000;
+// numa página com bastante produto. 45s (não 30s): relato real de
+// timeout em 30s com página JPEG grande — o payload já foi reduzido no
+// lado de quem chama (ver GEMINI_PAGE_MAX_WIDTH em parsePdfCatalog.ts),
+// mas o teto aqui também subiu de propósito pra dar folga extra em
+// catálogo com várias páginas OCR seguidas, onde o free tier do Gemini
+// pode ir ficando mais lento por throttling entre chamadas próximas.
+const REQUEST_TIMEOUT_MS = 45000;
 
 export interface CatalogPageProduct {
   /** Código de modelo/SKU exatamente como o Gemini leu na página (comparado por normalizeSkuForMatch, não por igualdade exata — ver uso em parsePdfCatalog.ts). */

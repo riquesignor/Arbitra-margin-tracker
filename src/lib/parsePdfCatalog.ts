@@ -742,6 +742,40 @@ function cropRowBand(
   return cropped;
 }
 
+// Teto de largura (px) da imagem mandada pro Gemini na correção de preço
+// por página (ver geminiCatalogVision.ts) — INDEPENDENTE da resolução do
+// canvas usado pro recorte de foto por produto (IMAGE_RENDER_SCALE=2.0,
+// que precisa ficar alta pra qualidade da foto de referência). Ler
+// "MODELO: BM-F1324" e um preço de banner não exige a mesma resolução
+// que recortar uma foto de produto pra comparação visual — mandar o
+// canvas inteiro (JPEG qualidade 0.92, ~1200×1700px numa página A4)
+// pesava demais e vinha estourando o timeout de 45s em chamadas
+// sequenciais (ver REQUEST_TIMEOUT_MS em geminiCatalogVision.ts,
+// reportado pelo usuário: páginas 2 e 3 de um catálogo de 6 páginas
+// deram timeout). Reduzir o payload aqui é estritamente sobre ESTA
+// chamada — não afeta a foto que vai pro motor interno + IA.
+const GEMINI_PAGE_MAX_WIDTH = 1400;
+
+/**
+ * Gera um JPEG menor (redimensionado) do canvas da página pra mandar ao
+ * Gemini na correção de preço — ver GEMINI_PAGE_MAX_WIDTH acima pro
+ * porquê. No-op de qualidade (não recorta nada, só reduz escala) — o
+ * texto continua legível pro Gemini nessa resolução (testado com a
+ * página real do usuário).
+ */
+function canvasToDownscaledJpegDataUrl(canvas: HTMLCanvasElement, maxWidth: number, quality: number): string {
+  if (canvas.width <= maxWidth) return canvas.toDataURL("image/jpeg", quality);
+
+  const scale = maxWidth / canvas.width;
+  const small = document.createElement("canvas");
+  small.width = Math.round(canvas.width * scale);
+  small.height = Math.round(canvas.height * scale);
+  const ctx = small.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/jpeg", quality); // fallback: manda o tamanho original em vez de falhar
+  ctx.drawImage(canvas, 0, 0, small.width, small.height);
+  return small.toDataURL("image/jpeg", quality);
+}
+
 /**
  * Versão do recorte pra catálogo em GRADE (ver extractGridBlocks) — usa
  * o bounding box do CARTÃO inteiro (linha de coluna X + banda de linha
@@ -1037,7 +1071,7 @@ export async function parsePdfCatalogFile(
         if (pageUsedOcr && grid.priceless.length > 0 && options?.geminiApiKey) {
           try {
             const { canvas: c } = await ensureCanvas();
-            const pageDataUrl = c.toDataURL("image/jpeg", 0.92);
+            const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
             const geminiProducts = await extractCatalogPageWithGemini(pageDataUrl, options.geminiApiKey);
             const bySku = new Map(geminiProducts.map((p) => [normalizeSkuForMatch(p.sku), p]));
 
