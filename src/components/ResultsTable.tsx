@@ -477,9 +477,10 @@ export default function ResultsTable({
                   "), mas nenhum produto encontrou preço em nenhum marketplace selecionado. Causas " +
                   "comuns: chave do provider ativo inválida/sem cota (confira em Conta), produto com " +
                   "nome/descrição genérica demais pra achar match, ou — se o provider ativo for o " +
-                  "motor interno (sem SerpApi/RapidAPI) — bloqueio de IP ou mudança de layout da loja " +
-                  "(abra o console do navegador: cada tentativa falha com o motivo específico registrado " +
-                  "ali, não só \"sem resultado\")."
+                  "motor interno (sem SerpApi/RapidAPI) — bloqueio de IP ou mudança de layout da loja. " +
+                  "O motivo específico de cada tentativa fica registrado nos logs da FUNCTION DO " +
+                  "SERVIDOR (Vercel → projeto → Logs, filtrar por /api/fetch-prices) — não no console " +
+                  "do navegador, essa busca roda no servidor."
                 : "Nenhum resultado com esse filtro ou busca — limpe o texto ou troque o status acima."}
           </p>
         ) : viewMode === "flat" ? (

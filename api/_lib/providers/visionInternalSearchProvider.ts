@@ -1,6 +1,6 @@
 import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { describeProductImage, compareProductImages, GeminiVisionError } from "../geminiVision.js";
+import { describeProductImage, compareProductImages, GeminiVisionError, GeminiQuotaExhaustedError } from "../geminiVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers, type ScrapedOffer } from "./internalSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
@@ -127,7 +127,23 @@ export async function searchVisionInternalShared(
   let lastError: string | null = null;
   let failures = 0;
 
+  // Cota do Gemini é um recurso COMPARTILHADO entre todos os itens do
+  // lote (mesma chave, mesma janela de rate limit) — diferente de um
+  // timeout ou foto ruim, que são problemas ISOLADOS de um item só. Uma
+  // vez confirmado `GeminiQuotaExhaustedError` (já depois do retry
+  // embutido em geminiVision.ts), insistir nos itens restantes é
+  // praticamente certeza de repetir a mesma falha em cada um — só
+  // queima o teto de execução da function (300s, vercel.json) sem
+  // chance real de achar preço. Essa flag corta o resto do lote na
+  // hora, deixando a mensagem de cota esgotada propagar rápido em vez
+  // de "0 resultados" silencioso no fim.
+  let quotaExhausted = false;
+
   await mapWithConcurrency(itemsWithImage, CONCURRENCY, async (item) => {
+    if (quotaExhausted) {
+      failures++;
+      return;
+    }
     try {
       // Passo 1 — descrever.
       const query = await describeProductImage(item.imageUrl!, apiKey);
@@ -142,6 +158,7 @@ export async function searchVisionInternalShared(
       // cada um vira uma linha independente (mesmo modelo dos outros
       // providers multi-marketplace).
       for (const store of storeOffers) {
+        if (quotaExhausted) break;
         const candidates = getTopCandidates(
           query,
           store.offers,
@@ -153,6 +170,7 @@ export async function searchVisionInternalShared(
 
         let best: BestVisualMatch | null = null;
         for (const { candidate } of candidates) {
+          if (quotaExhausted) break;
           // Sem foto no anúncio não tem o que comparar visualmente —
           // pular é o comportamento certo aqui (não dá pra confirmar
           // "é o mesmo produto" sem uma segunda imagem).
@@ -163,6 +181,11 @@ export async function searchVisionInternalShared(
               best = { marketplace: store.marketplace, label: store.label, candidate, score, totalOffers: store.offers.length };
             }
           } catch (err) {
+            if (err instanceof GeminiQuotaExhaustedError) {
+              quotaExhausted = true;
+              lastError = err.message;
+              break;
+            }
             // Falha de UMA comparação (ex.: thumbnail quebrado, timeout)
             // não invalida os outros candidatos da mesma loja.
             console.warn(`[motor-interno+IA] comparação visual falhou (${store.label}, "${query}"):`, err);
@@ -191,6 +214,7 @@ export async function searchVisionInternalShared(
       }
     } catch (err) {
       failures++;
+      if (err instanceof GeminiQuotaExhaustedError) quotaExhausted = true;
       lastError =
         err instanceof GeminiVisionError
           ? err.message

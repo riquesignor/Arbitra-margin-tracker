@@ -35,10 +35,11 @@ vi.mock("./internalSearchProvider.js", () => ({
 // target/module do tsconfig.api.json não suporta).
 let searchVisionInternalShared: typeof import("./visionInternalSearchProvider").searchVisionInternalShared;
 let GeminiVisionError: typeof import("../geminiVision").GeminiVisionError;
+let GeminiQuotaExhaustedError: typeof import("../geminiVision").GeminiQuotaExhaustedError;
 
 beforeAll(async () => {
   ({ searchVisionInternalShared } = await import("./visionInternalSearchProvider"));
-  ({ GeminiVisionError } = await import("../geminiVision"));
+  ({ GeminiVisionError, GeminiQuotaExhaustedError } = await import("../geminiVision"));
 });
 
 const MATCHERS: MarketplaceMatcher[] = [
@@ -168,4 +169,22 @@ describe("searchVisionInternalShared", () => {
     expect(result.amazon["SKU-1"]).toBeUndefined();
     expect(result.amazon["SKU-3"]).toMatchObject({ confidence: 0.95 });
   });
+
+  it(
+    "corta o resto do lote assim que a cota do Gemini esgota — não insiste item por item " +
+      "batendo na mesma parede (ver comentário de quotaExhausted em visionInternalSearchProvider.ts)",
+    async () => {
+      const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
+
+      describeProductImage.mockRejectedValue(new GeminiQuotaExhaustedError("Gemini sem cota disponível agora"));
+
+      await expect(
+        searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key")
+      ).rejects.toThrow(/cota/i);
+
+      // Item 2 nem chegou a tentar — a flag de cota esgotada, setada já na
+      // falha do item 1, pulou ele antes de chamar describeProductImage.
+      expect(describeProductImage).toHaveBeenCalledTimes(1);
+    }
+  );
 });

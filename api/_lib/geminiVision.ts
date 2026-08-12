@@ -49,7 +49,31 @@ const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/$
 /** Teto de tempo por chamada — função serverless tem limite de execução total, e um lote inteiro depende de várias chamadas em sequência (ver CONCURRENCY em visionInternalSearchProvider.ts). */
 const REQUEST_TIMEOUT_MS = 15000;
 
+/**
+ * Retry específico pra RESOURCE_EXHAUSTED (cota do tier gratuito) — ver
+ * GeminiQuotaExhaustedError. O free tier costuma limitar por MINUTO
+ * (janela rolante, não publicada de forma estável — ver
+ * aistudio.google.com/rate-limit), então esperar um pouco e tentar de
+ * novo recupera boa parte dos casos sem precisar de intervenção humana.
+ * 1 retry só (não mais): function serverless tem teto de execução total
+ * (300s, vercel.json) e um item de vision_internal já encadeia até ~7
+ * chamadas (ver visionInternalSearchProvider.ts) — cada retry aqui soma
+ * ~15s a UMA chamada, e isso se multiplica rápido se a cota estiver
+ * realmente estourada (não só um pico passageiro). Pra esse caso (cota
+ * exaurida de verdade, não só um pico), quem para de insistir é o
+ * chamador (searchVisionInternalShared), que corta o resto do lote assim
+ * que confirma `GeminiQuotaExhaustedError` — ver comentário lá.
+ */
+const QUOTA_RETRY_DELAY_MS = 15000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class GeminiVisionError extends Error {}
+
+/** Subclasse específica pra RESOURCE_EXHAUSTED — permite ao chamador (searchVisionInternalShared) distinguir "cota estourou" (sistêmico, vale a pena parar de insistir) de qualquer outro erro (isolado ao item/candidato, vale a pena seguir tentando os outros). */
+export class GeminiQuotaExhaustedError extends GeminiVisionError {}
 
 interface GeminiPart {
   text?: string;
@@ -93,7 +117,7 @@ async function fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mim
   }
 }
 
-async function callGemini(parts: GeminiPart[], apiKey: string): Promise<string> {
+async function callGeminiOnce(parts: GeminiPart[], apiKey: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -116,12 +140,15 @@ async function callGemini(parts: GeminiPart[], apiKey: string): Promise<string> 
 
     if (!response.ok) {
       const status = data.error?.status;
-      throw new GeminiVisionError(
-        status === "RESOURCE_EXHAUSTED"
-          ? "Gemini sem cota disponível agora (limite de requisições do tier gratuito, ver " +
+      if (status === "RESOURCE_EXHAUSTED") {
+        throw new GeminiQuotaExhaustedError(
+          "Gemini sem cota disponível agora (limite de requisições do tier gratuito, ver " +
             "aistudio.google.com/rate-limit) — tente novamente em alguns minutos, ou considere " +
             "o tier pago se isso for frequente."
-          : `Gemini retornou HTTP ${response.status}${data.error?.message ? `: ${data.error.message}` : ""}`
+        );
+      }
+      throw new GeminiVisionError(
+        `Gemini retornou HTTP ${response.status}${data.error?.message ? `: ${data.error.message}` : ""}`
       );
     }
 
@@ -140,6 +167,20 @@ async function callGemini(parts: GeminiPart[], apiKey: string): Promise<string> 
     throw new GeminiVisionError(`Falha ao chamar Gemini: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/** Ver comentário de QUOTA_RETRY_DELAY_MS — 1 retry só, e só pra RESOURCE_EXHAUSTED; qualquer outro erro propaga na hora. */
+async function callGemini(parts: GeminiPart[], apiKey: string): Promise<string> {
+  try {
+    return await callGeminiOnce(parts, apiKey);
+  } catch (err) {
+    if (!(err instanceof GeminiQuotaExhaustedError)) throw err;
+    console.warn(
+      `[motor-interno+IA] cota do Gemini esgotada, aguardando ${QUOTA_RETRY_DELAY_MS / 1000}s pra 1 nova tentativa...`
+    );
+    await sleep(QUOTA_RETRY_DELAY_MS);
+    return callGeminiOnce(parts, apiKey);
   }
 }
 

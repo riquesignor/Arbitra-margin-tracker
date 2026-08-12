@@ -63,10 +63,44 @@ describe("describeProductImage", () => {
     );
   });
 
-  it("traduz RESOURCE_EXHAUSTED numa mensagem acionável sobre cota, não um erro genérico de HTTP", async () => {
-    fetchMock.mockResolvedValueOnce(mockImageResponse()).mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"));
+  it("traduz RESOURCE_EXHAUSTED numa mensagem acionável sobre cota, não um erro genérico de HTTP (após 1 retry automático)", async () => {
+    // callGemini tenta de novo 1x quando dá RESOURCE_EXHAUSTED (ver
+    // QUOTA_RETRY_DELAY_MS em geminiVision.ts) — timer falso pra não
+    // esperar os 15s de verdade no teste. Se as DUAS tentativas
+    // esgotarem a cota, o erro final ainda é o de cota (não vira outro
+    // tipo de erro no meio do caminho).
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(mockImageResponse())
+        .mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"))
+        .mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"));
 
-    await expect(describeProductImage("https://catalogo/foto.jpg", "fake-key")).rejects.toThrow(/cota/i);
+      const promise = describeProductImage("https://catalogo/foto.jpg", "fake-key");
+      const assertion = expect(promise).rejects.toThrow(/cota/i);
+      await vi.advanceTimersByTimeAsync(20000);
+      await assertion;
+      expect(fetchMock).toHaveBeenCalledTimes(3); // imagem + 2 tentativas ao Gemini
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("recupera sozinho se a cota já estiver livre de novo na 2ª tentativa (retry automático)", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock
+        .mockResolvedValueOnce(mockImageResponse())
+        .mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"))
+        .mockResolvedValueOnce(mockGeminiResponse('"fone bluetooth preto"'));
+
+      const promise = describeProductImage("https://catalogo/foto.jpg", "fake-key");
+      const assertion = expect(promise).resolves.toBe("fone bluetooth preto");
+      await vi.advanceTimersByTimeAsync(20000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
