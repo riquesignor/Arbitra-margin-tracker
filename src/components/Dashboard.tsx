@@ -702,6 +702,11 @@ export default function Dashboard({
     let failedItems = 0;
     let failedChunks = 0;
     let lastChunkErrorMessage: string | null = null;
+    // Aviso de bloqueio PARCIAL do motor interno (ver
+    // FetchPricesResult.warning, priceApi.ts) — `Set` porque o mesmo
+    // aviso se repete em todo lote enquanto o bloqueio persistir; dedupe
+    // evita repetir a mesma frase N vezes no banner final.
+    const searchWarnings = new Set<string>();
 
     try {
       for (const chunk of chunks) {
@@ -764,9 +769,10 @@ export default function Dashboard({
         }
 
         for (const marketplace of meta.marketplaces) {
-          const { results: prices, source } = fetched[marketplace];
+          const { results: prices, source, warning } = fetched[marketplace];
           pricesByMarket[marketplace] = { ...pricesByMarket[marketplace], ...prices };
           if (source !== "server") allFromServer = false;
+          if (warning) searchWarnings.add(warning);
         }
 
         setProgress((p) =>
@@ -783,11 +789,18 @@ export default function Dashboard({
         // enganoso (parece busca vazia, não falha).
         throw new Error(lastChunkErrorMessage ?? "Todos os lotes de busca falharam.");
       }
+      const searchInfoParts: string[] = [];
       if (failedItems > 0) {
-        setSkippedInfo(
+        searchInfoParts.push(
           `${failedItems} produto(s) não puderam ser buscados (erro/timeout num lote) — o resultado ` +
             "abaixo é parcial. Tente reprocessar pra cobrir o restante."
         );
+      }
+      if (searchWarnings.size > 0) {
+        searchInfoParts.push(...searchWarnings);
+      }
+      if (searchInfoParts.length > 0) {
+        setSkippedInfo(searchInfoParts.join(" "));
       }
     } finally {
       setProgress(null);

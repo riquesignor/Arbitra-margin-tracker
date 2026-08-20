@@ -2,9 +2,13 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { buildSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://api.mercadolibre.com/sites/MLB/search";
 const CONCURRENCY = 3;
+
+/** Abaixo disso o match entra marcado como aproximado — mesmo critério usado em internalSearchProvider.ts/googleShoppingProvider.ts (a busca foi feita PELO NOME, então o título tem que bater de verdade). Faltava aqui antes (ago/2026): este provider era o único devolvendo resultado sem NUNCA marcar aproximado, mesmo quando o match era fraco. */
+const APPROXIMATE_BELOW_SIMILARITY = 0.35;
 
 interface MLSearchItem {
   id?: string;
@@ -48,7 +52,9 @@ export async function fetchMercadoLivreDirectPrices(
   await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
     try {
       const url = new URL(ENDPOINT);
-      url.searchParams.set("q", name);
+      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
+      // `name` original, só a busca em si usa a versão sem ruído.
+      url.searchParams.set("q", buildSearchQuery(name));
 
       const response = await fetch(url.toString());
 
@@ -100,6 +106,7 @@ export async function fetchMercadoLivreDirectPrices(
         link: best.permalink,
         matchedTitle: best.title,
         imageUrl: best.thumbnail,
+        approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
       };
     } catch (err) {
       errorCount++;

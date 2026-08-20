@@ -2,8 +2,11 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { buildSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://data.unwrangle.com/api/getter/";
+/** Abaixo disso o match entra marcado como aproximado — mesmo critério usado nos demais providers de busca por texto. Faltava aqui antes (ago/2026). */
+const APPROXIMATE_BELOW_SIMILARITY = 0.35;
 // Cada busca custa 10 créditos (confirmado na doc pública,
 // docs.unwrangle.com/mercado-livre-search-api) — plano mais barato é
 // $99/mês por 100.000 créditos (~10.000 buscas/mês). Concorrência baixa
@@ -68,7 +71,9 @@ export async function fetchUnwrangleMercadoLivrePrices(
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("platform", "mercado_search");
-      url.searchParams.set("search", name);
+      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
+      // `name` original, só a busca em si usa a versão sem ruído.
+      url.searchParams.set("search", buildSearchQuery(name));
       url.searchParams.set("api_key", apiKey);
 
       const response = await fetch(url.toString());
@@ -115,6 +120,7 @@ export async function fetchUnwrangleMercadoLivrePrices(
         link: ranked.candidate.url,
         matchedTitle: ranked.candidate.name,
         imageUrl: ranked.candidate.thumbnail,
+        approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
       };
     } catch (err) {
       errorCount++;

@@ -2,9 +2,13 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { buildSearchQuery } from "../searchQuery.js";
 
 const HOST = "real-time-amazon-data.p.rapidapi.com";
 const ENDPOINT = `https://${HOST}/search`;
+
+/** Abaixo disso o match entra marcado como aproximado — mesmo critério usado nos demais providers de busca por texto. Faltava aqui antes (ago/2026). */
+const APPROXIMATE_BELOW_SIMILARITY = 0.35;
 
 // Plano free ("Basic") dessa API na RapidAPI é limitado por REQUISIÇÕES
 // TOTAIS no mês (100/mês, bem mais apertado que os 50/hora da SerpApi),
@@ -95,7 +99,9 @@ export async function fetchRapidApiAmazonPrices(
   await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
     try {
       const url = new URL(ENDPOINT);
-      url.searchParams.set("query", name);
+      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
+      // `name` original, só a busca em si usa a versão sem ruído.
+      url.searchParams.set("query", buildSearchQuery(name));
       url.searchParams.set("page", "1");
       url.searchParams.set("country", "BR");
       url.searchParams.set("sort_by", "RELEVANCE");
@@ -167,6 +173,7 @@ export async function fetchRapidApiAmazonPrices(
         link: best.product_url ?? (best.asin ? `https://www.amazon.com.br/dp/${best.asin}` : undefined),
         matchedTitle: best.product_title,
         imageUrl: best.product_photo,
+        approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
       };
     } catch (err) {
       errorCount++;

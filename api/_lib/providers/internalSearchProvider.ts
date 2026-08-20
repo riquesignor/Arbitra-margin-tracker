@@ -2,6 +2,7 @@ import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "..
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { buildSearchQuery } from "../searchQuery.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -61,6 +62,23 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /** Abaixo disso o match entra marcado como aproximado — mesmo critério da busca por texto em googleShoppingProvider.ts (a busca foi feita PELO NOME, então o título tem que bater de verdade). */
 const APPROXIMATE_BELOW_SIMILARITY = 0.35;
+
+/**
+ * Fração de tentativas BLOQUEADAS (não "sem resultado" — bloqueio de
+ * verdade, `StoreBlockedError`) numa loja específica, a partir da qual
+ * vale avisar o usuário mesmo sem ser bloqueio total. Problema real
+ * reportado: catálogo de 40 produtos, motor interno devolveu só 3 — o
+ * critério de erro sistêmico de sempre (`failures === attempts`, ver
+ * `searchInternalShared`) só dispara quando TUDO falha; se o anti-bot
+ * começa a barrar depois dos primeiros produtos (rate-limit, CAPTCHA) e
+ * alguns ainda passam, o resto simplesmente "não achou nada" sem
+ * NENHUMA pista na tela — o usuário acha que é o catálogo, quando é a
+ * infraestrutura sendo bloqueada no meio do lote. 30% é deliberadamente
+ * baixo: bloqueio parcial reduz a taxa de acerto de forma desproporcional
+ * (cada tentativa bloqueada é um produto a menos, sem chance nenhuma de
+ * match, bom ou ruim), então vale avisar cedo.
+ */
+const BLOCK_WARNING_RATIO = 0.3;
 
 /**
  * Concorrência menor que a dos providers de API (que usam 2-3 contra um
@@ -672,6 +690,12 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
   return results;
 }
 
+/** Resultado de `searchInternalShared` — `warning` é NOVO (ago/2026): ver `BLOCK_WARNING_RATIO` acima. Sempre `undefined` quando nenhuma loja passou do piso de bloqueio parcial (caso comum). */
+export interface InternalSearchOutcome {
+  results: Record<string, Record<string, MarketplacePriceResult>>;
+  warning?: string;
+}
+
 /**
  * Busca de preço pelo motor interno. Mesma assinatura dos outros
  * providers multi-marketplace (`searchGoogleShoppingShared` etc.) pra
@@ -685,16 +709,22 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
  * atingiu todas as tentativas vira exceção, pra UI poder explicar. Sem
  * isso, bloqueio de IP apareceria como "nenhum resultado" e mandaria o
  * usuário depurar o catálogo em vez da infra.
+ *
+ * Devolve `{ results, warning }` em vez de só `results` (ago/2026): ver
+ * `BLOCK_WARNING_RATIO` — bloqueio PARCIAL (nem toda tentativa falhou,
+ * então não dispara a exceção acima) precisa de um canal pra chegar até
+ * a UI, senão fica tão silencioso quanto o bloqueio total antes do fix
+ * de `detectBlock`.
  */
 export async function searchInternalShared(
   items: CatalogItemQuery[],
   matchers: MarketplaceMatcher[]
-): Promise<Record<string, Record<string, MarketplacePriceResult>>> {
+): Promise<InternalSearchOutcome> {
   const results = {} as Record<string, Record<string, MarketplacePriceResult>>;
   for (const { marketplace } of matchers) results[marketplace] = {};
 
   const scrapers = STORE_SCRAPERS.filter((s) => matchers.some((m) => m.marketplace === s.marketplace));
-  if (scrapers.length === 0 || items.length === 0) return results;
+  if (scrapers.length === 0 || items.length === 0) return { results };
 
   // Uma unidade de trabalho = 1 produto numa 1 loja.
   const jobs = items.flatMap((item) => scrapers.map((scraper) => ({ item, scraper })));
@@ -703,10 +733,27 @@ export async function searchInternalShared(
   let attempts = 0;
   let failures = 0;
 
+  // Contagem POR LOJA (não só agregada) — bloqueio costuma ser por
+  // marketplace (ex.: só o Mercado Livre bloqueou, Amazon segue normal),
+  // então o aviso final também precisa ser por loja — ver uso abaixo.
+  const attemptsByMarketplace: Record<string, number> = {};
+  const blockedByMarketplace: Record<string, number> = {};
+  for (const scraper of scrapers) {
+    attemptsByMarketplace[scraper.marketplace] = 0;
+    blockedByMarketplace[scraper.marketplace] = 0;
+  }
+
   await mapWithConcurrency(jobs, CONCURRENCY, async ({ item, scraper }) => {
     attempts++;
+    attemptsByMarketplace[scraper.marketplace]++;
     try {
-      const html = await fetchStoreHtml(scraper.buildUrl(item.name), scraper);
+      // A URL de busca usa a query LIMPA (ver searchQuery.ts) — ruído
+      // sintático do catálogo (ref interno, medida de embalagem) só
+      // dilui a relevância na página de busca da loja. O ranking abaixo
+      // (`pickBestCandidate`) continua comparando contra `item.name`
+      // ORIGINAL, não contra a query limpa — a limpeza afeta só o que é
+      // mandado pra busca, nunca o critério de "é o produto certo?".
+      const html = await fetchStoreHtml(scraper.buildUrl(buildSearchQuery(item.name)), scraper);
       const offers = scraper.parse(html);
 
       if (offers.length === 0) {
@@ -747,6 +794,7 @@ export async function searchInternalShared(
       failures++;
       if (err instanceof StoreBlockedError) {
         blockedError = err.message;
+        blockedByMarketplace[scraper.marketplace]++;
       } else {
         blockedError = blockedError ?? (err instanceof Error ? err.message : String(err));
       }
@@ -761,5 +809,20 @@ export async function searchInternalShared(
     throw new Error(blockedError);
   }
 
-  return results;
+  // Bloqueio PARCIAL (ver BLOCK_WARNING_RATIO) — não dispara a exceção
+  // acima (nem toda tentativa falhou), mas uma fração alta de UMA loja
+  // específica foi bloqueada de verdade (não "sem match", bloqueio).
+  const warnings: string[] = [];
+  for (const scraper of scrapers) {
+    const total = attemptsByMarketplace[scraper.marketplace];
+    const blocked = blockedByMarketplace[scraper.marketplace];
+    if (total > 0 && blocked < total && blocked / total >= BLOCK_WARNING_RATIO) {
+      warnings.push(
+        `${scraper.label} bloqueou ${blocked} de ${total} tentativa(s) — parte dos produtos sem ` +
+          "resultado nessa loja pode ser bloqueio de IP, não falta de match no catálogo."
+      );
+    }
+  }
+
+  return { results, warning: warnings.length > 0 ? warnings.join(" ") : undefined };
 }

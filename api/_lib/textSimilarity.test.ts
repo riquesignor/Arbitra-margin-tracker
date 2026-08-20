@@ -27,6 +27,23 @@ describe("textSimilarity", () => {
     // interseção {caneta,azul} = 2; união {caneta,azul,bic,pilot} = 4
     expect(textSimilarity("caneta azul bic", "caneta azul pilot")).toBeCloseTo(0.5, 4);
   });
+
+  it("trata plural/singular como o mesmo token (stemming leve PT-BR) — regressão do 'achei 3 de 40'", () => {
+    expect(textSimilarity("Balão Bexiga Látex", "Balões Bexigas Látex")).toBe(1);
+    expect(textSimilarity("Caneta Azul", "Canetas Azuis")).toBeGreaterThan(
+      textSimilarity("Caneta Azul", "Parafuso Sextavado")
+    );
+  });
+
+  it("normaliza plural irregular comum (-ões→-ao, -ais→-al, -eis→-el)", () => {
+    expect(textSimilarity("Botão de Pressão", "Botões de Pressão")).toBe(1);
+    expect(textSimilarity("Kit Artesanal", "Kit Artesanais")).toBe(1);
+    expect(textSimilarity("Anel de Prata", "Anéis de Prata")).toBe(1);
+  });
+
+  it("não mexe em número/código (stemming só se aplica a palavra, não a dígito)", () => {
+    expect(textSimilarity("Produto 12345", "Produto 12345")).toBe(1);
+  });
 });
 
 describe("confidenceFromSimilarity", () => {

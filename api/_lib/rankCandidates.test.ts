@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getTopCandidates, pickBestCandidate, popularityScore } from "./rankCandidates";
+import { getTopCandidates, pickBestCandidate, popularityScore, MIN_ACCEPTABLE_SIMILARITY } from "./rankCandidates";
 
 interface Fixture {
   title: string;
@@ -47,6 +47,35 @@ describe("getTopCandidates", () => {
     const top = getTopCandidates("Fone de Ouvido Bluetooth JBL Tune 510BT", CANDIDATES, getTitle, getPopularity, 10);
 
     expect(top[0].candidate).toEqual(best?.candidate);
+  });
+});
+
+describe("pickBestCandidate — piso mínimo de similaridade", () => {
+  it("devolve null quando nenhum candidato passa do piso — melhor admitir 'não achei' do que chutar", () => {
+    const candidatosSemRelacao: Fixture[] = [
+      { title: "Parafuso Sextavado Inox M8", popularity: 500 },
+      { title: "Caixa de Ferramentas Plástica 40L", popularity: 200 },
+    ];
+
+    const best = pickBestCandidate("Maozinha Latex Azul", candidatosSemRelacao, getTitle, getPopularity);
+
+    expect(best).toBeNull();
+  });
+
+  it("ainda devolve candidato com similaridade baixa mas acima do piso (fica marcado aproximado pelo chamador)", () => {
+    // "balão" e "látex" batem — o resto diverge. Similaridade baixa, mas
+    // não zero: não deve ser rejeitado, só entra como aproximado lá no
+    // provider (ver `approximate` em types.ts).
+    const parcial: Fixture[] = [{ title: "Balão Bexiga Látex Colorido Festa Kit 50un", popularity: 10 }];
+
+    const best = pickBestCandidate("Balão látex azul liso", parcial, getTitle, getPopularity);
+
+    expect(best).not.toBeNull();
+    expect(best!.similarity).toBeGreaterThanOrEqual(MIN_ACCEPTABLE_SIMILARITY);
+  });
+
+  it("lista vazia continua devolvendo null (não confundir com rejeição por similaridade)", () => {
+    expect(pickBestCandidate("qualquer coisa", [], getTitle, getPopularity)).toBeNull();
   });
 });
 

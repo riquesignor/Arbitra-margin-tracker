@@ -2,6 +2,7 @@ import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "..
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
+import { buildSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de
@@ -123,7 +124,9 @@ export async function searchGoogleShoppingShared(
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("engine", "google_shopping");
-      url.searchParams.set("q", name);
+      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
+      // `name` original, só a busca em si usa a versão sem ruído.
+      url.searchParams.set("q", buildSearchQuery(name));
       url.searchParams.set("google_domain", "google.com.br");
       url.searchParams.set("gl", "br");
       url.searchParams.set("hl", "pt-br");

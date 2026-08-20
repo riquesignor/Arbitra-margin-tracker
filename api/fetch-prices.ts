@@ -226,6 +226,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       responseByMarketplace[marketplace] = { ...cacheByMarketplace.get(marketplace)!.hits };
     }
 
+    // Aviso de bloqueio PARCIAL do motor interno (ver
+    // internalSearchProvider.ts > BLOCK_WARNING_RATIO) — só o
+    // "internal_search" preenche isto; fica `undefined` pros demais
+    // providers. Declarado no escopo da função pra sobreviver até o
+    // `res.status(200).json(...)` final, mesmo sendo atribuído dentro do
+    // bloco de busca compartilhada mais abaixo.
+    let internalSearchWarning: string | undefined;
+
     // 2) Marketplaces do grupo Google Shopping: 1 busca por produto
     // cobrindo a UNIÃO dos misses de todos eles.
     const sharedMarketplaces = marketplaces.filter(isGoogleShoppingMarketplace);
@@ -246,8 +254,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           provider === "internal_search"
             ? // Motor próprio: sem `apiKey` de propósito — não existe
               // chave, é a característica que justifica ele existir (ver
-              // internalSearchProvider.ts).
-              await searchInternalShared(missItems, matchers)
+              // internalSearchProvider.ts). Devolve `{results, warning}`
+              // (ago/2026) — bloqueio PARCIAL de uma loja (nem todo
+              // produto falhou, então não vira exceção) precisa chegar
+              // até a UI, senão fica indistinguível de "sem match".
+              await searchInternalShared(missItems, matchers).then((outcome) => {
+                internalSearchWarning = outcome.warning;
+                return outcome.results;
+              })
             : provider === "vision_internal"
               ? // Motor interno + IA: `apiKey` aqui é a chave GEMINI do
                 // usuário (BYOK), não SerpApi/SearchApi.io — ver
@@ -302,7 +316,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       }
     }
 
-    res.status(200).json(responseByMarketplace);
+    // `_warning` é aditivo — não é um marketplace, então o cliente antigo
+    // (que só lê chaves de marketplace conhecidas, ver priceApi.ts)
+    // ignora sem quebrar; o cliente novo lê e mostra no banner de aviso
+    // (ver Dashboard.tsx > finishWithRows).
+    res.status(200).json(
+      internalSearchWarning
+        ? { ...responseByMarketplace, _warning: internalSearchWarning }
+        : responseByMarketplace
+    );
   } catch (err) {
     res.status(502).json({
       error: "Busca de preço indisponível",

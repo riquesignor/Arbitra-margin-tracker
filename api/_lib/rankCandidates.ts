@@ -29,8 +29,32 @@ import { textSimilarity } from "./textSimilarity.js";
  * se o escolhido por popularidade tiver similaridade um pouco mais baixa
  * que o melhor match bruto (ainda dentro da tolerância), a confiança
  * exibida reflete isso.
+ *
+ * ── Piso mínimo de aceite (ago/2026) ──────────────────────────────────
+ * Problema real reportado: catálogo de 40 produtos, 3 resultados
+ * voltaram e os 3 eram "aproximados". Causa: `pickBestCandidate` NUNCA
+ * devolvia `null` por qualidade ruim — sempre pegava o "melhor dos
+ * piores" candidatos e deixava o CHAMADOR decidir se mostrava como
+ * aproximado (ver `approximate` em types.ts). Pra decisão de compra, um
+ * match errado apresentado como preço de mercado é pior que nenhum
+ * resultado — `MIN_ACCEPTABLE_SIMILARITY` é o piso ABAIXO do qual nem
+ * "aproximado" é honesto o bastante: o candidato é descartado (`null`),
+ * não devolvido. Deliberadamente mais baixo que o piso de "aproximado"
+ * de cada provider (0.35) — só rejeita o que é claramente ruído (quase
+ * zero sobreposição de token), não penaliza um match parcialmente
+ * plausível, que continua voltando marcado como aproximado.
  */
 const SIMILARITY_TOLERANCE = 0.15;
+
+/**
+ * Abaixo disso, `pickBestCandidate` devolve `null` em vez do "melhor dos
+ * piores" — ver comentário acima. NÃO se aplica a `getTopCandidates`: ela
+ * alimenta o motor interno + IA (visionInternalSearchProvider.ts), onde o
+ * texto é só um pré-filtro grosseiro antes da confirmação visual de
+ * verdade — rejeitar aqui cortaria candidato válido antes da IA ter
+ * chance de comparar a foto.
+ */
+export const MIN_ACCEPTABLE_SIMILARITY = 0.12;
 
 export interface RankedCandidate<T> {
   candidate: T;
@@ -65,6 +89,8 @@ export function pickBestCandidate<T>(
       bestPopularity = popularity;
     }
   }
+
+  if (best.similarity < MIN_ACCEPTABLE_SIMILARITY) return null;
 
   return best;
 }
