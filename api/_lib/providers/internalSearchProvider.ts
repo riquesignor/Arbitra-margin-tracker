@@ -91,6 +91,31 @@ const CONCURRENCY = 2;
 /** Teto por requisição. Função serverless tem limite de execução total — uma loja lenta não pode consumir o orçamento inteiro do lote e derrubar produtos que buscariam bem. */
 const REQUEST_TIMEOUT_MS = 8000;
 
+/**
+ * Retry com backoff SÓ pra HTTP 503 (ago/2026 — motivado por relato real:
+ * catálogo com motor interno + IA devolvendo lote inteiro em branco,
+ * log da function cheio de "Amazon devolveu HTTP 503"). 503 costuma ser
+ * bloqueio anti-bot TRANSITÓRIO/rate-limit momentâneo — o mesmo IP,
+ * poucos segundos depois, muitas vezes já não é mais barrado.
+ *
+ * 403 e CAPTCHA são bloqueio EXPLÍCITO: o IP já foi marcado como
+ * automatizado, e a resposta não muda em segundos — insistir nesses só
+ * queima o orçamento de execução da function sem chance real de
+ * sucesso. Por isso só 503 entra no retry; os demais motivos de bloqueio
+ * continuam falhando na 1ª tentativa, comportamento de antes.
+ *
+ * Não elimina o bloqueio (ver comentário "risco real" no topo do
+ * arquivo) — só recupera parte dos casos em que o anti-bot foi
+ * momentâneo, sem custo nenhum. Bloqueio persistente continua exigindo
+ * proxy ou outro provider pra essa loja.
+ */
+const RETRY_ON_503_ATTEMPTS = 2; // tentativas EXTRAS, além da primeira
+const RETRY_ON_503_BASE_DELAY_MS = 700;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Só os primeiros resultados interessam — página de busca traz dezenas, e os do fim são cada vez menos relevantes. Também limita o custo de parse de um HTML grande. */
 const MAX_OFFERS_PER_STORE = 12;
 
@@ -590,12 +615,8 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
   return null;
 }
 
-/**
- * Ponto ÚNICO de saída HTTP deste provider — é aqui que um proxy entra
- * no dia em que o IP da Vercel for bloqueado, sem tocar em parser nem
- * na lógica de ranking.
- */
-async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<string> {
+/** Uma tentativa HTTP crua — sem retry, sem classificar bloqueio. Devolve status + corpo pra quem chama decidir (`fetchStoreHtml` abaixo). */
+async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{ status: number; html: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -606,13 +627,8 @@ async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<strin
       signal: controller.signal,
     });
     const html = await response.text();
-
-    const blockReason = detectBlock(response.status, html, scraper.label);
-    if (blockReason) throw new StoreBlockedError(blockReason, scraper.marketplace);
-
-    return html;
+    return { status: response.status, html };
   } catch (err) {
-    if (err instanceof StoreBlockedError) throw err;
     if (err instanceof Error && err.name === "AbortError") {
       throw new StoreBlockedError(
         `${scraper.label} não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (timeout).`,
@@ -623,6 +639,36 @@ async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<strin
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Ponto ÚNICO de saída HTTP deste provider — é aqui que um proxy entra
+ * no dia em que o IP da Vercel for bloqueado, sem tocar em parser nem
+ * na lógica de ranking.
+ *
+ * Faz retry com backoff especificamente pra 503 (ver
+ * RETRY_ON_503_ATTEMPTS acima) — as outras classes de bloqueio
+ * (403/CAPTCHA/timeout/página curta) continuam falhando na 1ª tentativa.
+ */
+async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<string> {
+  let lastBlockReason: string | null = null;
+
+  for (let attempt = 0; attempt <= RETRY_ON_503_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await sleep(RETRY_ON_503_BASE_DELAY_MS * attempt);
+    }
+
+    const { status, html } = await fetchStoreHtmlOnce(url, scraper);
+    const blockReason = detectBlock(status, html, scraper.label);
+    if (!blockReason) return html;
+
+    lastBlockReason = blockReason;
+    // Só 503 justifica gastar as tentativas extras — qualquer outro
+    // motivo de bloqueio para aqui na primeira, ver comentário acima.
+    if (status !== 503) break;
+  }
+
+  throw new StoreBlockedError(lastBlockReason!, scraper.marketplace);
 }
 
 /** Ofertas cruas de UMA loja pra UMA query — saída de `fetchStoreOffers`, ainda sem ranking nenhum aplicado. */

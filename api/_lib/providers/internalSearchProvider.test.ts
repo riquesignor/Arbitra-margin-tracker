@@ -288,6 +288,65 @@ describe("fetchStoreOffers", () => {
   });
 });
 
+describe("fetchStoreHtml — retry em 503", () => {
+  const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it(
+    "recupera numa tentativa seguinte quando o 503 é transitório — regressão do lote inteiro " +
+      "descartado por 'Amazon devolveu HTTP 503' quando bastava tentar de novo (relato real, ago/2026)",
+    async () => {
+      let calls = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          calls++;
+          return calls < 3
+            ? ({ status: 503, text: async () => "" } as unknown as Response)
+            : ({ status: 200, text: async () => ML_HTML } as unknown as Response);
+        })
+      );
+
+      const result = await fetchStoreOffers("produto qualquer", MATCHERS);
+
+      expect(calls).toBe(3); // 1ª tentativa + 2 retries até acertar
+      expect(result[0].offers.length).toBeGreaterThan(0);
+    },
+    10000
+  );
+
+  it("desiste depois de esgotar as tentativas extras se o 503 persistir", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        return { status: 503, text: async () => "" } as unknown as Response;
+      })
+    );
+
+    await expect(fetchStoreOffers("produto qualquer", MATCHERS)).rejects.toThrow(/503/);
+    expect(calls).toBe(3); // 1ª tentativa + 2 retries, todas 503
+  }, 10000);
+
+  it("NÃO retenta em 403 (bloqueio explícito, persistente) — só 503 justifica a espera", async () => {
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls++;
+        return { status: 403, text: async () => "" } as unknown as Response;
+      })
+    );
+
+    await expect(fetchStoreOffers("produto qualquer", MATCHERS)).rejects.toThrow();
+    expect(calls).toBe(1); // sem retry — 403 não é transitório
+  });
+});
+
 describe("searchInternalShared — bloqueio parcial", () => {
   const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
 
