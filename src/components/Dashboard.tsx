@@ -58,6 +58,8 @@ interface ParseOutcome {
   imagesBySku?: Record<string, string>;
   /** true se o PDF precisou de OCR (sem texto real) — ver ExtractResult em parsePdfCatalog.ts. CSV nunca seta isso (fica undefined/falsy). */
   usedOcr?: boolean;
+  /** true se ALGUMA página precisou do fallback genérico de IA (Gemini) por não bater em nenhuma heurística conhecida — ver ExtractResult em parsePdfCatalog.ts. CSV nunca seta isso. */
+  usedGeminiPageExtraction?: boolean;
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -191,6 +193,35 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
 
 /** Default da tela: motor interno — único sem chave e sem custo por busca, então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
 const DEFAULT_PROVIDER: SearchProviderId = "internal_search";
+
+/**
+ * Monta o texto informativo pós-parse (`skippedInfo`) combinando os dois
+ * avisos possíveis — ambiguidade descartada (sempre existiu) e leitura
+ * por IA como último recurso (ver usedGeminiPageExtraction em
+ * ParseOutcome/ExtractResult, ago/2026). Devolve `null` quando nenhum
+ * dos dois se aplica, pra `setSkippedInfo(null)` esconder o aviso —
+ * mesmo comportamento de antes desta função existir.
+ */
+function buildParseInfoMessage(
+  rowCount: number,
+  skippedAmbiguous: number,
+  usedGeminiPageExtraction?: boolean
+): string | null {
+  const parts: string[] = [];
+  if (skippedAmbiguous > 0) {
+    parts.push(
+      `${rowCount} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) por ambiguidade ` +
+        "(mais de um preço detectado na mesma linha, provável mescla de colunas)."
+    );
+  }
+  if (usedGeminiPageExtraction) {
+    parts.push(
+      "Uma ou mais páginas não bateram em nenhum padrão conhecido e foram lidas por IA (Gemini) — " +
+        "confira nome e preço desses produtos antes de decidir compra."
+    );
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
 
 /**
  * "mercadolivre_alt" (Unwrangle, ver unwrangleMercadoLivreProvider.ts)
@@ -825,13 +856,8 @@ export default function Dashboard({
         return;
       }
 
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr } = await parse();
-      if (skippedAmbiguous > 0) {
-        setSkippedInfo(
-          `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) ` +
-            "por ambiguidade (mais de um preço detectado na mesma linha, provável mescla de colunas)."
-        );
-      }
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction } = await parse();
+      setSkippedInfo(buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction));
       await finishWithRows(
         rows,
         {
@@ -870,12 +896,8 @@ export default function Dashboard({
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr } = await parse();
-      if (skippedAmbiguous > 0) {
-        setSkippedInfo(
-          `${rows.length} produto(s) reconhecido(s) — ${skippedAmbiguous} linha(s) ignorada(s) por ambiguidade.`
-        );
-      }
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction } = await parse();
+      setSkippedInfo(buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction));
       await finishWithRows(
         rows,
         {

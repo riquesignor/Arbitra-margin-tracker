@@ -282,6 +282,130 @@ describe("extractGridBlocks", () => {
     expect(result!.priceless[0]).toMatchObject({ sku: "B2", name: "Produto Sem Preco" });
     expect(result!.skippedAmbiguous).toBe(1);
   });
+
+  // Dados REAIS extraídos via pdfjs-equivalente (PyMuPDF, mesmo espaço de
+  // coordenadas PDF) das duas primeiras linhas da página 3 de um catálogo
+  // real (Issam Distribuidora, 4.585 produtos, 393 páginas) — reportado
+  // pelo usuário como "0 produtos reconhecidos". Layout em grade 4
+  // colunas igual ao BMG-50 acima, mas com rótulo "CÓD. <código>" em vez
+  // de "MODELO:", e SEM a palavra "Unid" antes do preço (só "R$ X,XX"
+  // solto). Regressão: antes deste fix, MODEL_LABEL_PATTERN só reconhecia
+  // "MODELO:", então esta página inteira caía pro modo linha-única (que
+  // também falha, nome e preço em linhas separadas) e o catálogo saía com
+  // zero produtos reconhecidos.
+  const PAGE_WIDTH_ISSAM = 841.89;
+  const ISSAM_PAGE_ITEMS = [
+    { text: "CÓD.", x: 37.0, y: 412.9, width: 17.784 },
+    { text: "002168", x: 56.498, y: 412.9, width: 24.019 },
+    { text: "Maozinha", x: 37.0, y: 398.856, width: 31.646 },
+    { text: "latex", x: 70.675, y: 398.856, width: 15.199 },
+    { text: "azul", x: 87.903, y: 398.856, width: 13.388 },
+    { text: "9x10cm", x: 103.321, y: 398.856, width: 25.557 },
+    { text: "ref", x: 130.907, y: 398.856, width: 8.519 },
+    { text: "790862", x: 141.456, y: 398.856, width: 24.353 },
+    { text: "R$", x: 171.952, y: 381.757, width: 13.419 },
+    { text: "8,38", x: 188.29, y: 381.757, width: 20.433 },
+
+    { text: "CÓD.", x: 235.723, y: 412.9, width: 17.784 },
+    { text: "002175", x: 255.22, y: 412.9, width: 24.019 },
+    { text: "Maozinha", x: 235.723, y: 398.856, width: 31.646 },
+    { text: "latex", x: 269.397, y: 398.856, width: 15.199 },
+    { text: "rosa", x: 286.625, y: 398.856, width: 14.199 },
+    { text: "9x10cm", x: 302.853, y: 398.856, width: 25.557 },
+    { text: "ref", x: 330.44, y: 398.856, width: 8.519 },
+    { text: "790861", x: 340.989, y: 398.856, width: 24.353 },
+    { text: "maozin", x: 367.371, y: 398.856, width: 23.528 },
+    { text: "R$", x: 370.674, y: 381.757, width: 13.419 },
+    { text: "8,38", x: 387.012, y: 381.757, width: 20.433 },
+
+    { text: "CÓD.", x: 434.445, y: 412.9, width: 17.784 },
+    { text: "002176", x: 453.943, y: 412.9, width: 24.019 },
+    { text: "Pezinho", x: 434.445, y: 398.856, width: 26.01 },
+    { text: "latex", x: 462.484, y: 398.856, width: 15.199 },
+    { text: "rosa", x: 479.712, y: 398.856, width: 14.199 },
+    { text: "9x10cm", x: 495.94, y: 398.856, width: 25.557 },
+    { text: "ref", x: 523.527, y: 398.856, width: 8.519 },
+    { text: "790863", x: 534.076, y: 398.856, width: 24.353 },
+    { text: "pezinho", x: 560.458, y: 398.856, width: 25.565 },
+    { text: "R$", x: 569.396, y: 381.757, width: 13.419 },
+    { text: "8,38", x: 585.734, y: 381.757, width: 20.433 },
+
+    { text: "CÓD.", x: 633.167, y: 412.9, width: 17.784 },
+    { text: "031727", x: 652.665, y: 412.9, width: 24.019 },
+    { text: "Cesto", x: 633.167, y: 398.856, width: 19.068 },
+    { text: "organizador", x: 654.265, y: 398.856, width: 38.544 },
+    { text: "poliester", x: 694.838, y: 398.856, width: 27.587 },
+    { text: "45x45cm", x: 724.454, y: 398.856, width: 29.616 },
+    { text: "color", x: 756.099, y: 398.856, width: 15.819 },
+    { text: "R$", x: 762.281, y: 381.757, width: 13.419 },
+    { text: "15,58", x: 778.619, y: 381.757, width: 26.271 },
+
+    { text: "CÓD.", x: 37.0, y: 244.14, width: 17.784 },
+    { text: "036571", x: 56.498, y: 244.14, width: 24.019 },
+    { text: "Cj", x: 37.0, y: 230.096, width: 6.891 },
+    { text: "talher", x: 45.921, y: 230.096, width: 18.257 },
+    { text: "infantil", x: 66.207, y: 230.096, width: 20.878 },
+    { text: "flexivel", x: 89.115, y: 230.096, width: 21.907 },
+    { text: "2", x: 113.051, y: 230.096, width: 4.059 },
+    { text: "pecas", x: 119.14, y: 230.096, width: 19.476 },
+    { text: "silicone", x: 140.645, y: 230.096, width: 24.338 },
+    { text: "R$", x: 171.952, y: 212.997, width: 13.419 },
+    { text: "3,58", x: 188.29, y: 212.997, width: 20.433 },
+
+    { text: "CÓD.", x: 235.723, y: 244.14, width: 17.784 },
+    { text: "098807", x: 255.22, y: 244.14, width: 24.019 },
+    { text: "Mamadeira", x: 235.723, y: 230.096, width: 36.434 },
+    { text: "de", x: 274.186, y: 230.096, width: 8.118 },
+    { text: "plastico", x: 284.333, y: 230.096, width: 24.747 },
+    { text: "240ml", x: 311.11, y: 230.096, width: 19.878 },
+    { text: "premium", x: 333.017, y: 230.096, width: 28.39 },
+    { text: "com", x: 363.436, y: 230.096, width: 13.79 },
+    { text: "bico", x: 379.255, y: 230.096, width: 13.388 },
+    { text: "silicone", x: 235.723, y: 220.657, width: 24.338 },
+    { text: "e", x: 262.09, y: 220.657, width: 4.059 },
+    { text: "alca", x: 268.178, y: 220.657, width: 13.388 },
+    { text: "color", x: 283.596, y: 220.657, width: 15.819 },
+    { text: "R$", x: 364.836, y: 212.997, width: 13.419 },
+    { text: "13,18", x: 381.174, y: 212.997, width: 26.271 },
+
+    { text: "CÓD.", x: 434.445, y: 244.14, width: 17.784 },
+    { text: "098884", x: 453.943, y: 244.14, width: 24.019 },
+    { text: "Mamadeira", x: 434.445, y: 230.096, width: 36.434 },
+    { text: "de", x: 472.909, y: 230.096, width: 8.118 },
+    { text: "plastico", x: 483.056, y: 230.096, width: 24.747 },
+    { text: "240ml", x: 509.832, y: 230.096, width: 19.878 },
+    { text: "12", x: 531.739, y: 230.096, width: 8.118 },
+    { text: "pecas", x: 541.886, y: 230.096, width: 19.476 },
+    { text: "lisa", x: 563.392, y: 230.096, width: 10.95 },
+    { text: "color", x: 576.372, y: 230.096, width: 15.819 },
+    { text: "R$", x: 563.558, y: 212.997, width: 13.419 },
+    { text: "76,15", x: 579.896, y: 212.997, width: 26.271 },
+
+    { text: "CÓD.", x: 633.167, y: 244.14, width: 17.784 },
+    { text: "320004", x: 652.665, y: 244.14, width: 24.019 },
+    { text: "Mordedor", x: 633.167, y: 230.096, width: 31.237 },
+    { text: "maozinha", x: 666.433, y: 230.096, width: 31.645 },
+    { text: "sortida", x: 700.108, y: 230.096, width: 22.199 },
+    { text: "R$", x: 768.119, y: 212.997, width: 13.419 },
+    { text: "9,46", x: 784.457, y: 212.997, width: 20.433 },
+  ];
+
+  it("reconhece grade com rótulo 'CÓD.' (catálogo real Issam) em vez de 'MODELO:', sem a palavra 'Unid' antes do preço", () => {
+    const result = extractGridBlocks(ISSAM_PAGE_ITEMS, PAGE_WIDTH_ISSAM);
+
+    expect(result).not.toBeNull();
+    expect(result!.skippedAmbiguous).toBe(0);
+    expect(result!.blocks).toHaveLength(8);
+
+    const bySku = Object.fromEntries(result!.blocks.map((b) => [b.sku, b]));
+    expect(bySku["002168"]).toMatchObject({ name: "Maozinha latex azul 9x10cm ref 790862", supplierPrice: 8.38 });
+    // "Cj" (2 letras, sem vogal com peso e fora de REAL_SHORT_TOKENS) cai
+    // como ruído em sanitizeProductName — comportamento pré-existente do
+    // sanitizador, não algo que este fix mexe.
+    expect(bySku["036571"]).toMatchObject({ name: "talher infantil flexivel 2 pecas silicone", supplierPrice: 3.58 });
+    expect(bySku["098884"]).toMatchObject({ supplierPrice: 76.15 });
+    expect(bySku["320004"]).toMatchObject({ supplierPrice: 9.46 });
+  });
 });
 
 describe("extractProductBlocksWithoutPrice", () => {

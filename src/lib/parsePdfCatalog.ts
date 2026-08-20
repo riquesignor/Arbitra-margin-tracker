@@ -2,7 +2,12 @@ import type { CatalogRow } from "../types";
 import { parseCurrency } from "./parseCatalog";
 import { mapWithConcurrency } from "./concurrency";
 import { assertPubliclyReachable, uploadCatalogImage } from "./catalogImages";
-import { extractCatalogPageWithGemini, normalizeSkuForMatch } from "./geminiCatalogVision";
+import {
+  extractCatalogPageProductsWithGemini,
+  extractCatalogPageWithGemini,
+  GeminiCatalogQuotaExhaustedError,
+  normalizeSkuForMatch,
+} from "./geminiCatalogVision";
 
 export class PdfParseError extends Error {}
 
@@ -196,14 +201,23 @@ function extractPriceGroup(match: RegExpMatchArray): string {
 // SKU: código tipo "SKU-001", "REF12345" ou sequência de 4+ dígitos
 const SKU_PATTERN = /\b([A-Z]{2,}[-\s]?\d{2,}|\d{4,})\b/;
 // Label explícito de código de produto usado por catálogos em grade
-// (ver extractGridBlocks) — "MODELO: BMG-50", às vezes sem espaço antes
-// dos dois pontos ou com dois-pontos ausente.
-const MODEL_LABEL_PATTERN = /MODELO:?\s*(.+)/i;
+// (ver extractGridBlocks) — "MODELO: BMG-50" (às vezes sem espaço antes
+// dos dois pontos ou com dois-pontos ausente) ou "CÓD. 002168"/"CÓDIGO:
+// 002168" (catálogo real: Issam Distribuidora, 4.585 produtos, ver
+// parsePdfCatalog.test.ts). Mais rótulos podem entrar aqui no futuro se
+// aparecer catálogo com outra convenção — cada um exige guarda de
+// word-boundary (`\b` nas DUAS pontas do grupo) pra não casar no meio
+// de uma palavra qualquer que comece com as mesmas letras (ex.: sem a
+// guarda, "COD" casaria dentro de "crocodilo" — testado com o texto
+// real do catálogo Issam pra confirmar que não há colisão; "código"
+// batendo sozinho em prosa comum é inofensivo, só conta como grade
+// quando aparece 2+ vezes na MESMA linha).
+const MODEL_LABEL_PATTERN = /\b(?:MODELO|C[ÓO]D(?:IGO)?)\b:?\.?\s*(.+)/i;
 // Versão SEM captura gulosa, só pra CONTAR quantas vezes o label
 // aparece numa linha (ver detecção de cabeçalho de grade) — o `(.+)` de
 // MODEL_LABEL_PATTERN é ilimitado à direita, então com flag global ele
 // devora a linha inteira na 1ª ocorrência e nunca acha uma 2ª.
-const MODEL_LABEL_COUNT_PATTERN = /MODELO:?/gi;
+const MODEL_LABEL_COUNT_PATTERN = /\b(?:MODELO|C[ÓO]D(?:IGO)?)\b:?\.?/gi;
 // Acima disso, o "nome" quase certamente é lixo de mais de uma coluna
 // mesclada, não um nome de produto real.
 const MAX_PLAUSIBLE_NAME_LENGTH = 120;
@@ -377,6 +391,20 @@ export interface ExtractResult {
    * motivo) não é afetado por este flag.
    */
   usedOcr?: boolean;
+  /**
+   * true se QUALQUER página do intervalo precisou cair pro fallback
+   * genérico de IA de visão (ver extractCatalogPageProductsWithGemini,
+   * geminiCatalogVision.ts) — ou seja, pelo menos uma página não bateu
+   * em NENHUMA heurística conhecida (grade com rótulo tipo MODELO:/
+   * CÓD., linha única, bloco sem preço) e foi lida direto por IA.
+   * Informativo, não bloqueia nada na UI (diferente de `usedOcr`): o
+   * texto vem de leitura real da página pela IA, não de OCR pixel a
+   * pixel, então a confiabilidade pra busca por NOME é boa — mas ainda
+   * vale avisar o usuário, já que é uma leitura probabilística (a IA
+   * pode errar um caractere ocasionalmente), diferente da extração
+   * determinística de sempre.
+   */
+  usedGeminiPageExtraction?: boolean;
 }
 
 /**
@@ -723,7 +751,7 @@ export function extractGridBlocks(
 
       const blockLines = groupIntoLinesWithY(blockItems);
       const modelLine = blockLines.find((l) => MODEL_LABEL_PATTERN.test(l.text));
-      if (!modelLine) continue; // pedaço de cartão sem "MODELO:" nesse recorte — provavelmente vazio/ruído
+      if (!modelLine) continue; // pedaço de cartão sem rótulo de código (MODELO:/CÓD.) nesse recorte — provavelmente vazio/ruído
 
       const modelMatch = modelLine.text.match(MODEL_LABEL_PATTERN);
       const skuRaw = modelMatch?.[1]?.trim() ?? "";
@@ -1068,6 +1096,18 @@ export async function parsePdfCatalogFile(
   let ocrAttempted = false;
   // Quantas páginas já TENTARAM OCR nesta chamada — ver MAX_OCR_PAGES_PER_CALL.
   let ocrPagesUsed = 0;
+  // true se QUALQUER página precisou do fallback genérico de IA de visão
+  // (ver extractCatalogPageProductsWithGemini) — só pra reportar no
+  // ExtractResult final (usedGeminiPageExtraction).
+  let geminiPageExtractionUsed = false;
+  // true assim que o Gemini confirmar cota esgotada (RESOURCE_EXHAUSTED,
+  // ver GeminiCatalogQuotaExhaustedError) — a partir daí, NENHUMA chamada
+  // Gemini nova é tentada pro resto do catálogo (nem correção de preço
+  // pós-OCR, nem extração genérica), pros dois usos deste arquivo.
+  // Catálogo de centenas de páginas sem rótulo reconhecido bateria a
+  // cota já na primeira e ficaria martelando as próximas sem chance
+  // nenhuma de sucesso — só timeout/erro repetido gastando tempo.
+  let geminiQuotaExhausted = false;
 
   // try/finally garante que o worker do Tesseract (WASM + dado de
   // idioma, alguns MB) é liberado ao final do processamento — mesmo se
@@ -1159,7 +1199,7 @@ export async function parsePdfCatalogFile(
         // pro Tesseract, mas não pra um modelo de visão. UMA chamada por
         // PÁGINA (não por produto) — reaproveita o canvas já renderizado
         // pro próprio OCR, sem custo de renderização extra.
-        if (pageUsedOcr && grid.priceless.length > 0 && options?.geminiApiKey) {
+        if (pageUsedOcr && grid.priceless.length > 0 && options?.geminiApiKey && !geminiQuotaExhausted) {
           try {
             const { canvas: c } = await ensureCanvas();
             const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
@@ -1190,6 +1230,7 @@ export async function parsePdfCatalogFile(
               gridSkippedAmbiguous--;
             }
           } catch (err) {
+            if (err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;
             // Falha na correção (chave inválida, rede, cota) não derruba
             // o catálogo inteiro — os produtos ficam como ambíguos, mesmo
             // comportamento de antes dessa correção existir.
@@ -1245,25 +1286,79 @@ export async function parsePdfCatalogFile(
         }
       } else {
         // Nem grade nem linha-única acharam produto nesta página — último
-        // recurso: layout "vitrine" sem preço (ver
+        // recurso ANTES da IA: layout "vitrine" sem preço (ver
         // extractProductBlocksWithoutPrice acima). Sem suporte a foto
         // nesta v1 (escopo contido) — busca por texto/nome continua
         // disponível normalmente pra esses produtos.
         const noPriceRows = extractProductBlocksWithoutPrice(pageLines.map((l) => l.text));
-        rows.push(...noPriceRows);
+
+        if (noPriceRows.length > 0) {
+          rows.push(...noPriceRows);
+        } else if (options?.geminiApiKey && !geminiQuotaExhausted) {
+          // ÚLTIMO recurso de todos: NENHUMA heurística (grade com rótulo
+          // conhecido, linha única, bloco sem preço) reconheceu produto
+          // algum nesta página — em vez de desistir, manda a página
+          // inteira pra IA de visão ler como um humano leria, sem
+          // depender de rótulo/layout conhecido (ver
+          // extractCatalogPageProductsWithGemini, geminiCatalogVision.ts,
+          // e o comentário no topo daquele arquivo pro porquê). Opt-in
+          // (só roda com chave Gemini própria configurada, BYOK) e
+          // opt-out automático assim que a cota esgotar (ver
+          // geminiQuotaExhausted acima) — sem isso, um catálogo de
+          // centenas de páginas com layout desconhecido bateria a cota
+          // na primeira e ficaria martelando o resto sem chance nenhuma.
+          //
+          // Sem suporte a foto nesta v1 (mesma decisão de escopo do
+          // fallback "vitrine" acima) — busca por texto/nome continua
+          // disponível normalmente pra esses produtos.
+          try {
+            const { canvas: c } = await ensureCanvas();
+            const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
+            const geminiProducts = await extractCatalogPageProductsWithGemini(pageDataUrl, options.geminiApiKey);
+
+            if (geminiProducts.length > 0) {
+              geminiPageExtractionUsed = true;
+              rows.push(
+                ...geminiProducts
+                  .filter((p) => p.inStock)
+                  .map((p) =>
+                    p.price != null
+                      ? { sku: p.sku, name: p.name, supplierPrice: p.price }
+                      : { sku: p.sku, name: p.name } // sem preço legível — vira "sem_custo" mais adiante (marginCalculator.ts)
+                  )
+              );
+            }
+          } catch (err) {
+            if (err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;
+            // Mesma filosofia do resto do parser: falha numa página (rede,
+            // chave inválida, cota) não derruba o catálogo inteiro — essa
+            // página só fica sem produto, as outras seguem tentando.
+            console.warn(`Leitura genérica via IA falhou na página ${pageNum} (seguindo sem ela):`, err);
+          }
+        }
       }
     }
 
     if (rows.length === 0) {
+      // Complementa a mensagem de sempre com o que aconteceu (ou não)
+      // com o fallback de IA — sem isso, quem já tem chave Gemini
+      // configurada não sabe se ela chegou a ser tentada.
+      const geminiHint = !options?.geminiApiKey
+        ? " Configure sua chave Gemini própria em Conta pra habilitar uma leitura genérica por IA " +
+          "como último recurso, útil quando o layout do catálogo é fora do padrão."
+        : geminiQuotaExhausted
+          ? " Tentamos ler via IA (Gemini) como último recurso, mas a cota gratuita esgotou antes de " +
+            "conseguir — tente de novo em alguns minutos ou reprocesse um intervalo de páginas menor."
+          : " Tentamos ler via IA (Gemini) como último recurso, mas ela também não conseguiu " +
+            "identificar produto nenhum nas páginas processadas.";
+
       throw new PdfParseError(
-        ocrAttempted
+        (ocrAttempted
           ? `Nenhum produto reconhecido nas páginas ${from}–${to} mesmo com OCR (este PDF não tem ` +
             "texto embutido, então tentamos ler por OCR). O layout pode ser complexo demais, ou a " +
-            "qualidade da página renderizada ficou baixa demais pro OCR reconhecer — tente um " +
-            "intervalo de páginas menor ou confira se o catálogo segue o padrão esperado (nome + preço " +
-            "por produto)."
+            "qualidade da página renderizada ficou baixa demais pro OCR reconhecer."
           : `Nenhum produto reconhecido nas páginas ${from}–${to}. Se for texto real, o layout pode ` +
-            "não bater com o padrão esperado (linha com nome + preço)."
+            "não bater com o padrão esperado (linha com nome + preço).") + geminiHint
       );
     }
 
@@ -1272,6 +1367,7 @@ export async function parsePdfCatalogFile(
       skippedAmbiguous,
       imagesBySku: withImages ? imagesBySku : undefined,
       usedOcr: ocrAttempted,
+      usedGeminiPageExtraction: geminiPageExtractionUsed,
     };
   } finally {
     // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB

@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  GeminiCatalogQuotaExhaustedError,
   GeminiCatalogVisionError,
+  extractCatalogPageProductsWithGemini,
   extractCatalogPageWithGemini,
   normalizeSkuForMatch,
+  parseCatalogPageFullResponse,
   parseCatalogPageResponse,
 } from "./geminiCatalogVision";
 
@@ -111,5 +114,102 @@ describe("extractCatalogPageWithGemini", () => {
     fetchMock.mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"));
 
     await expect(extractCatalogPageWithGemini(FAKE_PAGE_DATA_URL, "fake-key")).rejects.toThrow(/cota/i);
+  });
+
+  it("RESOURCE_EXHAUSTED lança a subclasse GeminiCatalogQuotaExhaustedError (não só a genérica) — parsePdfCatalog.ts distingue os dois pra decidir se para de tentar nas próximas páginas", async () => {
+    fetchMock.mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"));
+
+    await expect(extractCatalogPageWithGemini(FAKE_PAGE_DATA_URL, "fake-key")).rejects.toThrow(
+      GeminiCatalogQuotaExhaustedError
+    );
+  });
+});
+
+describe("parseCatalogPageFullResponse", () => {
+  it("parseia um array JSON limpo de produtos com sku, nome e preço", () => {
+    const products = parseCatalogPageFullResponse(
+      '[{"sku":"BM-F1324","name":"Suporte de moto","inStock":true,"price":17.00},' +
+        '{"sku":"BM-F1323","name":"Suporte de bike","inStock":false,"price":null}]'
+    );
+
+    expect(products).toEqual([
+      { sku: "BM-F1324", name: "Suporte de moto", inStock: true, price: 17 },
+      { sku: "BM-F1323", name: "Suporte de bike", inStock: false, price: null },
+    ]);
+  });
+
+  it("tolera cerca de código (```json ... ```)", () => {
+    const products = parseCatalogPageFullResponse(
+      '```json\n[{"sku":"A1","name":"Produto A","inStock":true,"price":10}]\n```'
+    );
+
+    expect(products).toEqual([{ sku: "A1", name: "Produto A", inStock: true, price: 10 }]);
+  });
+
+  it("pula entrada sem SKU e entrada sem NOME (as duas são obrigatórias aqui, diferente de parseCatalogPageResponse) sem derrubar a página inteira", () => {
+    const products = parseCatalogPageFullResponse(
+      '[{"sku":"A1","name":"Produto A","inStock":true,"price":10},' +
+        '{"name":"Sem SKU","inStock":true,"price":5},' +
+        '{"sku":"B2","inStock":true,"price":5},' +
+        '{"sku":"","name":"SKU vazio","inStock":true,"price":5},' +
+        "null]"
+    );
+
+    expect(products).toEqual([{ sku: "A1", name: "Produto A", inStock: true, price: 10 }]);
+  });
+
+  it("trata preço inválido (negativo, zero, não-número) como null em vez de propagar lixo", () => {
+    const products = parseCatalogPageFullResponse(
+      '[{"sku":"A1","name":"Produto A","inStock":true,"price":-5}]'
+    );
+
+    expect(products).toEqual([{ sku: "A1", name: "Produto A", inStock: true, price: null }]);
+  });
+
+  it("lança GeminiCatalogVisionError quando a resposta não é JSON válido", () => {
+    expect(() => parseCatalogPageFullResponse("não é json nenhum")).toThrow(GeminiCatalogVisionError);
+  });
+
+  it("lança GeminiCatalogVisionError quando a resposta é um objeto, não um array", () => {
+    expect(() => parseCatalogPageFullResponse('{"sku":"A1"}')).toThrow(GeminiCatalogVisionError);
+  });
+});
+
+describe("extractCatalogPageProductsWithGemini", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("manda a página inteira numa ÚNICA chamada e devolve sku+nome+preço, sem depender de rótulo conhecido", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockGeminiResponse('[{"sku":"XYZ-1","name":"Produto qualquer","inStock":true,"price":42.5}]')
+    );
+
+    const products = await extractCatalogPageProductsWithGemini(FAKE_PAGE_DATA_URL, "fake-key");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // uma chamada por página, não por produto
+    expect(products).toEqual([{ sku: "XYZ-1", name: "Produto qualquer", inStock: true, price: 42.5 }]);
+  });
+
+  it("rejeita data URL fora do formato esperado sem chamar a rede", async () => {
+    await expect(extractCatalogPageProductsWithGemini("not-a-data-url", "fake-key")).rejects.toThrow(
+      GeminiCatalogVisionError
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("RESOURCE_EXHAUSTED lança GeminiCatalogQuotaExhaustedError com mensagem acionável sobre cota", async () => {
+    fetchMock.mockResolvedValueOnce(mockGeminiErrorResponse(429, "RESOURCE_EXHAUSTED"));
+
+    await expect(extractCatalogPageProductsWithGemini(FAKE_PAGE_DATA_URL, "fake-key")).rejects.toThrow(
+      GeminiCatalogQuotaExhaustedError
+    );
   });
 });

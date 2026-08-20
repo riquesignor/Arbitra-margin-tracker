@@ -1,28 +1,42 @@
 /**
  * ══════════════════════════════════════════════════════════════════════
- * LEITURA DE PÁGINA DE CATÁLOGO COM GEMINI — correção de preço pós-OCR
+ * LEITURA DE PÁGINA DE CATÁLOGO COM GEMINI
  * ══════════════════════════════════════════════════════════════════════
  *
- * Existe pra resolver um problema específico do fallback de OCR em
- * parsePdfCatalog.ts: alguns catálogos de fornecedor usam um banner
- * DIAGONAL e COLORIDO (ex.: faixa amarela "Unid.CX: 17,00", faixa
- * vermelha/laranja "ESGOTADO") pro preço/status de estoque — um elemento
- * gráfico, não texto simples. Tesseract (OCR pixel a pixel, sem
- * entendimento de LAYOUT) reconhece bem o "MODELO: BM-F1324" (texto preto
- * reto sobre fundo claro), mas sistematicamente PERDE o conteúdo desse
- * banner (confirmado com o PDF real do usuário: nome/modelo saem
- * corretos, preço sai vazio em quase todo produto da página). Sem preço,
- * `extractGridBlocks` descarta o produto inteiro — daí o catálogo inteiro
- * (~50 produtos em 6 páginas) virar "2 produtos reconhecidos".
+ * Duas funções, dois papéis:
  *
- * Um modelo de VISÃO como o Gemini não tem esse ponto cego: ele lê a
- * imagem como um todo (cor, posição, contexto), não caractere isolado
- * binarizado em preto/branco. Este módulo manda a PÁGINA INTEIRA (não um
- * recorte por produto) numa ÚNICA chamada e pede de volta o preço/status
- * de TODOS os produtos daquela página — ver comentário em
- * `extractCatalogPageWithGemini` sobre por que "página inteira" é a
- * escolha certa (mais barato E mais confiável que uma chamada por
- * produto).
+ * 1. `extractCatalogPageWithGemini` — CORREÇÃO de preço pós-OCR. Existe
+ *    pra resolver um problema específico do fallback de OCR em
+ *    parsePdfCatalog.ts: alguns catálogos de fornecedor usam um banner
+ *    DIAGONAL e COLORIDO (ex.: faixa amarela "Unid.CX: 17,00", faixa
+ *    vermelha/laranja "ESGOTADO") pro preço/status de estoque — um
+ *    elemento gráfico, não texto simples. Tesseract (OCR pixel a pixel,
+ *    sem entendimento de LAYOUT) reconhece bem o "MODELO: BM-F1324"
+ *    (texto preto reto sobre fundo claro), mas sistematicamente PERDE o
+ *    conteúdo desse banner. Chamada só quando o cartão já tem SKU/nome
+ *    (achados pelo OCR) e falta só o preço.
+ *
+ * 2. `extractCatalogPageProductsWithGemini` (ago/2026) — EXTRAÇÃO
+ *    GENÉRICA de página inteira, usada como ÚLTIMO recurso em
+ *    parsePdfCatalogFile quando NENHUMA heurística (grade com rótulo
+ *    conhecido, linha única, bloco sem preço) reconhece produto algum
+ *    numa página. Existe pra não precisar de uma regra nova cada vez que
+ *    aparece um fornecedor com layout/rótulo diferente (ver histórico:
+ *    "MODELO:" → "CÓD." → próximo vai ser outro) — a IA de visão lê a
+ *    página como um humano leria, sem depender de nenhum rótulo
+ *    específico. Diferente da correção de preço (que só busca o preço de
+ *    um SKU já conhecido), esta pede SKU + NOME + preço de tudo que
+ *    estiver visível na página.
+ *
+ * As duas compartilham a chamada de rede (`callGeminiForPage` abaixo) —
+ * só o prompt e o parsing da resposta mudam.
+ *
+ * Um modelo de VISÃO como o Gemini não tem o ponto cego do OCR pixel a
+ * pixel: ele lê a imagem como um todo (cor, posição, contexto). As duas
+ * funções mandam a PÁGINA INTEIRA (não um recorte por produto) numa
+ * ÚNICA chamada — mais barato E mais confiável que uma chamada por
+ * produto (testado com página real: os N produtos de uma página saem
+ * certos numa chamada só).
  *
  * Roda DIRETO DO NAVEGADOR (fetch nativo, sem Buffer/Node) — diferente de
  * api/_lib/geminiVision.ts (usado na BUSCA de preço, que roda no servidor
@@ -37,6 +51,18 @@
  */
 
 export class GeminiCatalogVisionError extends Error {}
+
+/**
+ * Subclasse específica pra esgotamento de cota (`RESOURCE_EXHAUSTED`) —
+ * mesmo padrão de `GeminiQuotaExhaustedError` em api/_lib/geminiVision.ts
+ * (busca de preço). Deixa o chamador (parsePdfCatalogFile) distinguir
+ * "essa página específica falhou" de "a cota inteira esgotou, não vale
+ * tentar mais nenhuma página" — importante aqui porque um catálogo de
+ * centenas de páginas SEM nenhum rótulo reconhecido bateria a cota na
+ * primeira página e ficaria martelando as próximas 392 sem chance
+ * nenhuma de sucesso, só gastando tempo com timeout/erro repetido.
+ */
+export class GeminiCatalogQuotaExhaustedError extends GeminiCatalogVisionError {}
 
 interface GeminiPart {
   text?: string;
@@ -144,6 +170,81 @@ export function normalizeSkuForMatch(sku: string): string {
 }
 
 /**
+ * Chamada de rede compartilhada pelas duas funções públicas deste
+ * módulo — só o PROMPT muda entre correção de preço e extração
+ * genérica, toda a mecânica de request/timeout/erro é idêntica. Devolve
+ * o texto bruto da resposta; quem chama decide como parsear (formatos
+ * de saída diferentes pra cada caso).
+ *
+ * `mensagemCota` é customizável porque o texto de erro precisa fazer
+ * sentido pro contexto de quem chamou (uma frase pra "a correção de
+ * preço foi pulada", outra pra "a leitura genérica da página foi
+ * pulada") — o `status` HTTP/motivo é o mesmo Gemini API pros dois usos.
+ */
+async function callGeminiForPage(
+  pageDataUrl: string,
+  apiKey: string,
+  prompt: string,
+  mensagemCota: string
+): Promise<string> {
+  const { mimeType, data } = dataUrlToInlineData(pageDataUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${ENDPOINT_BASE}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data } }] as GeminiPart[],
+          },
+        ],
+        // JSON mode: o Gemini força a resposta a ser JSON sintaticamente
+        // válido — reduz (não elimina, daí o parse tolerante em cada
+        // função pública) o risco de cerca de código ou texto solto em
+        // volta do array.
+        generationConfig: { maxOutputTokens: 4000, temperature: 0.1, responseMimeType: "application/json" },
+      }),
+      signal: controller.signal,
+    });
+
+    const json = (await response.json()) as GeminiResponse;
+
+    if (!response.ok) {
+      const status = json.error?.status;
+      if (status === "RESOURCE_EXHAUSTED") {
+        throw new GeminiCatalogQuotaExhaustedError(
+          `Gemini sem cota disponível agora (limite de requisições do tier gratuito, ver ` +
+            `aistudio.google.com/rate-limit) — ${mensagemCota}`
+        );
+      }
+      throw new GeminiCatalogVisionError(
+        `Gemini retornou HTTP ${response.status}${json.error?.message ? `: ${json.error.message}` : ""}`
+      );
+    }
+
+    if (json.promptFeedback?.blockReason) {
+      throw new GeminiCatalogVisionError(`Gemini recusou processar a página (${json.promptFeedback.blockReason}).`);
+    }
+
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) throw new GeminiCatalogVisionError("Gemini não devolveu texto na resposta.");
+
+    return text;
+  } catch (err) {
+    if (err instanceof GeminiCatalogVisionError) throw err;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new GeminiCatalogVisionError(`Gemini não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (timeout).`);
+    }
+    throw new GeminiCatalogVisionError(`Falha ao chamar Gemini: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Lê a página INTEIRA de um catálogo (já renderizada como data URL de
  * canvas) numa ÚNICA chamada Gemini, devolvendo preço/status de TODOS os
  * produtos visíveis nela — ver comentário no topo do arquivo pro porquê.
@@ -161,55 +262,106 @@ export async function extractCatalogPageWithGemini(
   pageDataUrl: string,
   apiKey: string
 ): Promise<CatalogPageProduct[]> {
-  const { mimeType, data } = dataUrlToInlineData(pageDataUrl);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const text = await callGeminiForPage(
+    pageDataUrl,
+    apiKey,
+    CATALOG_PAGE_PROMPT,
+    "a correção de preço via IA foi pulada pra esta página."
+  );
+  return parseCatalogPageResponse(text);
+}
 
+export interface CatalogPageFullProduct {
+  /** Código/SKU exatamente como o Gemini leu na página. */
+  sku: string;
+  /** Nome/descrição do produto, também lido da página (diferente de CatalogPageProduct, que não precisa de nome pois já o recebe de outra fonte). */
+  name: string;
+  inStock: boolean;
+  /** null quando esgotado/indisponível OU quando o preço não ficou legível nem pro Gemini. */
+  price: number | null;
+}
+
+// Deliberadamente GENÉRICO — não assume nenhum rótulo específico
+// ("MODELO:", "CÓD.", etc.), nenhuma disposição de grade fixa, nem
+// idioma de rótulo. É exatamente o ponto: catálogo de fornecedor novo
+// com convenção nunca vista antes não deve precisar de código novo aqui,
+// só funcionar direto (ver comentário no topo do arquivo).
+const FULL_PAGE_EXTRACTION_PROMPT =
+  "Você está vendo uma página de um catálogo de produtos de um fornecedor (venda no atacado ou " +
+  "varejo). Cada produto tem um código/referência (rotulado como 'SKU', 'CÓD.', 'CÓDIGO', 'MODELO', " +
+  "'REF' ou qualquer outra convenção — analise visualmente, o rótulo exato varia entre fornecedores " +
+  "e o layout pode ser grade de cartões ou lista), uma foto, um nome/descrição, e um preço em reais " +
+  "(R$) — às vezes num banner ou faixa colorida em vez de texto simples. Para CADA produto visível " +
+  "na página, identifique: 1) o código/SKU exatamente como aparece; 2) o nome/descrição do produto; " +
+  "3) se está em estoque (true) ou esgotado/indisponível (false, ex.: faixa 'ESGOTADO'); 4) se em " +
+  "estoque, o preço UNITÁRIO em reais (ignore quantidade por caixa tipo '32PCS/CX' ou código de " +
+  "referência numérico solto sem 'R$' — isso não é preço; ignore também o preço da caixa fechada se " +
+  "vier separado do preço unitário). Se esgotado ou o preço não estiver legível, use null pro preço " +
+  "mas AINDA ASSIM inclua o produto com sku e name. Se não conseguir identificar nem um código/SKU " +
+  "pra um produto, pule-o (não invente nada). Responda SOMENTE com um array JSON, sem texto antes ou " +
+  "depois, sem markdown: [{\"sku\": \"BM-F1324\", \"name\": \"Nome do produto\", \"inStock\": true, " +
+  '"price": 17.00}, ...]. Use ponto decimal (não vírgula) no preço.';
+
+/**
+ * Exportado pra teste direto — parseia a resposta de texto do Gemini pra
+ * extração GENÉRICA (sku+nome+preço), mesma tolerância a cerca de código
+ * e entrada malformada isolada de `parseCatalogPageResponse`. Diferença
+ * chave: aqui `name` é obrigatório (sem nome, a linha não serve pra
+ * nada — nem busca de preço por texto nem exibição na tela fazem
+ * sentido com nome vazio), então entrada sem nome utilizável é
+ * descartada, não incluída com string vazia.
+ */
+export function parseCatalogPageFullResponse(text: string): CatalogPageFullProduct[] {
+  const cleaned = text.replace(/^```json\s*|^```\s*|\s*```$/g, "").trim();
+
+  let parsed: unknown;
   try {
-    const response = await fetch(`${ENDPOINT_BASE}?key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [{ text: CATALOG_PAGE_PROMPT }, { inline_data: { mime_type: mimeType, data } }] as GeminiPart[],
-          },
-        ],
-        // JSON mode: o Gemini força a resposta a ser JSON sintaticamente
-        // válido — reduz (não elimina, daí o parse tolerante acima) o
-        // risco de cerca de código ou texto solto em volta do array.
-        generationConfig: { maxOutputTokens: 4000, temperature: 0.1, responseMimeType: "application/json" },
-      }),
-      signal: controller.signal,
-    });
-
-    const json = (await response.json()) as GeminiResponse;
-
-    if (!response.ok) {
-      const status = json.error?.status;
-      throw new GeminiCatalogVisionError(
-        status === "RESOURCE_EXHAUSTED"
-          ? "Gemini sem cota disponível agora (limite de requisições do tier gratuito, ver " +
-            "aistudio.google.com/rate-limit) — a correção de preço via IA foi pulada pra esta página."
-          : `Gemini retornou HTTP ${response.status}${json.error?.message ? `: ${json.error.message}` : ""}`
-      );
-    }
-
-    if (json.promptFeedback?.blockReason) {
-      throw new GeminiCatalogVisionError(`Gemini recusou processar a página (${json.promptFeedback.blockReason}).`);
-    }
-
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text) throw new GeminiCatalogVisionError("Gemini não devolveu texto na resposta.");
-
-    return parseCatalogPageResponse(text);
-  } catch (err) {
-    if (err instanceof GeminiCatalogVisionError) throw err;
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new GeminiCatalogVisionError(`Gemini não respondeu em ${REQUEST_TIMEOUT_MS / 1000}s (timeout).`);
-    }
-    throw new GeminiCatalogVisionError(`Falha ao chamar Gemini: ${err instanceof Error ? err.message : String(err)}`);
-  } finally {
-    clearTimeout(timeout);
+    parsed = JSON.parse(cleaned);
+  } catch {
+    throw new GeminiCatalogVisionError("Gemini não devolveu um JSON válido pra página do catálogo.");
   }
+  if (!Array.isArray(parsed)) {
+    throw new GeminiCatalogVisionError("Gemini não devolveu uma lista de produtos pra página do catálogo.");
+  }
+
+  const products: CatalogPageFullProduct[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object") continue;
+    const rawSku = (entry as Record<string, unknown>).sku;
+    const sku = typeof rawSku === "string" ? rawSku.trim() : "";
+    if (!sku) continue;
+
+    const rawName = (entry as Record<string, unknown>).name;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!name) continue;
+
+    const rawInStock = (entry as Record<string, unknown>).inStock;
+    const inStock = rawInStock !== false; // ausente/tipo errado => assume em estoque, deixa o preço decidir
+
+    const rawPrice = (entry as Record<string, unknown>).price;
+    const price = typeof rawPrice === "number" && Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
+
+    products.push({ sku, name, inStock, price });
+  }
+  return products;
+}
+
+/**
+ * Extração GENÉRICA de página inteira — sku, nome e preço de TODOS os
+ * produtos visíveis, sem depender de rótulo/layout conhecido. Ver
+ * comentário no topo do arquivo pro porquê e uso em parsePdfCatalog.ts
+ * (só chamado quando grade + linha-única + bloco-sem-preço não acharem
+ * NADA numa página, com chave Gemini própria do usuário configurada).
+ */
+export async function extractCatalogPageProductsWithGemini(
+  pageDataUrl: string,
+  apiKey: string
+): Promise<CatalogPageFullProduct[]> {
+  const text = await callGeminiForPage(
+    pageDataUrl,
+    apiKey,
+    FULL_PAGE_EXTRACTION_PROMPT,
+    "a leitura genérica desta página por IA foi pulada."
+  );
+  return parseCatalogPageFullResponse(text);
 }
