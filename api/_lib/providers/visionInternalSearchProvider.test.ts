@@ -171,6 +171,47 @@ describe("searchVisionInternalShared", () => {
   });
 
   it(
+    "avisa (console.warn, resumo agregado) quando um candidato é descartado por nota visual " +
+      "abaixo do piso — antes disso era 100% silencioso, indistinguível de bloqueio ou de sem match",
+    async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        {
+          marketplace: "amazon",
+          label: "Amazon",
+          offers: [offer({ thumbnail: "https://loja/fraco.jpg", link: "l1" })],
+        },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.3); // < piso de aceite (0.5)
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+
+      expect(result.amazon["SKU-1"]).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/1 candidato.*nota visual abaixo do piso/i));
+      warnSpy.mockRestore();
+    }
+  );
+
+  it("NÃO avisa sobre nota visual quando nenhum candidato foi descartado por esse motivo", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    describeProductImage.mockResolvedValue("query");
+    fetchStoreOffers.mockResolvedValue([
+      {
+        marketplace: "amazon",
+        label: "Amazon",
+        offers: [offer({ thumbnail: "https://loja/bom.jpg", link: "l1" })],
+      },
+    ] satisfies StoreOffers[]);
+    compareProductImages.mockResolvedValue(0.95); // aceito de sobra
+
+    await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringMatching(/nota visual abaixo do piso/i));
+    warnSpy.mockRestore();
+  });
+
+  it(
     "corta o resto do lote assim que a cota do Gemini esgota — não insiste item por item " +
       "batendo na mesma parede (ver comentário de quotaExhausted em visionInternalSearchProvider.ts)",
     async () => {

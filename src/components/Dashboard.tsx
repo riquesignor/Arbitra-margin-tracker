@@ -244,7 +244,16 @@ const CHUNK_SIZE = 20;
 // de propósito (tier gratuito do Gemini) e várias chamadas sequenciais
 // por item deixam esse provider bem mais lento por item que os outros;
 // ver comentário completo em `finishWithRows`.
-const VISION_CHUNK_SIZE = 5;
+//
+// Reduzido de 5 pra 3 (ago/2026) junto com o retry em 503
+// (internalSearchProvider.ts) e o timeout maior do Gemini
+// (geminiVision.ts, 15s→20s): as duas mudanças aumentam o pior caso de
+// tempo por item, e `searchVisionInternalShared` só lança erro de
+// verdade (vira 502 pro lote inteiro) quando TODOS os itens do lote
+// falham — lote menor reduz quantos produtos um 502 desses carrega
+// junto, e dá mais folga pro teto de 300s da function (vercel.json)
+// antes de um catálogo grande esbarrar nele de novo.
+const VISION_CHUNK_SIZE = 3;
 
 export interface DashboardResult {
   rows: CatalogRow[];

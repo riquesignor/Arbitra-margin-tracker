@@ -139,6 +139,16 @@ export async function searchVisionInternalShared(
   // de "0 resultados" silencioso no fim.
   let quotaExhausted = false;
 
+  // Só observabilidade (ago/2026) — antes, um candidato achado na loja
+  // mas com nota de comparação visual abaixo do piso (MIN_ACCEPT_SCORE)
+  // era descartado 100% em silêncio: nenhum warn, nenhum error, nada no
+  // log. Ficava indistinguível de "loja bloqueou" ou "sem match nenhum"
+  // — as três causas têm solução DIFERENTE (proxy/retry pra bloqueio,
+  // ajustar o piso pra nota baixa, nada a fazer pra sem match de
+  // verdade), então valia separar. Resumo no fim, não por item, pra não
+  // inflar o log de um catálogo grande.
+  let belowThresholdCount = 0;
+
   await mapWithConcurrency(itemsWithImage, CONCURRENCY, async (item) => {
     if (quotaExhausted) {
       failures++;
@@ -192,7 +202,10 @@ export async function searchVisionInternalShared(
           }
         }
 
-        if (!best || best.score < MIN_ACCEPT_SCORE) continue;
+        if (!best || best.score < MIN_ACCEPT_SCORE) {
+          if (best) belowThresholdCount++;
+          continue;
+        }
 
         results[best.marketplace][item.sku] = {
           marketplace: best.marketplace,
@@ -227,6 +240,14 @@ export async function searchVisionInternalShared(
 
   if (itemsWithImage.length > 0 && failures === itemsWithImage.length && lastError) {
     throw new Error(lastError);
+  }
+
+  if (belowThresholdCount > 0) {
+    console.warn(
+      `[motor-interno+IA] ${belowThresholdCount} candidato(s) descartado(s) por nota visual abaixo do piso ` +
+        `de aceite (${MIN_ACCEPT_SCORE}) — a busca achou produto na loja, a IA comparou a foto, mas não ` +
+        "confiou o bastante pra aceitar como o mesmo produto. Não é bloqueio nem falta de resultado na loja."
+    );
   }
 
   return results;

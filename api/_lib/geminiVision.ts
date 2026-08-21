@@ -46,8 +46,21 @@
 const MODEL = "gemini-3.1-flash-lite";
 const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
-/** Teto de tempo por chamada — função serverless tem limite de execução total, e um lote inteiro depende de várias chamadas em sequência (ver CONCURRENCY em visionInternalSearchProvider.ts). */
-const REQUEST_TIMEOUT_MS = 15000;
+/**
+ * Teto de tempo por chamada — função serverless tem limite de execução
+ * total (300s, vercel.json), e um lote inteiro depende de várias chamadas
+ * em sequência (ver CONCURRENCY em visionInternalSearchProvider.ts).
+ *
+ * Subiu de 15s pra 20s (ago/2026 — relato real: timeout de 15s cortando
+ * `describeProductImage` em produtos que responderiam bem com um pouco
+ * mais de tempo, mesmo sem cota esgotada). Não subiu mais que isso de
+ * propósito: cada item de vision_internal já encadeia até ~7 chamadas
+ * (1 descrição + até 3 comparações × 2 lojas) — um timeout maior demais
+ * multiplica rápido o pior caso por item e aumenta o risco de estourar
+ * o teto de 300s da function pra um lote inteiro. Ver VISION_CHUNK_SIZE
+ * em Dashboard.tsx, reduzido junto com esta mudança pela mesma razão.
+ */
+const REQUEST_TIMEOUT_MS = 20000;
 
 /**
  * Retry específico pra RESOURCE_EXHAUSTED (cota do tier gratuito) — ver
