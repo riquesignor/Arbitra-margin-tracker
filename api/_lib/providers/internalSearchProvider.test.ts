@@ -347,6 +347,64 @@ describe("fetchStoreHtml — retry em 503", () => {
   });
 });
 
+describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
+  const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("sem SCRAPERAPI_KEY, continua indo direto na loja com os headers de navegador — comportamento antigo intacto", async () => {
+    let calledUrl = "";
+    let calledHeaders: RequestInit["headers"];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calledUrl = url;
+        calledHeaders = init?.headers;
+        return { status: 200, text: async () => ML_HTML } as unknown as Response;
+      })
+    );
+
+    await fetchStoreOffers("produto qualquer", MATCHERS);
+
+    expect(calledUrl).toContain("mercadolivre.com.br");
+    expect(calledUrl).not.toContain("scraperapi.com");
+    expect(calledHeaders).toMatchObject({ "User-Agent": expect.stringContaining("Mozilla") });
+  });
+
+  it(
+    "com SCRAPERAPI_KEY setada, chama o endpoint do ScraperAPI (api_key + url da loja como parâmetro) " +
+      "em vez de ir direto na loja, sem sobrepor header próprio — é a troca central da estratégia paga " +
+      "decidida com o usuário (ago/2026): mesmos parsers, só o transporte HTTP muda",
+    async () => {
+      vi.stubEnv("SCRAPERAPI_KEY", "chave-de-teste");
+      vi.resetModules(); // SCRAPERAPI_KEY é lida uma vez no module-load — precisa reimportar pra pegar o novo valor
+      const { fetchStoreOffers: fetchStoreOffersComProxy } = await import("./internalSearchProvider");
+
+      let calledUrl = "";
+      let calledHeaders: RequestInit["headers"];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string, init?: RequestInit) => {
+          calledUrl = url;
+          calledHeaders = init?.headers;
+          return { status: 200, text: async () => ML_HTML } as unknown as Response;
+        })
+      );
+
+      await fetchStoreOffersComProxy("produto qualquer", MATCHERS);
+
+      expect(calledUrl).toContain("https://api.scraperapi.com/?api_key=chave-de-teste&url=");
+      expect(calledUrl).toContain("mercadolivre.com.br"); // URL da loja vai como parâmetro, não como destino
+      expect(calledHeaders).toBeUndefined(); // ScraperAPI monta os próprios headers do lado dele
+
+      vi.resetModules(); // não deixa a versão "com chave" vazar pros describes seguintes deste arquivo
+    }
+  );
+});
+
 describe("searchInternalShared — bloqueio parcial", () => {
   const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
 

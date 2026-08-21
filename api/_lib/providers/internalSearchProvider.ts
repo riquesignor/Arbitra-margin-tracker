@@ -143,6 +143,28 @@ const BROWSER_HEADERS: Record<string, string> = {
 };
 
 /**
+ * Chave do ScraperAPI (ago/2026) — proxy pago que bypassa o anti-bot que
+ * bloqueava Amazon/Mercado Livre direto do IP de datacenter da Vercel
+ * (ver "risco real" no topo do arquivo, que já previa exatamente essa
+ * troca). Server-side, `process.env`, MESMO padrão de `ML_CLIENT_ID`/
+ * `ML_CLIENT_SECRET` (mlAuth.ts) — NÃO segue o padrão BYOK de
+ * Gemini/SerpApi/RapidAPI/SearchApi.io (chave própria do usuário,
+ * cadastrada em Conta, guardada em user_secrets/{uid}).
+ *
+ * É intencional ser diferente: essa chave é da PLATAFORMA, não do
+ * usuário final — o custo dela entra na precificação da assinatura da
+ * Arbitra, decisão tomada junto com o dono do produto precisamente pra
+ * não empurrar mais uma assinatura de terceiro pro consumidor comum.
+ * Nunca deve virar campo em Account.tsx nem trafegar pro cliente.
+ *
+ * Sem a variável setada (dev local sem `.env.local`, ou enquanto o plano
+ * pago não for confirmado), cai pro `fetch` direto de sempre — zero
+ * mudança de comportamento pra quem não configurou.
+ */
+const SCRAPERAPI_KEY = process.env.SCRAPERAPI_KEY;
+const SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/";
+
+/**
  * Bloqueio/desafio da loja — categoria de erro DIFERENTE de "não achei
  * o produto". Existe como classe própria pra `searchInternalShared`
  * poder propagar uma mensagem acionável ("o IP foi bloqueado, use outro
@@ -615,14 +637,37 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
   return null;
 }
 
-/** Uma tentativa HTTP crua — sem retry, sem classificar bloqueio. Devolve status + corpo pra quem chama decidir (`fetchStoreHtml` abaixo). */
+/**
+ * Uma tentativa HTTP crua — sem retry, sem classificar bloqueio. Devolve
+ * status + corpo pra quem chama decidir (`fetchStoreHtml` abaixo).
+ *
+ * Com `SCRAPERAPI_KEY` setada, a requisição vai pro endpoint do
+ * ScraperAPI (`url` da loja vira parâmetro, não o destino direto) — ele
+ * repassa por padrão o status HTTP de origem da loja, então `detectBlock`
+ * continua funcionando sem mudança (403/429/503/CAPTCHA/página curta
+ * classificam igual). Headers de navegador próprios (`BROWSER_HEADERS`)
+ * só fazem sentido indo direto na loja: o ScraperAPI monta os dele do
+ * lado de lá, e sobrepor os nossos não ajuda.
+ *
+ * `render`/`premium` (JS rendering, bypass de anti-bot mais agressivo)
+ * NÃO estão ligados aqui de propósito — Amazon/ML servem HTML pronto
+ * pros parsers atuais (JSON-LD/cards), então ligar isso só aumentaria o
+ * custo em crédito sem ganho hoje. Se o bloqueio persistir mesmo via
+ * proxy, esse é o próximo botão a virar, sem tocar em parser nem em
+ * `fetchStoreHtml`.
+ */
 async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{ status: number; html: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
+  const useProxy = Boolean(SCRAPERAPI_KEY);
+  const targetUrl = useProxy
+    ? `${SCRAPERAPI_ENDPOINT}?api_key=${SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}`
+    : url;
+
   try {
-    const response = await fetch(url, {
-      headers: BROWSER_HEADERS,
+    const response = await fetch(targetUrl, {
+      headers: useProxy ? undefined : BROWSER_HEADERS,
       redirect: "follow",
       signal: controller.signal,
     });
