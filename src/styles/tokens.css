@@ -78,7 +78,16 @@
   --color-border-soft: #eef0f3;
   --color-text: #12161c;
   --color-text-muted: #5b6472;
-  --color-text-dim: #8b93a1;
+  /* Era #8b93a1 (2,9:1 sobre --color-bg, 3,1:1 sobre --color-bg-elevated)
+     — reprovava WCAG AA (mínimo 4,5:1 pra texto normal) nos rótulos CAPS
+     de coluna/seção e legendas que usam este token em todo o app, quase
+     sempre abaixo do limiar de "texto grande" que permitiria 3:1. Mesmo
+     tipo de bug que o audit de design (ago/2026) documentou e corrigiu
+     na paleta "Remaster" (ainda não aplicada); aqui é o fix equivalente
+     na paleta atualmente em produção, sem trocar paleta nem componente.
+     #656d7d mede 4,9:1 / 5,2:1 nos mesmos dois fundos — mantém a
+     hierarquia texto > muted > dim, só com dim finalmente legível. */
+  --color-text-dim: #656d7d;
 
   --color-accent: #3f5f80;
   --color-accent-hover: #2c4460;
