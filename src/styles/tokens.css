@@ -1,27 +1,40 @@
 :root {
-  /* --- Tipografia — família única (Inter). Display/body/mono apontam
-     para a mesma família: números usam font-variant-numeric, não outra
-     fonte. Ver design/design-tokens.md. --- */
-  --font-display: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-body: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* --- Tipografia — Remaster (ago/2026): Archivo no texto/títulos,
+     JetBrains Mono em todo DADO numérico (preço, margem, SKU, cota,
+     data, contagem) — regra semântica, não decorativa (design/design-
+     tokens.md § Tipografia). Troca Inter (família única anterior) e
+     remove de vez IBM Plex/Space Grotesk, que já não eram usadas aqui
+     mas ainda eram importadas em index.html. --font-mono já era
+     consumida por ~120 regras de dado em todo o app antes desta
+     mudança — só trocar o valor já reskina cada uma. */
+  --font-display: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* --- Escala tipográfica — cada degrau multiplica --font-scale (ver
      preset de tamanho de texto logo abaixo), então trocar o preset
-     reescala a hierarquia inteira sem tocar em nenhum componente. --- */
-  --text-display: calc(28px * var(--font-scale));
-  --text-title: calc(20px * var(--font-scale));
-  --text-card: calc(15px * var(--font-scale));
-  --text-body: calc(14px * var(--font-scale));
-  --text-sm: calc(13px * var(--font-scale));
-  --text-xs: calc(12px * var(--font-scale));
+     reescala a hierarquia inteira sem tocar em nenhum componente.
+     Nenhum componente hoje lê --text-* diretamente (todos usam rem/px
+     próprios) — mantidos só como referência do degrau Remaster caso
+     um passo futuro migre os componentes pra consumir a variável. --- */
+  --text-display: calc(32px * var(--font-scale));
+  --text-title: calc(26px * var(--font-scale));
+  --text-card: calc(13.5px * var(--font-scale));
+  --text-body: calc(13px * var(--font-scale));
+  --text-sm: calc(12px * var(--font-scale));
+  --text-xs: calc(11.5px * var(--font-scale));
   --text-label: calc(11px * var(--font-scale));
 
-  /* --- Raios — 3 degraus. Pill só em badge. --- */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 8px;
+  /* --- Raios — 2px em tudo (design-tokens.md § Forma: "o 8px uniforme
+     lia como template"). Os 4 degraus ficam só por compatibilidade de
+     nome com quem já consome var(--radius-sm/md/lg/xl) — não há mais
+     escala, é um valor só. Pill (999px, contador de navegação e trilho
+     de toggle) continua literal nos componentes que já usavam, fora
+     desta escala. --- */
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 2px;
+  --radius-xl: 2px;
 
   /* --- Espaçamento — acompanha --font-scale (design-tokens.md: "a
      densidade percebida se mantém"). --- */
@@ -44,7 +57,7 @@
   /* --- Tamanho de texto — 3 presets, fator único multiplica a escala
      inteira (ver design-tokens.md § Tamanho de texto). Aplicado via
      [data-font-size] no <html>; padrão = 1 quando o atributo não está
-     presente. Consumido pelas variáveis --text-* abaixo através de
+     presente. Consumido pelas variáveis --text-* acima através de
      calc(), então nenhum componente precisa saber do fator. --- */
   --font-scale: 1;
 }
@@ -62,97 +75,114 @@
 [data-font-size="large"] { --font-scale: 1.14; }
 
 /*
- * Paleta v3 — clara por padrão (referência corporativa/JoomPulse), azul-aço
- * mantido como ÚNICO acento. Regra: azul = ação e navegação; verde/âmbar/
- * vermelho só em badge de status e no número de margem. Sem gradiente,
- * sem glow — hierarquia é feita com borda e fundo.
+ * Paleta "Remaster" (ago/2026) — substitui a v3 cinza-azulada (mantida
+ * como referência em design/Arbitra Refine.dc.html). Papel quente em
+ * vez de cinza frio, acento azul-aço preservado como ÚNICO acento de
+ * ação/navegação; verde/âmbar/vermelho só em badge de status e número
+ * de margem. Sem gradiente, sem glow, sem sombra em nenhuma superfície
+ * estática — hierarquia é feita com borda e fundo (ver design-tokens.md).
  */
 :root,
 [data-theme="light"] {
-  --color-bg: #f7f8fa;
+  --color-bg: #efeee9;
   --color-bg-elevated: #ffffff;
-  --color-bg-elevated-2: #fafbfc;
-  --color-bg-hover: #f2f4f7;
-  --color-border: #e3e6ea;
-  --color-border-strong: #d5d9df;
-  --color-border-soft: #eef0f3;
-  --color-text: #12161c;
-  --color-text-muted: #5b6472;
-  /* Era #8b93a1 (2,9:1 sobre --color-bg, 3,1:1 sobre --color-bg-elevated)
-     — reprovava WCAG AA (mínimo 4,5:1 pra texto normal) nos rótulos CAPS
-     de coluna/seção e legendas que usam este token em todo o app, quase
-     sempre abaixo do limiar de "texto grande" que permitiria 3:1. Mesmo
-     tipo de bug que o audit de design (ago/2026) documentou e corrigiu
-     na paleta "Remaster" (ainda não aplicada); aqui é o fix equivalente
-     na paleta atualmente em produção, sem trocar paleta nem componente.
-     #656d7d mede 4,9:1 / 5,2:1 nos mesmos dois fundos — mantém a
-     hierarquia texto > muted > dim, só com dim finalmente legível. */
-  --color-text-dim: #656d7d;
+  --color-bg-elevated-2: #f5f4f0;
+  --color-bg-hover: #ececec;
+  --color-border: #e2e0da;
+  --color-border-strong: #cfccc4;
+  --color-border-soft: #eae8e2;
+  --color-text: #16191d;
+  --color-text-muted: #5c6167;
+  --color-text-dim: #5f646a;
 
-  --color-accent: #3f5f80;
-  --color-accent-hover: #2c4460;
-  --color-accent-soft: #7d9ab8;
-  --color-accent-dim: #eef2f7;
-  --color-accent-border: #d3dfeb;
+  --color-accent: #35577a;
+  --color-accent-hover: #24405c;
+  --color-accent-soft: #6d8aa8;
+  --color-accent-dim: #e7ecf2;
+  --color-accent-border: #cddae6;
   /* Mantido só por compatibilidade: aponta pra cor sólida, sem gradiente. */
-  --gradient-accent: #3f5f80;
+  --gradient-accent: #35577a;
   --gradient-glow: none;
 
-  --color-success: #2f6b47;
-  --color-success-dim: #edf4ef;
-  --color-success-border: #cfe2d6;
-  --color-warning: #8a6516;
-  --color-warning-dim: #faf4e8;
-  --color-warning-border: #ecdcbc;
-  --color-danger: #9c3f39;
-  --color-danger-dim: #faf1f0;
-  --color-danger-border: #e8cfcd;
+  --color-success: #2c6a46;
+  --color-success-dim: #eaf2ec;
+  --color-success-border: #c9ddd0;
+  --color-warning: #8a5d14;
+  --color-warning-dim: #f8f0e0;
+  --color-warning-border: #e6d3ab;
+  --color-danger: #9b3b34;
+  --color-danger-dim: #f7eae9;
+  --color-danger-border: #e3c6c3;
 
   --color-on-accent: #ffffff;
-  --focus-ring: 0 0 0 3px #e5ecf4;
+  --focus-ring: 0 0 0 3px #dbe4ec;
 
-  /* Elevação só existe em overlay (dropdown, modal, tooltip). */
+  /* Barra de navegação (chrome) — sempre escura, independente do tema
+     claro/escuro do resto do app (design-tokens.md: navbar num preto
+     `#15181C` fixo). Eixo à parte de --color-bg/-elevated de propósito:
+     ligar/desligar modo escuro no app não deve mudar a topbar. */
+  --color-chrome-bg: #15181c;
+  --color-chrome-elevated: #2a2f36;
+  --color-chrome-text: #ffffff;
+  --color-chrome-text-muted: #c9cdd3;
+  --color-chrome-text-dim: #8a9099;
+  --color-chrome-accent: #7fa0c4;
+
+  /* "Sem sombra em nenhum estado de superfície" (design-tokens.md §
+     Forma) — destaque estático usa borda/filete, não elevação. Overlay
+     de fato (dropdown/modal/tooltip) fica só com a borda de --color-
+     border-strong; nada aqui hoje precisa de --shadow-md além de um
+     card estático que não é overlay (corrigido, ver Account.module.css). */
   --shadow-sm: none;
-  --shadow-md: 0 6px 16px rgba(18, 22, 28, 0.08);
+  --shadow-md: none;
   --shadow-glow-accent: none;
 }
 
-/* Variante escura — mesma estrutura, superfícies invertidas. */
+/* Variante escura — mesma estrutura, superfícies invertidas e mantidas
+   quentes (não azuladas) pra combinar com o papel do tema claro. */
 [data-theme="dark"] {
-  --color-bg: #0e1013;
-  --color-bg-elevated: #16191e;
-  --color-bg-elevated-2: #181c21;
-  --color-bg-hover: #1a1e24;
-  --color-border: #262a31;
-  --color-border-strong: #333944;
-  --color-border-soft: #1f242b;
-  --color-text: #e8eaed;
-  --color-text-muted: #9aa3b0;
-  --color-text-dim: #8992a0;
+  --color-bg: #15130f;
+  --color-bg-elevated: #1c1a16;
+  --color-bg-elevated-2: #1f1d18;
+  --color-bg-hover: #211f1a;
+  --color-border: #322f28;
+  --color-border-strong: #423e35;
+  --color-border-soft: #262420;
+  --color-text: #ece9e2;
+  --color-text-muted: #b0a99a;
+  --color-text-dim: #968e7e;
 
   --color-accent: #7fa3c9;
   --color-accent-hover: #93b3d4;
   --color-accent-soft: #5b7fa6;
-  --color-accent-dim: #1d2530;
-  --color-accent-border: #2f3d4d;
+  --color-accent-dim: #23303e;
+  --color-accent-border: #38495b;
   --gradient-accent: #7fa3c9;
   --gradient-glow: none;
 
-  --color-success: #77b491;
+  --color-success: #7cb492;
   --color-success-dim: #182219;
   --color-success-border: #2b3f31;
   --color-warning: #d1a34d;
   --color-warning-dim: #231d12;
   --color-warning-border: #3e3320;
-  --color-danger: #cf7f79;
-  --color-danger-dim: #241819;
-  --color-danger-border: #3f2a2a;
+  --color-danger: #d38b83;
+  --color-danger-dim: #251815;
+  --color-danger-border: #402a24;
 
-  --color-on-accent: #0e1013;
-  --focus-ring: 0 0 0 3px rgba(127, 163, 201, 0.22);
+  --color-on-accent: #15130f;
+  --focus-ring: 0 0 0 3px rgba(127, 163, 201, 0.24);
+
+  /* Chrome fica idêntico ao tema claro — a barra é sempre escura. */
+  --color-chrome-bg: #15181c;
+  --color-chrome-elevated: #2a2f36;
+  --color-chrome-text: #ffffff;
+  --color-chrome-text-muted: #c9cdd3;
+  --color-chrome-text-dim: #8a9099;
+  --color-chrome-accent: #7fa0c4;
 
   --shadow-sm: none;
-  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-md: none;
   --shadow-glow-accent: none;
 }
 
@@ -163,13 +193,14 @@
  * qualquer paleta, porque status precisa significar sempre a mesma
  * coisa. "aco" é a paleta padrão, já coberta pelos blocos [data-theme]
  * acima; as 3 abaixo só entram em vigor quando [data-accent] aponta
- * pra uma delas. Contraste (claro): 6,7–7,5:1, todas AA.
+ * pra uma delas. Contraste medido sobre o papel #EFEEE9 (claro):
+ * Petróleo 7,2:1 · Índigo 7,3:1 · Terracota 6,5:1 — todas AA.
  */
 [data-theme="light"][data-accent="petroleo"] {
   --color-accent: #1f5f5b;
   --color-accent-hover: #164744;
   --color-accent-soft: #5c918d;
-  --color-accent-dim: #e9f2f1;
+  --color-accent-dim: #e6f0ef;
   --color-accent-border: #c7e0dd;
   --gradient-accent: #1f5f5b;
   --focus-ring: 0 0 0 3px rgba(31, 95, 91, 0.16);
@@ -181,18 +212,18 @@
   --color-accent-dim: #17221f;
   --color-accent-border: #294038;
   --gradient-accent: #6fb3ac;
-  --color-on-accent: #0e1013;
-  --focus-ring: 0 0 0 3px rgba(111, 179, 172, 0.22);
+  --color-on-accent: #15130f;
+  --focus-ring: 0 0 0 3px rgba(111, 179, 172, 0.24);
 }
 
 [data-theme="light"][data-accent="indigo"] {
-  --color-accent: #4a4f8c;
-  --color-accent-hover: #383c6e;
-  --color-accent-soft: #8285b3;
-  --color-accent-dim: #eeeff7;
+  --color-accent: #474c88;
+  --color-accent-hover: #353a68;
+  --color-accent-soft: #82859f;
+  --color-accent-dim: #edeef6;
   --color-accent-border: #d6d8ed;
-  --gradient-accent: #4a4f8c;
-  --focus-ring: 0 0 0 3px rgba(74, 79, 140, 0.16);
+  --gradient-accent: #474c88;
+  --focus-ring: 0 0 0 3px rgba(71, 76, 136, 0.16);
 }
 [data-theme="dark"][data-accent="indigo"] {
   --color-accent: #9a9dd6;
@@ -201,15 +232,15 @@
   --color-accent-dim: #1e1f2e;
   --color-accent-border: #33354e;
   --gradient-accent: #9a9dd6;
-  --color-on-accent: #0e1013;
-  --focus-ring: 0 0 0 3px rgba(154, 157, 214, 0.22);
+  --color-on-accent: #15130f;
+  --focus-ring: 0 0 0 3px rgba(154, 157, 214, 0.24);
 }
 
 [data-theme="light"][data-accent="terracota"] {
   --color-accent: #8a4a2f;
   --color-accent-hover: #6b3823;
   --color-accent-soft: #b98567;
-  --color-accent-dim: #f8efea;
+  --color-accent-dim: #f6ede8;
   --color-accent-border: #e8d2c4;
   --gradient-accent: #8a4a2f;
   --focus-ring: 0 0 0 3px rgba(138, 74, 47, 0.16);
@@ -221,6 +252,6 @@
   --color-accent-dim: #271c15;
   --color-accent-border: #3f2c21;
   --gradient-accent: #d19a78;
-  --color-on-accent: #0e1013;
-  --focus-ring: 0 0 0 3px rgba(209, 154, 120, 0.22);
+  --color-on-accent: #15130f;
+  --focus-ring: 0 0 0 3px rgba(209, 154, 120, 0.24);
 }

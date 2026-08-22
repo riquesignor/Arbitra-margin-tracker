@@ -18,10 +18,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Pesos 400/500/600 só — "nada de 700 em UI" (design-tokens.md §
+   Tipografia). Sem isso, <h1>/<h2>/<h3> herdam bold (700) do agente do
+   navegador e o Archivo carregado (só até 600, ver index.html) faz
+   negrito sintético/borrado no título em vez do peso 600 desenhado. */
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
+  font-weight: 600;
   margin: 0;
 }
 
@@ -31,14 +36,14 @@ select {
   font-family: inherit;
 }
 
+/* Remaster (ago/2026): "nenhum gradiente, nenhum scale no :active;
+   feedback é mudança de cor" (design-tokens.md § Componentes — Botão).
+   O scale(0.97) global em :active saiu da lista de transições. */
 button {
-  transition: transform var(--duration-fast) var(--ease-out),
-    opacity var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-button:active {
-  transform: scale(0.97);
+  transition: opacity var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
 input,

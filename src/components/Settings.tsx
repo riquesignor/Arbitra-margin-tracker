@@ -37,14 +37,18 @@ const SECTIONS: { id: Section; label: string; icon: typeof Palette }[] = [
   { id: "conta", label: "Dados da conta", icon: UserCog },
 ];
 
-// Valores de design-tokens.md § Temas de cor — contraste medido sobre
-// #FFFFFF, todas AA pra texto normal. "aco" é a paleta padrão (mesma do
-// resto do app quando nenhuma paleta foi escolhida ainda).
+// Valores de design-tokens.md § Temas de cor (paleta "Remaster",
+// ago/2026) — contraste medido sobre o papel #EFEEE9, todas AA pra
+// texto normal. "aco" é a paleta padrão (mesma do resto do app quando
+// nenhuma paleta foi escolhida ainda). Precisa espelhar exatamente os
+// valores de src/styles/tokens.css — são dois lugares com a mesma
+// paleta (aqui é só o preview visual da tela, tokens.css é quem
+// realmente aplica), então uma trocou sem a outra vira inconsistência.
 const PALETTES: { id: AccentPalette; label: string; primary: string; hover: string; tint: string; contrast: string }[] = [
-  { id: "aco", label: "Aço", primary: "#3F5F80", hover: "#2C4460", tint: "#EEF2F7", contrast: "6,7:1 · AA" },
-  { id: "petroleo", label: "Petróleo", primary: "#1F5F5B", hover: "#164744", tint: "#E9F2F1", contrast: "7,5:1 · AA" },
-  { id: "indigo", label: "Índigo", primary: "#4A4F8C", hover: "#383C6E", tint: "#EEEFF7", contrast: "7,5:1 · AA" },
-  { id: "terracota", label: "Terracota", primary: "#8A4A2F", hover: "#6B3823", tint: "#F8EFEA", contrast: "6,8:1 · AA" },
+  { id: "aco", label: "Aço", primary: "#35577A", hover: "#24405C", tint: "#E7ECF2", contrast: "6,4:1 · AA" },
+  { id: "petroleo", label: "Petróleo", primary: "#1F5F5B", hover: "#164744", tint: "#E6F0EF", contrast: "7,2:1 · AA" },
+  { id: "indigo", label: "Índigo", primary: "#474C88", hover: "#353A68", tint: "#EDEEF6", contrast: "7,3:1 · AA" },
+  { id: "terracota", label: "Terracota", primary: "#8A4A2F", hover: "#6B3823", tint: "#F6EDE8", contrast: "6,5:1 · AA" },
 ];
 
 const FONT_SIZES: { id: FontSizePreset; label: string; sample: string; body: string }[] = [

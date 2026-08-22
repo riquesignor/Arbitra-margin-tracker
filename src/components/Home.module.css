@@ -32,15 +32,18 @@
   display: block;
   font-family: var(--font-mono);
   font-size: 0.7rem;
-  letter-spacing: 0.1em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--color-text-dim);
   margin-bottom: var(--space-3);
 }
 
+/* Degrau "hero" (design-tokens.md § Tipografia: 46/600/-4%) — único
+   lugar do app que usa esse tamanho, é a saudação de entrada da Home. */
 .heroTitle {
-  font-size: 1.8rem;
-  letter-spacing: -0.02em;
+  font-size: 2.875rem;
+  letter-spacing: -0.04em;
   margin-bottom: var(--space-3);
 }
 
