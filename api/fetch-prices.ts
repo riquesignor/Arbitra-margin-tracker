@@ -265,8 +265,15 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
             : provider === "vision_internal"
               ? // Motor interno + IA: `apiKey` aqui é a chave GEMINI do
                 // usuário (BYOK), não SerpApi/SearchApi.io — ver
-                // visionInternalSearchProvider.ts.
-                await searchVisionInternalShared(missItems, matchers, body.apiKey)
+                // visionInternalSearchProvider.ts. `.then(...)` extrai o
+                // warning de cota esgotada (ago/2026) pro mesmo canal
+                // `internalSearchWarning` usado pelo motor interno puro —
+                // mesmo formato de saída, `_warning` não distingue a origem
+                // porque a UI só precisa mostrar o aviso, não a causa exata.
+                await searchVisionInternalShared(missItems, matchers, body.apiKey).then((outcome) => {
+                  internalSearchWarning = outcome.warning;
+                  return outcome.results;
+                })
               : provider === "google_lens_products"
                 ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
                 : provider === "searchapi_lens"

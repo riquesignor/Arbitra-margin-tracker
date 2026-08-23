@@ -78,7 +78,8 @@ describe("searchVisionInternalShared", () => {
 
     const result = await searchVisionInternalShared([semFoto], MATCHERS, "fake-gemini-key");
 
-    expect(result).toEqual({ amazon: {}, mercadolivre: {} });
+    expect(result.results).toEqual({ amazon: {}, mercadolivre: {} });
+    expect(result.warning).toBeUndefined();
     expect(describeProductImage).not.toHaveBeenCalled();
   });
 
@@ -111,7 +112,7 @@ describe("searchVisionInternalShared", () => {
       const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
 
       // Amazon: venceu o candidato de nota 0.9 (não o mais popular/primeiro da lista).
-      expect(result.amazon["SKU-1"]).toMatchObject({
+      expect(result.results.amazon["SKU-1"]).toMatchObject({
         marketplace: "amazon",
         price: 100,
         confidence: 0.9,
@@ -121,7 +122,7 @@ describe("searchVisionInternalShared", () => {
       });
 
       // Mercado Livre: único candidato ficou com nota 0.3 (< piso de aceite 0.5) — sem resultado.
-      expect(result.mercadolivre["SKU-1"]).toBeUndefined();
+      expect(result.results.mercadolivre["SKU-1"]).toBeUndefined();
     }
   );
 
@@ -138,7 +139,7 @@ describe("searchVisionInternalShared", () => {
 
     const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
 
-    expect(result.amazon["SKU-1"]).toMatchObject({ confidence: 0.6, approximate: true });
+    expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.6, approximate: true });
   });
 
   it("propaga erro só quando TODOS os itens com foto falharem (falha sistêmica, ex.: chave inválida)", async () => {
@@ -166,8 +167,8 @@ describe("searchVisionInternalShared", () => {
 
     const result = await searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key");
 
-    expect(result.amazon["SKU-1"]).toBeUndefined();
-    expect(result.amazon["SKU-3"]).toMatchObject({ confidence: 0.95 });
+    expect(result.results.amazon["SKU-1"]).toBeUndefined();
+    expect(result.results.amazon["SKU-3"]).toMatchObject({ confidence: 0.95 });
   });
 
   it(
@@ -187,7 +188,7 @@ describe("searchVisionInternalShared", () => {
 
       const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
 
-      expect(result.amazon["SKU-1"]).toBeUndefined();
+      expect(result.results.amazon["SKU-1"]).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/1 candidato.*nota visual abaixo do piso/i));
       warnSpy.mockRestore();
     }
@@ -226,6 +227,50 @@ describe("searchVisionInternalShared", () => {
       // Item 2 nem chegou a tentar — a flag de cota esgotada, setada já na
       // falha do item 1, pulou ele antes de chamar describeProductImage.
       expect(describeProductImage).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it(
+    "quando a cota esgota DEPOIS de alguns itens já terem sucesso, devolve os resultados obtidos " +
+      "MAIS um warning explicando o corte — regressão do relato real 'catálogo de 48, só 2 com preço, " +
+      "sem explicação' (ago/2026): antes o warning simplesmente não existia nesse provider",
+    async () => {
+      const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
+      const item3: CatalogItemQuery = { sku: "SKU-4", name: "Item 100", imageUrl: "https://catalogo/sku-4.jpg" };
+
+      // Item 1 (SKU-1) tem sucesso normal; item 2 (SKU-3) estoura cota;
+      // item 3 (SKU-4) nem chega a tentar (flag já ligada antes da vez dele).
+      describeProductImage.mockImplementation((url: string) => {
+        if (url.includes("sku-1")) return Promise.resolve("query ok");
+        if (url.includes("sku-3")) return Promise.reject(new GeminiQuotaExhaustedError("Gemini sem cota disponível agora"));
+        return Promise.resolve("nao deveria chegar aqui");
+      });
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/ok.jpg", link: "ok" })] },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.95);
+
+      const result = await searchVisionInternalShared(
+        [ITEM_WITH_PHOTO, item2, item3],
+        MATCHERS,
+        "fake-gemini-key"
+      );
+
+      // O que já deu certo antes da cota estourar continua no resultado —
+      // corte de cota não é motivo pra jogar fora sucesso anterior.
+      expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.95 });
+
+      // E agora existe um warning explicando POR QUE os outros 2 (SKU-3
+      // que tentou e falhou, SKU-4 que nem tentou) não vieram — não é
+      // "produto não encontrado", é cota.
+      expect(result.warning).toMatch(/cota.*gemini/i);
+      // Cota bateu NA tentativa do 2º item (o 1º deu certo, o 2º foi quem
+      // esbarrou na parede) — "2 de 3" é o ponto exato do corte, não uma
+      // estimativa.
+      expect(result.warning).toMatch(/2 de 3/);
+
+      // Item 3 nunca chegou a chamar describeProductImage (pulado pela flag).
+      expect(describeProductImage).toHaveBeenCalledTimes(2);
     }
   );
 });

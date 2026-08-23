@@ -56,6 +56,22 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * dá à comparação, não sobre similaridade de texto (`confidenceFromSimilarity`,
  * usado no resto do projeto, não se aplica: não houve match por texto
  * nenhum decidindo o vencedor).
+ *
+ * ── Cota do Gemini free tier é o teto real, não a qualidade do match (ago/2026) ──
+ * Relato: catálogo de 48 produtos, só 2 voltam com preço. Causa raiz:
+ * cada item processado aqui gasta ATÉ 7 chamadas Gemini (1 descrição +
+ * até `CANDIDATES_PER_STORE`(3) × lojas pedidas(2) comparações) — com o
+ * free tier girando em torno de ~15 requisições/MINUTO, a cota se esgota
+ * depois de só 2-3 itens. `quotaExhausted` (abaixo) já existia e cortava
+ * o resto do lote CORRETAMENTE (evita queimar o teto de 300s da function
+ * em requisições fadadas a falhar) — o bug era o SILÊNCIO: a função
+ * devolvia só `results`, semjeito nenhum de dizer "processei 2 de 48
+ * porque a cota acabou". Pro usuário, "2 de 48 com preço, sem nenhuma
+ * explicação" parece bug de MATCHING — na real é rate-limit puro.
+ * `warning` no retorno (mesmo padrão de `InternalSearchOutcome` em
+ * internalSearchProvider.ts) resolve isso: agora a UI recebe o motivo
+ * real, e o usuário sabe que é cota (aguardar/chave paga), não catálogo
+ * ruim nem produto não encontrado.
  */
 
 /** Ver comentário no topo do arquivo — teto de rate do free tier do Gemini exige serializar os itens. */
@@ -106,11 +122,17 @@ interface BestVisualMatch {
  * com foto falharem — aí é sinal de problema sistêmico (chave inválida,
  * cota esgotada), não de um catálogo com fotos ruins.
  */
+/** Ver comentário "Cota do Gemini free tier..." no topo do arquivo. */
+export interface VisionInternalSearchOutcome {
+  results: Record<string, Record<string, MarketplacePriceResult>>;
+  warning?: string;
+}
+
 export async function searchVisionInternalShared(
   items: CatalogItemQuery[],
   matchers: MarketplaceMatcher[],
   userApiKey?: string
-): Promise<Record<string, Record<string, MarketplacePriceResult>>> {
+): Promise<VisionInternalSearchOutcome> {
   const apiKey = userApiKey?.trim();
   if (!apiKey) {
     throw new Error(
@@ -122,10 +144,15 @@ export async function searchVisionInternalShared(
   for (const { marketplace } of matchers) results[marketplace] = {};
 
   const itemsWithImage = items.filter((i) => i.imageUrl);
-  if (itemsWithImage.length === 0) return results;
+  if (itemsWithImage.length === 0) return { results };
 
   let lastError: string | null = null;
   let failures = 0;
+  /** Quantos itens nem chegaram a tentar — cota já tinha acabado quando a vez deles chegou (loop é sequencial, CONCURRENCY=1). Distingue "tentou e falhou" de "nem tentou" na mensagem final. */
+  let skippedByQuota = 0;
+  /** Em qual item (1-based, ordem de processamento) a cota estourou de fato — vira "processou N de M" na mensagem, sem sortear/estimar. */
+  let quotaExhaustedAtItem: number | null = null;
+  let processedCount = 0;
 
   // Cota do Gemini é um recurso COMPARTILHADO entre todos os itens do
   // lote (mesma chave, mesma janela de rate limit) — diferente de um
@@ -152,8 +179,10 @@ export async function searchVisionInternalShared(
   await mapWithConcurrency(itemsWithImage, CONCURRENCY, async (item) => {
     if (quotaExhausted) {
       failures++;
+      skippedByQuota++;
       return;
     }
+    processedCount++;
     try {
       // Passo 1 — descrever.
       const query = await describeProductImage(item.imageUrl!, apiKey);
@@ -193,6 +222,7 @@ export async function searchVisionInternalShared(
           } catch (err) {
             if (err instanceof GeminiQuotaExhaustedError) {
               quotaExhausted = true;
+              quotaExhaustedAtItem ??= processedCount;
               lastError = err.message;
               break;
             }
@@ -227,7 +257,10 @@ export async function searchVisionInternalShared(
       }
     } catch (err) {
       failures++;
-      if (err instanceof GeminiQuotaExhaustedError) quotaExhausted = true;
+      if (err instanceof GeminiQuotaExhaustedError) {
+        quotaExhausted = true;
+        quotaExhaustedAtItem ??= processedCount;
+      }
       lastError =
         err instanceof GeminiVisionError
           ? err.message
@@ -250,5 +283,21 @@ export async function searchVisionInternalShared(
     );
   }
 
-  return results;
+  // Ver comentário "Cota do Gemini free tier..." no topo do arquivo —
+  // sem isto, estourar cota no meio do lote virava "poucos produtos com
+  // preço" sem NENHUMA pista pro usuário, indistinguível de matching
+  // ruim. `quotaExhaustedAtItem` marca em que ponto do lote (ordem de
+  // processamento, não índice do array) a cota bateu.
+  let warning: string | undefined;
+  if (quotaExhausted && quotaExhaustedAtItem !== null) {
+    const notReached = skippedByQuota;
+    warning =
+      `Cota gratuita do Gemini esgotada depois de ${quotaExhaustedAtItem} de ${itemsWithImage.length} ` +
+      `produto(s) — ${notReached > 0 ? `${notReached} produto(s) nem chegaram a ser buscados` : "o restante não foi buscado"}. ` +
+      "O free tier libera cota de novo após ~1 minuto: tente de novo em instantes, processe em lotes menores, " +
+      "ou use uma chave Gemini paga em Conta pra não esbarrar nesse teto.";
+    console.warn(`[motor-interno+IA] ${warning}`);
+  }
+
+  return { results, warning };
 }
