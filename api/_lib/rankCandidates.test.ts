@@ -77,6 +77,21 @@ describe("pickBestCandidate — piso mínimo de similaridade", () => {
   it("lista vazia continua devolvendo null (não confundir com rejeição por similaridade)", () => {
     expect(pickBestCandidate("qualquer coisa", [], getTitle, getPopularity)).toBeNull();
   });
+
+  it("não escolhe produto errado só porque compartilha termo genérico de catálogo (ago/2026, regressão do 'quase todo produto vem errado')", () => {
+    // Nenhum destes é "Facas" de verdade — só compartilham "Kit
+    // Profissional de" com a query. Antes do filtro de termo genérico
+    // (textSimilarity.ts) + piso mais alto, um destes passava do piso
+    // de 0.12 com confiança de sobra e era apresentado como o produto.
+    const candidatosSoRuido: Fixture[] = [
+      { title: "Kit Profissional de Panelas Antiaderente 5 Peças", popularity: 300 },
+      { title: "Kit Profissional de Maquiagem 10 Peças", popularity: 900 },
+    ];
+
+    const best = pickBestCandidate("Kit Profissional de Facas Inox", candidatosSoRuido, getTitle, getPopularity);
+
+    expect(best).toBeNull();
+  });
 });
 
 describe("popularityScore", () => {

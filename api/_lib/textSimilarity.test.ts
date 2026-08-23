@@ -44,6 +44,25 @@ describe("textSimilarity", () => {
   it("não mexe em número/código (stemming só se aplica a palavra, não a dígito)", () => {
     expect(textSimilarity("Produto 12345", "Produto 12345")).toBe(1);
   });
+
+  it("ignora termo genérico de catálogo/anúncio (ago/2026, regressão do 'quase todo produto vem errado') — dois produtos SEM relação não devem parecer parecidos só por 'Kit Profissional de'", () => {
+    const semFiltro = textSimilarity("Kit Profissional de Facas", "Kit Profissional de Panelas", false);
+    const comFiltro = textSimilarity("Kit Profissional de Facas", "Kit Profissional de Panelas", true);
+
+    // Sem filtro, o ruído compartilhado ("kit", "profissional", "de")
+    // por si só já cruzava o piso de aceite antigo — com filtro, sobra
+    // só "facas" vs "panelas" (produto de verdade), sem overlap.
+    expect(semFiltro).toBeGreaterThan(0.4);
+    expect(comFiltro).toBe(0);
+  });
+
+  it("filtro de termo genérico é o padrão (terceiro argumento omitido)", () => {
+    expect(textSimilarity("Kit Profissional de Facas", "Kit Profissional de Panelas")).toBe(0);
+  });
+
+  it("nome que é SÓ termo genérico não vira comparação vazia (cai de volta pro conjunto sem filtro)", () => {
+    expect(textSimilarity("Kit Profissional", "Kit Profissional")).toBe(1);
+  });
 });
 
 describe("confidenceFromSimilarity", () => {

@@ -191,6 +191,9 @@
 }
 
 .cardHeaderNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--color-text-dim);
@@ -219,6 +222,85 @@
 
 .cardBody {
   padding: var(--space-5);
+}
+
+/* --- Diagnóstico de configuração --- */
+
+.diagRefreshButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.diagRefreshButton:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-text-dim);
+}
+
+.diagRefreshButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.diagRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.diagRow:last-of-type {
+  border-bottom: none;
+}
+
+.diagOk,
+.diagMissing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.diagOk {
+  background: var(--color-success-dim);
+  color: var(--color-success);
+}
+
+.diagMissing {
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+}
+
+.diagLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.diagLabel strong {
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.diagLabel span {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 /* --- Seção 01: publicar catálogo --- */

@@ -43,18 +43,38 @@ import { textSimilarity } from "./textSimilarity.js";
  * de cada provider (0.35) — só rejeita o que é claramente ruído (quase
  * zero sobreposição de token), não penaliza um match parcialmente
  * plausível, que continua voltando marcado como aproximado.
+ *
+ * ── Reforço (ago/2026, 2ª rodada) ──────────────────────────────────────
+ * Novo relato: praticamente TODO produto vindo com o marketplace errado,
+ * não só uma minoria "aproximada". Causa raiz #2 (a #1 foi a limpeza de
+ * query, ver searchQuery.ts): `textSimilarity` comparava token cru
+ * incluindo termo GENÉRICO de catálogo/anúncio ("kit", "profissional",
+ * "de", "com" etc.) — dois produtos SEM relação nenhuma que só
+ * compartilham "Kit Profissional" already cruzavam o piso de 0.12 (ex.:
+ * "Kit Profissional de Facas Inox" vs "Kit Profissional de Panelas
+ * Inox" — 4 de ~7 tokens em comum, similaridade ~0.5, MUITO acima do
+ * piso, produto errado escolhido com confiança alta). `textSimilarity`
+ * agora filtra esses termos antes de comparar (ver GENERIC_TOKENS em
+ * textSimilarity.ts) — o que sobra depois do filtro é só o que de fato
+ * diferencia um produto do outro (marca, modelo, característica
+ * específica), então o piso e a tolerância abaixo puderam subir junto
+ * sem cortar match válido: com o ruído fora, um match genuíno tende a
+ * ficar bem ACIMA do novo piso, não raspando nele.
  */
-const SIMILARITY_TOLERANCE = 0.15;
+const SIMILARITY_TOLERANCE = 0.1;
 
 /**
  * Abaixo disso, `pickBestCandidate` devolve `null` em vez do "melhor dos
- * piores" — ver comentário acima. NÃO se aplica a `getTopCandidates`: ela
+ * piores" — ver comentário acima. Subiu de 0.12 pra 0.2 (ago/2026, junto
+ * com o filtro de termo genérico em textSimilarity.ts) — o piso antigo
+ * deixava passar candidato cuja única semelhança era ruído de catálogo,
+ * não produto de verdade. NÃO se aplica a `getTopCandidates`: ela
  * alimenta o motor interno + IA (visionInternalSearchProvider.ts), onde o
  * texto é só um pré-filtro grosseiro antes da confirmação visual de
  * verdade — rejeitar aqui cortaria candidato válido antes da IA ter
  * chance de comparar a foto.
  */
-export const MIN_ACCEPTABLE_SIMILARITY = 0.12;
+export const MIN_ACCEPTABLE_SIMILARITY = 0.2;
 
 export interface RankedCandidate<T> {
   candidate: T;

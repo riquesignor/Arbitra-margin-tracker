@@ -14,6 +14,9 @@ import {
   ChevronRight,
   KeyRound,
   Gauge,
+  X,
+  RefreshCw,
+  Server,
 } from "lucide-react";
 import type { CatalogRow, PlanId } from "../types";
 import { PLANS } from "../config/plans";
@@ -29,6 +32,7 @@ import {
 import { parsePdfCatalogFile } from "../lib/parsePdfCatalog";
 import { getTodayUsage } from "../lib/usageQuota";
 import { listCatalogUploads, type CatalogUploadRecord } from "../lib/catalogHistory";
+import { fetchAdminDiagnostics, type AdminDiagnostics } from "../lib/adminDiagnostics";
 import styles from "./Admin.module.css";
 
 const DETAIL_CATALOG_LIMIT = 5;
@@ -77,10 +81,25 @@ export default function Admin({ profile }: Props) {
   const [detailUsage, setDetailUsage] = useState<number>(0);
   const [detailCatalogs, setDetailCatalogs] = useState<CatalogUploadRecord[]>([]);
 
+  // Diagnóstico de config server-side (SCRAPERAPI_KEY, OAuth ML, Firebase
+  // Admin) — ver adminDiagnostics.ts. `null` = ainda não carregou OU o
+  // endpoint falhou; os dois casos mostram "verificando"/erro, nunca
+  // "não configurado" por engano.
+  const [diagnostics, setDiagnostics] = useState<AdminDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+
+  function refreshDiagnostics() {
+    setDiagnosticsLoading(true);
+    fetchAdminDiagnostics()
+      .then(setDiagnostics)
+      .finally(() => setDiagnosticsLoading(false));
+  }
+
   useEffect(() => {
     if (!profile?.isAdmin) return;
     refreshCatalogs();
     refreshUsers();
+    refreshDiagnostics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.isAdmin]);
 
@@ -320,6 +339,76 @@ export default function Admin({ profile }: Props) {
           </div>
         ))}
       </div>
+
+      <section className={styles.card} style={{ marginBottom: "var(--space-5)" }}>
+        <div className={styles.cardHeader}>
+          <span className={styles.cardHeaderNumber}>
+            <KeyRound size={13} />
+          </span>
+          <h2 className={styles.cardHeaderTitle}>Diagnóstico de configuração</h2>
+          <span className={styles.cardHeaderMeta}>
+            <Server size={11} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+            {diagnostics?.environment ?? "verificando ambiente…"}
+          </span>
+          <button
+            type="button"
+            onClick={refreshDiagnostics}
+            disabled={diagnosticsLoading}
+            className={styles.diagRefreshButton}
+            title="Reconsultar"
+          >
+            <RefreshCw size={13} className={diagnosticsLoading ? "spin" : undefined} />
+          </button>
+        </div>
+        <div className={styles.cardBody}>
+          {!diagnostics ? (
+            <p className={styles.hint}>
+              {diagnosticsLoading
+                ? "Consultando variáveis de ambiente do servidor…"
+                : "Não consegui consultar agora — clique em recarregar."}
+            </p>
+          ) : (
+            <>
+              <div className={styles.diagRow}>
+                <span className={diagnostics.scraperApiConfigured ? styles.diagOk : styles.diagMissing}>
+                  {diagnostics.scraperApiConfigured ? <Check size={14} /> : <X size={14} />}
+                </span>
+                <span className={styles.diagLabel}>
+                  <strong>ScraperAPI (SCRAPERAPI_KEY)</strong>
+                  <span>
+                    Proxy anti-bloqueio do motor interno — paga a plataforma, não o usuário. Sem
+                    isso, buscas via motor interno ficam sujeitas a bloqueio de IP da Vercel.
+                  </span>
+                </span>
+              </div>
+              <div className={styles.diagRow}>
+                <span
+                  className={diagnostics.mercadoLivreOAuthConfigured ? styles.diagOk : styles.diagMissing}
+                >
+                  {diagnostics.mercadoLivreOAuthConfigured ? <Check size={14} /> : <X size={14} />}
+                </span>
+                <span className={styles.diagLabel}>
+                  <strong>OAuth Mercado Livre (ML_CLIENT_ID / ML_CLIENT_SECRET)</strong>
+                  <span>Hoje parked por pendência de verificação de titularidade no DevCenter deles.</span>
+                </span>
+              </div>
+              <div className={styles.diagRow}>
+                <span className={diagnostics.firebaseAdminConfigured ? styles.diagOk : styles.diagMissing}>
+                  {diagnostics.firebaseAdminConfigured ? <Check size={14} /> : <X size={14} />}
+                </span>
+                <span className={styles.diagLabel}>
+                  <strong>Firebase Admin (server-side)</strong>
+                  <span>Se isto aparecer como ausente, nada nesta tela funcionaria — sinal de alerta grave.</span>
+                </span>
+              </div>
+              <p className={styles.hint} style={{ marginTop: "var(--space-3)" }}>
+                BYOK (chave própria do usuário, cadastrada em Conta — nunca configurável pela
+                plataforma): {diagnostics.byokOnlyProviders.join(" · ")}.
+              </p>
+            </>
+          )}
+        </div>
+      </section>
 
       <div className={styles.layout}>
         <div className={styles.main}>

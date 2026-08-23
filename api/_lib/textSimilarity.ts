@@ -37,8 +37,33 @@ function stemPortugueseWord(token: string): string {
   return token;
 }
 
-function normalize(text: string): string[] {
-  return text
+/**
+ * Termos genéricos de catálogo/anúncio (embalagem, unidade, qualificador
+ * de marketing, preposição) que aparecem em produtos DIFERENTES e por
+ * isso NÃO discriminam nada — ao contrário, INFLAM a similaridade entre
+ * dois produtos que não têm relação nenhuma, só porque os dois dizem
+ * "Kit Profissional" ou têm "de"/"com" no meio do nome (ago/2026,
+ * diagnóstico do relato "quase todo produto vem com o marketplace
+ * errado" — ver rankCandidates.ts: `MIN_ACCEPTABLE_SIMILARITY` era baixo
+ * o bastante pra esse ruído sozinho empurrar candidato errado pra cima
+ * do piso de aceite). Mesma lista de src/lib/textSimilarity.ts (cópia
+ * client-side pro comparador de fornecedores) — MANTER AS DUAS EM
+ * SINCRONIA se editar aqui, são arquivos duplicados de propósito (ver
+ * comentário no topo daquele arquivo), não um import compartilhado.
+ *
+ * Números NÃO entram aqui: "kit 5" vs "kit 10" são produtos diferentes,
+ * o dígito é sinal real, só o rótulo "kit" que é ruído.
+ */
+const GENERIC_TOKENS = new Set([
+  "kit", "kits", "unidade", "unidades", "unid", "und", "uni", "un",
+  "cx", "caixa", "caixas", "pacote", "pacotes", "pct", "pc", "pcs",
+  "peca", "pecas", "profissional", "premium", "original", "novo", "nova",
+  "novos", "novas", "modelo", "tipo", "com", "sem", "de", "da", "do",
+  "das", "dos", "para", "pra", "e", "ou", "a", "o", "as", "os",
+]);
+
+function normalize(text: string, filterGeneric: boolean): string[] {
+  const tokens = text
     .toLowerCase()
     .normalize("NFD")
     .replace(DIACRITICS_PATTERN, "") // remove acentos
@@ -46,11 +71,26 @@ function normalize(text: string): string[] {
     .split(/\s+/)
     .filter(Boolean)
     .map(stemPortugueseWord);
+
+  if (!filterGeneric) return tokens;
+
+  // Se filtrar deixar a lista vazia (nome era só termos genéricos, ex.
+  // "Kit Profissional"), volta pro conjunto sem filtro — melhor comparar
+  // por algo do que não ter token nenhum pra comparar.
+  const filtered = tokens.filter((t) => !GENERIC_TOKENS.has(t));
+  return filtered.length > 0 ? filtered : tokens;
 }
 
-export function textSimilarity(a: string, b: string): number {
-  const tokensA = new Set(normalize(a));
-  const tokensB = new Set(normalize(b));
+/**
+ * `ignoreGenericTerms` (default true, ago/2026): descarta termos
+ * genéricos (ver GENERIC_TOKENS) antes de comparar — sem quebrar
+ * nenhuma chamada existente (parâmetro novo, com default). Quem chama
+ * hoje (rankCandidates.ts, todo provider de busca por texto) passa a se
+ * beneficiar automaticamente, sem precisar mudar a chamada.
+ */
+export function textSimilarity(a: string, b: string, ignoreGenericTerms = true): number {
+  const tokensA = new Set(normalize(a, ignoreGenericTerms));
+  const tokensB = new Set(normalize(b, ignoreGenericTerms));
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
 
   let intersection = 0;
@@ -75,10 +115,13 @@ export function textSimilarity(a: string, b: string): number {
  * o nome já chega aqui limpo pelo `sanitizeProductName` do parser
  * (src/lib/parsePdfCatalog.ts); esta checagem é a segunda linha de
  * defesa, e também cobre catálogo CSV, que não passa pelo parser de PDF.
+ * Sem filtro de termo genérico de propósito: mesmo um nome "só" com
+ * termo genérico ainda é um termo de busca válido pro Lens (a imagem
+ * carrega o sinal real, isto só decide se vale mandar `q` JUNTO).
  */
 export function isUsableSearchTerm(name: string | undefined | null): boolean {
   if (!name?.trim()) return false;
-  const words = normalize(name).filter((token) => token.length >= 3);
+  const words = normalize(name, false).filter((token) => token.length >= 3);
   return words.length >= 2 || words.some((word) => word.length >= 5);
 }
 

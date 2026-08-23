@@ -13,6 +13,24 @@
  */
 const DIACRITICS_PATTERN = /[̀-ͯ]/g;
 
+/**
+ * Stemming leve de plural PT-BR — mesma regra de api/_lib/textSimilarity.ts
+ * (mantida em paridade aqui, ago/2026): sem isso, "Facas" no catálogo do
+ * fornecedor A e "Faca" no do fornecedor B não casavam por causa só do
+ * "s", mesmo produto tratado como diferente.
+ */
+function stemPortugueseWord(token: string): string {
+  if (/\d/.test(token)) return token;
+
+  if (token.length > 4 && token.endsWith("oes")) return token.slice(0, -3) + "ao";
+  if (token.length > 4 && token.endsWith("aes")) return token.slice(0, -3) + "ao";
+  if (token.length > 4 && token.endsWith("eis")) return token.slice(0, -3) + "el";
+  if (token.length > 4 && token.endsWith("ais")) return token.slice(0, -3) + "al";
+  if (token.length > 3 && token.endsWith("s")) return token.slice(0, -1);
+
+  return token;
+}
+
 // Palavras genéricas de catálogo (embalagem/unidade/qualificador de
 // marketing) que aparecem em produtos DIFERENTES e não ajudam a
 // distinguir um do outro — ao contrário, contam a favor da similaridade
@@ -36,7 +54,8 @@ function normalize(text: string, filterGeneric: boolean): string[] {
     .replace(DIACRITICS_PATTERN, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(stemPortugueseWord);
 
   if (!filterGeneric) return tokens;
 
