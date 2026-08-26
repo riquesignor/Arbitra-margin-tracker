@@ -14,14 +14,15 @@ export interface FetchPricesResult {
   results: Record<string, MarketplacePriceResult>;
   source: PriceSource;
   /**
-   * Aviso de bloqueio PARCIAL do motor interno (ver `BLOCK_WARNING_RATIO`
-   * em api/_lib/providers/internalSearchProvider.ts) — só vem preenchido
-   * quando `provider === "internal_search"` E uma loja específica
-   * bloqueou uma fração alta (mas não 100%) das tentativas. `undefined`
-   * no resto dos casos (comportamento comum). O mesmo aviso, se existir,
-   * é replicado em TODOS os marketplaces desta chamada (é um aviso
-   * global da busca, não por marketplace) — quem consome (Dashboard.tsx)
-   * só precisa olhar um deles.
+   * Aviso de cota/qualidade do motor interno + IA (ver
+   * api/_lib/providers/visionInternalSearchProvider.ts) — só vem
+   * preenchido quando `provider === "vision_internal"` E a cota do Gemini
+   * esgotou no meio do lote, ou o lote inteiro terminou vazio por causa
+   * diagnosticável (sem candidato / candidato rejeitado por nota visual
+   * baixa). `undefined` no resto dos casos (comportamento comum). O mesmo
+   * aviso, se existir, é replicado em TODOS os marketplaces desta chamada
+   * (é um aviso global da busca, não por marketplace) — quem consome
+   * (Dashboard.tsx) só precisa olhar um deles.
    */
   warning?: string;
 }

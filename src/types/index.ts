@@ -21,33 +21,31 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  * alternativa paga oferecida quando "mercadolivre_direct" falha (ver
  * Dashboard.tsx > finishWithRows).
  *
- * "internal_search" é o MOTOR PRÓPRIO (ago/2026): lê o preço direto da
- * página de busca das lojas, sem chave e sem custo por busca — virou o
- * default da busca por texto. Com ele, "serpapi" saiu do fluxo de PDF
- * simples e ficou reservada à busca por FOTO.
+ * "internal_search" (MOTOR PRÓPRIO, sem Gemini) foi REMOVIDO (ago/2026):
+ * decisão do produto após a rodada de teste A/B — o motor interno seguiu
+ * só na variante "vision_internal" (com IA), ver abaixo. A raspagem em si
+ * (`fetchStoreOffers`, internalSearchProvider.ts) continua existindo —
+ * "vision_internal" ainda depende dela pro passo de busca — só a rota de
+ * busca por TEXTO sem IA saiu do seletor e do backend.
  *
  * "vision_internal" (ago/2026) — MOTOR INTERNO + IA: busca por FOTO sem
  * depender de SerpApi/SearchApi.io. Uma IA de visão (Gemini, BYOK, chave
  * própria em Conta) descreve a foto do catálogo em texto, a descrição
- * alimenta o mesmo motor interno de "internal_search", e os candidatos
- * achados são confirmados comparando a FOTO de cada um com a foto
- * original — ver visionInternalSearchProvider.ts. Existe pra tirar a
- * dependência de API paga por busca de foto também, não só na busca por
- * texto; ainda é opção adicional ao lado de "google_lens_products"/
- * "searchapi_lens", não substituição — precisa validar taxa de acerto em
- * uso real antes de virar default.
+ * alimenta a mesma raspagem interna (fetchStoreOffers,
+ * internalSearchProvider.ts), e os candidatos achados são confirmados
+ * comparando a FOTO de cada um com a foto original — ver
+ * visionInternalSearchProvider.ts.
  *
- * "scraperapi" (ago/2026) — 3º mecanismo do teste A/B de terceiros. Usa os
- * "Structured Data Endpoints" da ScraperAPI (Amazon Search API + Google
- * Shopping API) — a própria ScraperAPI faz o parsing e devolve JSON pronto,
- * papel equivalente ao da SerpApi/SearchApi.io. Diferente de
- * "internal_search" (que também usa a mesma SCRAPERAPI_KEY, mas só como
- * PROXY de transporte pro parser próprio) — ver scraperApiSearchProvider.ts.
- * Chave é secret de servidor (`SCRAPERAPI_KEY`), não BYOK — `needsKey: null`
- * em Dashboard.tsx, mesmo padrão de "internal_search".
+ * "scraperapi" (ago/2026) — usa os "Structured Data Endpoints" da
+ * ScraperAPI (Amazon Search API + Google Shopping API) — a própria
+ * ScraperAPI faz o parsing e devolve JSON pronto, papel equivalente ao da
+ * SerpApi/SearchApi.io — ver scraperApiSearchProvider.ts. Chave é secret
+ * de servidor (`SCRAPERAPI_KEY`), não BYOK — `needsKey: null` em
+ * Dashboard.tsx. Virou o DEFAULT do seletor (sem chave, sem custo por
+ * busca, cobre os dois marketplaces) depois da remoção de
+ * "internal_search" acima.
  */
 export type SearchProviderId =
-  | "internal_search"
   | "serpapi"
   | "rapidapi_amazon"
   | "mercadolivre_direct"

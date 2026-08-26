@@ -102,14 +102,6 @@ const SEARCH_PROVIDERS: {
   needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | null;
 }[] = [
   {
-    id: "internal_search",
-    label: "Motor interno (Arbitra)",
-    note: "Amazon + Mercado Livre · sem chave e sem custo por busca",
-    marketplaces: ["mercadolivre", "amazon"],
-    icon: Store,
-    needsKey: null,
-  },
-  {
     id: "serpapi",
     label: "SerpApi (Google Shopping)",
     note: "Amazon + Mercado Livre juntos",
@@ -164,12 +156,12 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "geminiApiKey",
   },
-  // 3º mecanismo do teste A/B (ago/2026) — ScraperAPI como busca de
-  // verdade (Structured Data Endpoints: Amazon Search API + Google
-  // Shopping API), não só o proxy de transporte já usado dentro de
-  // "internal_search" — ver scraperApiSearchProvider.ts. `needsKey: null`
-  // porque a chave (`SCRAPERAPI_KEY`) é secret de servidor, não BYOK —
-  // mesmo padrão de "internal_search", não pede cadastro em Conta.
+  // ScraperAPI como busca de verdade (Structured Data Endpoints: Amazon
+  // Search API + Google Shopping API), não só transporte — ver
+  // scraperApiSearchProvider.ts. `needsKey: null` porque a chave
+  // (`SCRAPERAPI_KEY`) é secret de servidor, não BYOK — não pede
+  // cadastro em Conta. Virou o DEFAULT do seletor (ver DEFAULT_PROVIDER
+  // abaixo) depois da remoção de "internal_search" (ago/2026).
   {
     id: "scraperapi",
     label: "ScraperAPI (Amazon + Google Shopping)",
@@ -198,7 +190,6 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
  * diferentes, cada uma com risco próprio de esquecer um provider novo.
  */
 const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
-  "internal_search",
   "serpapi",
   "google_lens_products",
   "searchapi_lens",
@@ -206,8 +197,8 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "scraperapi",
 ]);
 
-/** Default da tela: motor interno — único sem chave e sem custo por busca, então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
-const DEFAULT_PROVIDER: SearchProviderId = "internal_search";
+/** Default da tela: ScraperAPI — único sem chave e sem custo por busca desde a remoção de "internal_search" (ago/2026), então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
+const DEFAULT_PROVIDER: SearchProviderId = "scraperapi";
 
 /**
  * Monta o texto informativo pós-parse (`skippedInfo`) combinando os dois
@@ -251,19 +242,19 @@ function buildParseInfoMessage(
  * interno. Grid principal reduzido de propósito, pra comparação direta
  * com o MESMO catálogo:
  *
- *   - internal_search  → "a scraper" (via proxy): motor interno, com o
- *     proxy ScraperAPI por baixo (fetchStoreHtmlOnce, internalSearchProvider.ts)
  *   - serpapi           → "a serp api": Google Shopping, cota renovada
  *   - searchapi_lens     → "a search": busca por foto via SearchApi.io
  *   - scraperapi         → "a scraper" (nativa): Structured Data Endpoints
  *     da própria ScraperAPI (Amazon Search API + Google Shopping API), ver
  *     scraperApiSearchProvider.ts — mecanismo de busca de verdade, não só
- *     transporte, adicionado pra comparar contra os 3 acima.
- *   - vision_internal    → reincluído (ago/2026, 2ª rodada): catálogo lido
- *     por OCR (sem texto real, ver usedOcr/parsePdfCatalog.ts) invalida
- *     busca por NOME — motor interno + Gemini é o único dos mecanismos
- *     acima que resolve isso sem depender de SerpApi/SearchApi.io (foto +
- *     confirmação visual via IA, não só casamento visual puro do Lens).
+ *     transporte.
+ *   - vision_internal    → motor interno + IA (Gemini): busca por FOTO
+ *     sem depender de SerpApi/SearchApi.io, com confirmação visual via IA.
+ *
+ * `internal_search` (motor interno SEM IA) foi REMOVIDO do grid (ago/2026,
+ * decisão de produto pós-rodada de teste): entre os dois "motor interno"
+ * testados, só a variante com Gemini (`vision_internal`) seguiu — ver
+ * SearchProviderId em ../types.
  *
  * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
  * (não são "terceiro" no sentido testado aqui) e google_lens_products
@@ -276,7 +267,6 @@ function buildParseInfoMessage(
  * antigo preservado acima em SEARCH_PROVIDERS).
  */
 const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>([
-  "internal_search",
   "serpapi",
   "searchapi_lens",
   "scraperapi",
@@ -365,8 +355,8 @@ export default function Dashboard({
 
   // Qual API usar pra essa busca — ver SEARCH_PROVIDERS acima. Escolhido
   // por busca, não fixo por conta (pedido explícito: "hoje quero amazon
-  // aí amanhã uso a de mercado livre e depois a serp"). Default = motor
-  // interno (ver DEFAULT_PROVIDER): é o único que roda sem o usuário
+  // aí amanhã uso a de mercado livre e depois a serp"). Default =
+  // ScraperAPI (ver DEFAULT_PROVIDER): é o único que roda sem o usuário
   // cadastrar chave nenhuma, então é o único default honesto pra quem
   // acabou de criar a conta.
   const [searchProvider, setSearchProvider] = useState<SearchProviderId>(DEFAULT_PROVIDER);
@@ -1192,19 +1182,6 @@ export default function Dashboard({
                     momento.
                   </p>
                 </div>
-              )}
-
-              {/* Motor interno: deixar explícito o que ele cobre e, principalmente,
-                  o que ele AINDA NÃO cobre. Sem esse aviso o usuário escolhe
-                  "sem custo por busca", sobe um catálogo cujo nome só existe
-                  dentro da foto, e não entende por que precisa de chave. */}
-              {searchProvider === "internal_search" && (
-                <p className={styles.subGroupHint}>
-                  Motor próprio da Arbitra: lê o preço direto do Mercado Livre e da Amazon, sem
-                  chave e sem custo por busca — funciona pra catálogo (PDF ou CSV) com nome de
-                  produto em texto. Busca por FOTO ainda depende de SerpApi/SearchApi.io, e é mais
-                  lento que as APIs pagas: aqui é uma consulta por produto em cada loja.
-                </p>
               )}
 
               {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider) && (

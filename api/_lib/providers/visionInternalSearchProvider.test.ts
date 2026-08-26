@@ -26,6 +26,18 @@ vi.mock("./internalSearchProvider.js", () => ({
   fetchStoreOffers: (...args: unknown[]) => fetchStoreOffers(...args),
 }));
 
+// Fonte da "busca geral" (Passo 4, ago/2026) — mockada separado de
+// `fetchStoreOffers` porque representa uma fonte DIFERENTE (Google
+// Shopping estruturado via ScraperAPI, várias lojas, não só Amazon/ML).
+// Default [] no beforeEach abaixo: a maioria dos testes deste arquivo
+// testa o pipeline Amazon/ML (passos 1-3) e não deve disparar nem
+// depender do Passo 4 — só os testes do describe "busca geral" configuram
+// um retorno próprio.
+const fetchGoogleShoppingCandidatesForQuery = vi.fn();
+vi.mock("./scraperApiSearchProvider.js", () => ({
+  fetchGoogleShoppingCandidatesForQuery: (...args: unknown[]) => fetchGoogleShoppingCandidatesForQuery(...args),
+}));
+
 // Import dinâmico (não estático) de propósito: import ES é hoisted acima de
 // qualquer outro código do arquivo, o que rodaria a resolução deste módulo
 // (e por tabela, a factory de vi.mock acima) ANTES de `describeProductImage`/
@@ -61,6 +73,7 @@ beforeEach(() => {
   describeProductImage.mockReset();
   compareProductImages.mockReset();
   fetchStoreOffers.mockReset();
+  fetchGoogleShoppingCandidatesForQuery.mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -324,4 +337,92 @@ describe("searchVisionInternalShared", () => {
       expect(describeProductImage).toHaveBeenCalledTimes(2);
     }
   );
+
+  describe("busca geral (outras lojas, Passo 4)", () => {
+    // Matchers realistas (não "sempre true" como MATCHERS acima) — o
+    // filtro de "loja de fora" do Passo 4 depende de `matchesSource`
+    // saber diferenciar Amazon/ML de qualquer outra fonte.
+    const REALISTIC_MATCHERS: MarketplaceMatcher[] = [
+      { marketplace: "amazon", matchesSource: (s) => s.includes("amazon") },
+      { marketplace: "mercadolivre", matchesSource: (s) => s.includes("mercado") },
+    ];
+
+    it("NÃO dispara quando uma loja focada já confirmou o item — Passo 4 é só fallback de último recurso", async () => {
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/bom.jpg", link: "l1" })] },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.95);
+
+      await searchVisionInternalShared([ITEM_WITH_PHOTO], REALISTIC_MATCHERS, "fake-gemini-key");
+
+      expect(fetchGoogleShoppingCandidatesForQuery).not.toHaveBeenCalled();
+    });
+
+    it(
+      "dispara e aceita candidato de OUTRA loja como aproximado quando Amazon/ML não confirmam nada — " +
+        "produto que só existe fora das duas lojas focadas não fica mais sem preço nenhum",
+      async () => {
+        describeProductImage.mockResolvedValue("fone bluetooth preto");
+        fetchStoreOffers.mockResolvedValue([
+          { marketplace: "amazon", label: "Amazon", offers: [] },
+          { marketplace: "mercadolivre", label: "Mercado Livre", offers: [] },
+        ] satisfies StoreOffers[]);
+        fetchGoogleShoppingCandidatesForQuery.mockResolvedValue([
+          { title: "Fone Bluetooth Preto Over-ear XYZ", price: 87.5, thumbnail: "https://loja/shopee.jpg", source: "Shopee" },
+        ]);
+        compareProductImages.mockResolvedValue(0.6);
+
+        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], REALISTIC_MATCHERS, "fake-gemini-key");
+
+        expect(fetchGoogleShoppingCandidatesForQuery).toHaveBeenCalledWith("fone bluetooth preto");
+        // Entra no PRIMEIRO marketplace pedido (amazon, ordem de REALISTIC_MATCHERS) — mesmo racional do
+        // fallback aproximado nos outros providers (o preço não é de nenhum marketplace focado de verdade).
+        expect(result.results.amazon["SKU-1"]).toMatchObject({
+          marketplace: "amazon",
+          price: 87.5,
+          confidence: 0.6,
+          approximate: true,
+          matchedSource: "Shopee",
+        });
+        // Sem link — Google Shopping estruturado não devolve link direto usável (ver
+        // fetchGoogleShoppingCandidatesForQuery em scraperApiSearchProvider.ts).
+        expect(result.results.amazon["SKU-1"].link).toBeUndefined();
+      }
+    );
+
+    it("filtra candidatos cuja fonte já pertence a uma loja focada — Passo 4 é só pra lojas DE FORA", async () => {
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [] },
+        { marketplace: "mercadolivre", label: "Mercado Livre", offers: [] },
+      ] satisfies StoreOffers[]);
+      // Duas fontes: uma "Amazon" (já focada, deveria ser IGNORADA aqui) e uma "Magazine Luiza" (de fora).
+      fetchGoogleShoppingCandidatesForQuery.mockResolvedValue([
+        { title: "Produto via Amazon (Google Shopping)", price: 50, thumbnail: "https://loja/amz.jpg", source: "Amazon" },
+        { title: "Produto Magalu", price: 60, thumbnail: "https://loja/magalu.jpg", source: "Magazine Luiza" },
+      ]);
+      compareProductImages.mockResolvedValue(0.9);
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], REALISTIC_MATCHERS, "fake-gemini-key");
+
+      // Só o candidato "Magazine Luiza" (fora das lojas focadas) chega a ser comparado visualmente.
+      expect(compareProductImages).toHaveBeenCalledTimes(1);
+      expect(compareProductImages).toHaveBeenCalledWith(expect.anything(), "https://loja/magalu.jpg", expect.anything());
+      expect(result.results.amazon["SKU-1"]).toMatchObject({ price: 60, matchedSource: "Magazine Luiza" });
+    });
+
+    it("não derruba o item quando a busca geral falha (rede/ScraperAPI fora do ar) — fonte extra é best-effort", async () => {
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [] },
+      ] satisfies StoreOffers[]);
+      fetchGoogleShoppingCandidatesForQuery.mockRejectedValue(new Error("ScraperAPI fora do ar"));
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], REALISTIC_MATCHERS, "fake-gemini-key");
+
+      expect(result.results.amazon["SKU-1"]).toBeUndefined();
+      // Não é falha sistêmica do item (nem erro Gemini) — o item só fica sem preço, sem exceção.
+    });
+  });
 });

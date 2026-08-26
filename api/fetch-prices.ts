@@ -10,7 +10,6 @@ import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/regis
 import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider.js";
 import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
 import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
-import { searchInternalShared } from "./_lib/providers/internalSearchProvider.js";
 import { searchVisionInternalShared } from "./_lib/providers/visionInternalSearchProvider.js";
 import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
@@ -20,7 +19,6 @@ import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
 const VALID_PROVIDERS: SearchProviderId[] = [
-  "internal_search",
   "serpapi",
   "rapidapi_amazon",
   "mercadolivre_direct",
@@ -86,14 +84,14 @@ function isValidProvider(value: unknown): value is SearchProviderId {
  *
  * `provider` (default "serpapi", ver SearchProviderId em _lib/types.ts)
  * escolhe QUAL API resolve o preço, eixo independente de `marketplaces`:
- *   - "serpapi", "internal_search", "google_lens_products",
- *     "searchapi_lens" e "vision_internal" aceitam VÁRIOS marketplaces
- *     numa chamada só (contrato mudou de `marketplace: string` singular
- *     pra `marketplaces: string[]` — ver docs/architecture-review.md item
+ *   - "serpapi", "google_lens_products", "searchapi_lens",
+ *     "vision_internal" e "scraperapi" aceitam VÁRIOS marketplaces numa
+ *     chamada só (contrato mudou de `marketplace: string` singular pra
+ *     `marketplaces: string[]` — ver docs/architecture-review.md item
  *     15): amazon + mercadolivre numa busca só por produto, em vez de uma
  *     busca por produto POR marketplace. Os cinco só diferem no
- *     INSUMO/vendor — nome em texto (SerpApi/Google Shopping ou motor
- *     interno) ou foto do produto via `item.imageUrl` (Google Lens por
+ *     INSUMO/vendor — nome em texto (SerpApi/Google Shopping ou
+ *     ScraperAPI) ou foto do produto via `item.imageUrl` (Google Lens por
  *     SerpApi, por SearchApi.io, ou motor interno + IA via Gemini —
  *     `apiKey` muda de significado conforme o provider: chave
  *     SerpApi/SearchApi.io nos dois primeiros, chave Gemini em
@@ -143,11 +141,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
   const marketplaces = body.marketplaces;
   const items = body.items;
-  // Default virou o motor interno (ago/2026): é o único sem custo por
-  // busca e sem chave, então é o comportamento certo pra quem não
-  // escolheu nada explicitamente. Antes era "serpapi", que falhava de
-  // cara sem BYOK configurado.
-  const provider: SearchProviderId = isValidProvider(body.provider) ? body.provider : "internal_search";
+  // Default é "scraperapi" (ago/2026, desde a remoção de "internal_search"
+  // — decisão de produto pós A/B): é o único sem custo por busca e sem
+  // chave que sobrou no seletor depois da remoção, então é o comportamento
+  // certo pra quem não escolheu nada explicitamente. Antes era "serpapi",
+  // que falhava de cara sem BYOK configurado.
+  const provider: SearchProviderId = isValidProvider(body.provider) ? body.provider : "scraperapi";
 
   console.log(
     `[fetch-prices] uid=${uid} provider=${provider} marketplaces=${marketplaces.join("+")} items=${items.length}`
@@ -228,12 +227,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       responseByMarketplace[marketplace] = { ...cacheByMarketplace.get(marketplace)!.hits };
     }
 
-    // Aviso de bloqueio PARCIAL do motor interno (ver
-    // internalSearchProvider.ts > BLOCK_WARNING_RATIO) — só o
-    // "internal_search" preenche isto; fica `undefined` pros demais
-    // providers. Declarado no escopo da função pra sobreviver até o
-    // `res.status(200).json(...)` final, mesmo sendo atribuído dentro do
-    // bloco de busca compartilhada mais abaixo.
+    // Aviso de cota/qualidade do motor interno + IA (ver
+    // visionInternalSearchProvider.ts) — só "vision_internal" preenche
+    // isto; fica `undefined` pros demais providers. Declarado no escopo da
+    // função pra sobreviver até o `res.status(200).json(...)` final, mesmo
+    // sendo atribuído dentro do bloco de busca compartilhada mais abaixo.
     let internalSearchWarning: string | undefined;
 
     // 2) Marketplaces do grupo Google Shopping: 1 busca por produto
@@ -253,26 +251,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         // vendors possíveis (SerpApi vs SearchApi.io, ver
         // IMAGE_SEARCH_PROVIDERS acima) — ver comentário no topo do arquivo.
         //
-        // if/else-if em vez de ternário encadeado (ago/2026, ao somar o
-        // 5º ramo/"scraperapi"): a versão em ternário profundamente
-        // aninhado (5 níveis) fazia o TS se confundir inferindo o tipo de
-        // retorno através dos `.then(...)` dos dois primeiros ramos —
-        // passava a achar que `fresh` podia ser um `VisionInternalSearchOutcome`
-        // cru (o objeto `{results, warning}` inteiro, não só `.results`)
-        // mesmo com anotação explícita no `const`. Cada branch aqui é
-        // checado de forma independente contra o tipo de `fresh` — mais
-        // robusto E mais legível que insistir no ternário.
+        // if/else-if em vez de ternário encadeado (ago/2026): a versão em
+        // ternário profundamente aninhado fazia o TS se confundir inferindo
+        // o tipo de retorno através do `.then(...)` do ramo
+        // "vision_internal" — passava a achar que `fresh` podia ser um
+        // `VisionInternalSearchOutcome` cru (o objeto `{results, warning}`
+        // inteiro, não só `.results`) mesmo com anotação explícita no
+        // `const`. Cada branch aqui é checado de forma independente contra
+        // o tipo de `fresh` — mais robusto E mais legível que insistir no
+        // ternário.
         let fresh: Record<MarketplaceId, Record<string, MarketplacePriceResult>>;
-        if (provider === "internal_search") {
-          // Motor próprio: sem `apiKey` de propósito — não existe chave,
-          // é a característica que justifica ele existir (ver
-          // internalSearchProvider.ts). Bloqueio PARCIAL de uma loja (nem
-          // todo produto falhou, então não vira exceção) precisa chegar
-          // até a UI, senão fica indistinguível de "sem match".
-          const outcome = await searchInternalShared(missItems, matchers);
-          internalSearchWarning = outcome.warning;
-          fresh = outcome.results;
-        } else if (provider === "vision_internal") {
+        if (provider === "vision_internal") {
           // Motor interno + IA: `apiKey` aqui é a chave GEMINI do usuário
           // (BYOK), não SerpApi/SearchApi.io — ver
           // visionInternalSearchProvider.ts. Warning de cota esgotada
@@ -289,8 +278,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           fresh = await searchSearchApiLensShared(missItems, matchers, body.apiKey);
         } else if (provider === "scraperapi") {
           // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
-          // propósito, mesma razão de "internal_search" — é secret de
-          // servidor (SCRAPERAPI_KEY), não BYOK.
+          // propósito — é secret de servidor (SCRAPERAPI_KEY), não BYOK.
           fresh = await searchScraperApiShared(missItems, matchers);
         } else {
           fresh = await searchGoogleShoppingShared(missItems, matchers, body.apiKey);

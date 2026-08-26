@@ -3,6 +3,7 @@ import { mapWithConcurrency } from "../concurrency.js";
 import { describeProductImage, compareProductImages, GeminiVisionError, GeminiQuotaExhaustedError } from "../geminiVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers, type ScrapedOffer } from "./internalSearchProvider.js";
+import { fetchGoogleShoppingCandidatesForQuery, type GoogleShoppingCandidate } from "./scraperApiSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -11,8 +12,8 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * ══════════════════════════════════════════════════════════════════════
  *
  * Substitui o Google Lens (via API paga de terceiro) por um pipeline de
- * três passos, cada um resolvendo o que o passo anterior não resolve
- * sozinho:
+ * até quatro passos, cada um resolvendo o que o passo anterior não
+ * resolve sozinho:
  *
  *   1. DESCREVER — a foto do catálogo vira uma frase de busca curta
  *      (`describeProductImage`, geminiVision.ts). Sem isso não tem query
@@ -33,11 +34,25 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  *      — o texto do passo 1/2 só serve pra ACHAR os candidatos, não pra
  *      escolher entre eles.
  *
+ *   4. BUSCA GERAL (ago/2026, condicional) — só roda quando NENHUMA loja
+ *      focada (passo 2/3) confirmou o produto pra este item. Busca a
+ *      MESMA frase do passo 1 no Google Shopping estruturado da
+ *      ScraperAPI (`fetchGoogleShoppingCandidatesForQuery`,
+ *      scraperApiSearchProvider.ts — mesma fonte multi-loja que os
+ *      outros mecanismos já usam como fallback "aproximado"), filtra só
+ *      lojas DE FORA das pedidas, e confirma visualmente igual ao passo
+ *      3. Existe pra achar produto em lojas que a Arbitra não foca
+ *      (Shopee, Magalu, loja própria...) em vez do item simplesmente
+ *      ficar sem preço nenhum quando Amazon/ML não têm o produto.
+ *
  * Custo por produto: 1 chamada de descrição + até `CANDIDATES_PER_STORE`
  * chamadas de comparação POR loja pedida (ex.: 2 lojas × 3 candidatos = 6
- * comparações + 1 descrição = 7 chamadas Gemini). BYOK (chave própria do
- * usuário, campo `geminiApiKey` em Conta) — sem fallback compartilhado,
- * mesmo padrão de SerpApi/RapidAPI/SearchApi.io.
+ * comparações + 1 descrição = 7 chamadas Gemini), mais até
+ * `CANDIDATES_PER_STORE` chamadas extras SE o passo 4 disparar (só quando
+ * o passo 3 zerou pra este item — não é incondicional, pra não agravar o
+ * teto de cota do free tier, ver comentário mais abaixo). BYOK (chave
+ * própria do usuário, campo `geminiApiKey` em Conta) — sem fallback
+ * compartilhado, mesmo padrão de SerpApi/RapidAPI/SearchApi.io.
  *
  * ── Por que a concorrência é 1 (não 2, como os outros providers) ──────
  * O free tier do Gemini tem teto de requisições por MINUTO relativamente
@@ -189,7 +204,7 @@ export async function searchVisionInternalShared(
   //     IA) não achou candidato NENHUM pra comparar — sinal de que a
   //     descrição curta gerada (DESCRIBE_PROMPT, geminiVision.ts) não
   //     está achando nada na loja, ou a loja bloqueou/mudou layout (mesma
-  //     raspagem de internal_search).
+  //     raspagem de fetchStoreOffers, internalSearchProvider.ts).
   //   - `rejectedAsNoiseCount`: passo 2 achou candidato, passo 3 (IA)
   //     comparou, mas a nota ficou abaixo até do piso de aproximado
   //     (MIN_APPROXIMATE_SCORE) — a IA está dizendo "provavelmente produto
@@ -217,6 +232,11 @@ export async function searchVisionInternalShared(
       // "Amazon" da vez não compete contra o "Mercado Livre" da vez,
       // cada um vira uma linha independente (mesmo modelo dos outros
       // providers multi-marketplace).
+      //
+      // `matchedAnyStore` alimenta o Passo 4 (busca geral) logo abaixo —
+      // só dispara a fonte extra quando NENHUMA das lojas focadas
+      // confirmou o produto pra este item.
+      let matchedAnyStore = false;
       for (const store of storeOffers) {
         if (quotaExhausted) break;
         const candidates = getTopCandidates(
@@ -261,6 +281,7 @@ export async function searchVisionInternalShared(
           continue;
         }
 
+        matchedAnyStore = true;
         results[best.marketplace][item.sku] = {
           marketplace: best.marketplace,
           sku: item.sku,
@@ -278,6 +299,81 @@ export async function searchVisionInternalShared(
           approximate: best.score < APPROXIMATE_BELOW_SCORE,
           matchedSource: best.label,
         };
+      }
+
+      // Passo 4 — busca geral (ago/2026): nenhuma das lojas focadas
+      // (Amazon/Mercado Livre, via `fetchStoreOffers`) confirmou
+      // visualmente o produto pra este item — antes disto o item
+      // simplesmente ficava sem preço nenhum, mesmo que o produto
+      // existisse em alguma OUTRA loja (Shopee, Magalu, loja própria...).
+      // Mesmo fallback "aproximado" que os outros mecanismos já têm (ver
+      // `matchedRequestedMarketplace` em googleShoppingProvider.ts/
+      // searchApiLensProvider.ts/scraperApiSearchProvider.ts) — só
+      // faltava aqui porque `fetchStoreOffers` raspa direto Amazon/ML,
+      // sem agregador. Fonte: Google Shopping estruturado da ScraperAPI
+      // (mesmo endpoint do mecanismo "scraperapi", cobre várias lojas
+      // numa chamada só) — ver `fetchGoogleShoppingCandidatesForQuery`.
+      //
+      // Só dispara quando as lojas focadas JÁ falharam pra este item:
+      // custa comparação visual (Gemini) extra, então não é feito
+      // incondicionalmente, pra não agravar o teto de cota do free tier
+      // (ver comentário "Cota do Gemini free tier..." no topo do arquivo).
+      if (!matchedAnyStore && !quotaExhausted) {
+        try {
+          const broadCandidates = await fetchGoogleShoppingCandidatesForQuery(query);
+          // Só interessa achar em lojas DE FORA das pedidas — Amazon/ML já
+          // foram tentadas (e falharam) no passo 3 acima.
+          const otherStoreCandidates = broadCandidates.filter(
+            (c) => c.source && !matchers.some((m) => m.matchesSource(c.source!.toLowerCase()))
+          );
+          const topBroad = getTopCandidates(
+            query,
+            otherStoreCandidates,
+            (c) => c.title,
+            () => 0,
+            CANDIDATES_PER_STORE
+          );
+
+          let bestBroad: { candidate: GoogleShoppingCandidate; score: number } | null = null;
+          for (const { candidate } of topBroad) {
+            if (quotaExhausted) break;
+            if (!candidate.thumbnail) continue;
+            try {
+              const score = await compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
+              if (!bestBroad || score > bestBroad.score) bestBroad = { candidate, score };
+            } catch (err) {
+              if (err instanceof GeminiQuotaExhaustedError) {
+                quotaExhausted = true;
+                quotaExhaustedAtItem ??= processedCount;
+                lastError = err.message;
+                break;
+              }
+              console.warn(`[motor-interno+IA] comparação visual (busca geral) falhou ("${query}"):`, err);
+            }
+          }
+
+          if (bestBroad && bestBroad.score >= MIN_APPROXIMATE_SCORE && bestBroad.candidate.price != null) {
+            // Só no primeiro marketplace pedido — o preço não é de
+            // nenhum dos marketplaces focados, replicá-lo nos dois
+            // inventaria uma oferta que não existe lá (mesmo racional do
+            // fallback aproximado nos outros providers).
+            const { marketplace } = matchers[0];
+            results[marketplace][item.sku] = {
+              marketplace,
+              sku: item.sku,
+              price: bestBroad.candidate.price,
+              competitorCount: Math.max(0, otherStoreCandidates.length - 1),
+              buyBoxEligible: false,
+              confidence: bestBroad.score,
+              matchedTitle: bestBroad.candidate.title,
+              imageUrl: bestBroad.candidate.thumbnail,
+              approximate: true,
+              matchedSource: bestBroad.candidate.source,
+            };
+          }
+        } catch (err) {
+          console.warn(`[motor-interno+IA] busca geral (outras lojas) falhou pra "${query}":`, err);
+        }
       }
     } catch (err) {
       failures++;

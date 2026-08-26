@@ -1,8 +1,5 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
+import type { MarketplaceId } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { confidenceFromSimilarity } from "../textSimilarity.js";
-import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -12,10 +9,12 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  *
  * Lê o preço direto da página de resultado de busca de cada loja
  * (Mercado Livre e Amazon BR), sem SerpApi, sem RapidAPI, sem chave
- * nenhuma. É o provider "nosso" — o único cujo custo marginal por busca
- * é ZERO, e a razão de existir: o usuário pagar a assinatura da
- * plataforma e mais US$ 40-100/mês de API de terceiro era inviável
- * comercialmente.
+ * nenhuma. Raspagem "nossa" — custo marginal por busca ZERO. Único
+ * consumidor hoje é `fetchStoreOffers` (usado pelo motor interno + IA,
+ * ver visionInternalSearchProvider.ts) — a rota de busca por TEXTO puro
+ * sem IA (`searchInternalShared`) foi removida daqui (ago/2026, decisão
+ * de produto pós teste A/B), mas a raspagem em si segue sendo a base do
+ * "motor interno".
  *
  * ── Por que ir direto na loja e não replicar o Google Shopping ───────
  * Raspar o Google Shopping por conta própria trocaria "pagar a SerpApi"
@@ -59,26 +58,6 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * O ponto de injeção de proxy é único (`fetchStoreHtml`), então plugar
  * um depois não exige reescrever parser nem provider.
  */
-
-/** Abaixo disso o match entra marcado como aproximado — mesmo critério da busca por texto em googleShoppingProvider.ts (a busca foi feita PELO NOME, então o título tem que bater de verdade). */
-const APPROXIMATE_BELOW_SIMILARITY = 0.35;
-
-/**
- * Fração de tentativas BLOQUEADAS (não "sem resultado" — bloqueio de
- * verdade, `StoreBlockedError`) numa loja específica, a partir da qual
- * vale avisar o usuário mesmo sem ser bloqueio total. Problema real
- * reportado: catálogo de 40 produtos, motor interno devolveu só 3 — o
- * critério de erro sistêmico de sempre (`failures === attempts`, ver
- * `searchInternalShared`) só dispara quando TUDO falha; se o anti-bot
- * começa a barrar depois dos primeiros produtos (rate-limit, CAPTCHA) e
- * alguns ainda passam, o resto simplesmente "não achou nada" sem
- * NENHUMA pista na tela — o usuário acha que é o catálogo, quando é a
- * infraestrutura sendo bloqueada no meio do lote. 30% é deliberadamente
- * baixo: bloqueio parcial reduz a taxa de acerto de forma desproporcional
- * (cada tentativa bloqueada é um produto a menos, sem chance nenhuma de
- * match, bom ou ruim), então vale avisar cedo.
- */
-const BLOCK_WARNING_RATIO = 0.3;
 
 /**
  * Concorrência menor que a dos providers de API (que usam 2-3 contra um
@@ -166,8 +145,8 @@ const SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/";
 
 /**
  * Bloqueio/desafio da loja — categoria de erro DIFERENTE de "não achei
- * o produto". Existe como classe própria pra `searchInternalShared`
- * poder propagar uma mensagem acionável ("o IP foi bloqueado, use outro
+ * o produto". Existe como classe própria pra `fetchStoreOffers` poder
+ * propagar uma mensagem acionável ("o IP foi bloqueado, use outro
  * provider ou configure proxy") em vez de deixar o usuário achando que
  * o catálogo dele é que está ruim.
  */
@@ -724,21 +703,21 @@ export interface StoreOffers {
 }
 
 /**
- * Busca ofertas CRUAS (sem `pickBestCandidate`, sem `MarketplacePriceResult`)
- * pra uma única query de texto, nas lojas presentes em `matchers`.
+ * Busca ofertas CRUAS (sem ranking por similaridade de texto, sem
+ * `MarketplacePriceResult`) pra uma única query de texto, nas lojas
+ * presentes em `matchers`. Usa a mesma raspagem de sempre (STORE_SCRAPERS,
+ * `fetchStoreHtml`, `scraper.parse`).
  *
- * Extraída da mesma raspagem que `searchInternalShared` usa (STORE_SCRAPERS,
- * `fetchStoreHtml`, `scraper.parse`) — existe pra não duplicar a lógica de
- * scraping no motor interno + IA (ver visionInternalSearchProvider.ts): lá a
- * decisão de qual candidato é o produto certo não é por similaridade de
- * TEXTO (a query já veio de uma descrição gerada por IA, não do nome do
+ * Único consumidor: motor interno + IA (visionInternalSearchProvider.ts) —
+ * lá a decisão de qual candidato é o produto certo não é por similaridade
+ * de TEXTO (a query já veio de uma descrição gerada por IA, não do nome do
  * catálogo), e sim por comparação visual das fotos — então o consumidor
  * precisa da lista de ofertas em si, não de um único "melhor" já escolhido
- * por `pickBestCandidate`. `getTopCandidates` (rankCandidates.ts) entra
- * DEPOIS desta função, sobre a lista aqui devolvida.
+ * por ranking de texto. `getTopCandidates` (rankCandidates.ts) entra DEPOIS
+ * desta função, sobre a lista aqui devolvida.
  *
  * Erro por loja é isolado (uma bloqueada não derruba a outra) — só propaga
- * se TODAS as lojas tentadas falharem, mesmo critério de `searchInternalShared`.
+ * se TODAS as lojas tentadas falharem.
  */
 export async function fetchStoreOffers(query: string, matchers: MarketplaceMatcher[]): Promise<StoreOffers[]> {
   const scrapers = STORE_SCRAPERS.filter((s) => matchers.some((m) => m.marketplace === s.marketplace));
@@ -753,8 +732,7 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
       const html = await fetchStoreHtml(scraper.buildUrl(query), scraper);
       const offers = scraper.parse(html);
       if (offers.length === 0) {
-        // Mesma checagem de `searchInternalShared` (busca por texto) —
-        // faltava aqui. Sem isso, HTML que passa por `detectBlock` (sem
+        // Sem isso, HTML que passa por `detectBlock` (sem
         // bloqueio explícito) mas que o parser não reconhece (layout
         // mudou, ou é uma página de resultado vazio de verdade) virava
         // "0 ofertas" 100% silencioso: nem erro, nem warning, nada no
@@ -781,139 +759,10 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
   return results;
 }
 
-/** Resultado de `searchInternalShared` — `warning` é NOVO (ago/2026): ver `BLOCK_WARNING_RATIO` acima. Sempre `undefined` quando nenhuma loja passou do piso de bloqueio parcial (caso comum). */
-export interface InternalSearchOutcome {
-  results: Record<string, Record<string, MarketplacePriceResult>>;
-  warning?: string;
-}
-
-/**
- * Busca de preço pelo motor interno. Mesma assinatura dos outros
- * providers multi-marketplace (`searchGoogleShoppingShared` etc.) pra
- * plugar em fetch-prices.ts sem caso especial — mas com uma diferença
- * de comportamento importante: aqui cada marketplace é uma requisição
- * própria (ver comentário no topo), então o `matchers` define quantas
- * lojas serão visitadas por produto.
- *
- * Contrato de erro, igual ao resto do projeto: produto sem match é
- * silencioso (normal, só reduz taxa de acerto); falha SISTÊMICA que
- * atingiu todas as tentativas vira exceção, pra UI poder explicar. Sem
- * isso, bloqueio de IP apareceria como "nenhum resultado" e mandaria o
- * usuário depurar o catálogo em vez da infra.
- *
- * Devolve `{ results, warning }` em vez de só `results` (ago/2026): ver
- * `BLOCK_WARNING_RATIO` — bloqueio PARCIAL (nem toda tentativa falhou,
- * então não dispara a exceção acima) precisa de um canal pra chegar até
- * a UI, senão fica tão silencioso quanto o bloqueio total antes do fix
- * de `detectBlock`.
- */
-export async function searchInternalShared(
-  items: CatalogItemQuery[],
-  matchers: MarketplaceMatcher[]
-): Promise<InternalSearchOutcome> {
-  const results = {} as Record<string, Record<string, MarketplacePriceResult>>;
-  for (const { marketplace } of matchers) results[marketplace] = {};
-
-  const scrapers = STORE_SCRAPERS.filter((s) => matchers.some((m) => m.marketplace === s.marketplace));
-  if (scrapers.length === 0 || items.length === 0) return { results };
-
-  // Uma unidade de trabalho = 1 produto numa 1 loja.
-  const jobs = items.flatMap((item) => scrapers.map((scraper) => ({ item, scraper })));
-
-  let blockedError: string | null = null;
-  let attempts = 0;
-  let failures = 0;
-
-  // Contagem POR LOJA (não só agregada) — bloqueio costuma ser por
-  // marketplace (ex.: só o Mercado Livre bloqueou, Amazon segue normal),
-  // então o aviso final também precisa ser por loja — ver uso abaixo.
-  const attemptsByMarketplace: Record<string, number> = {};
-  const blockedByMarketplace: Record<string, number> = {};
-  for (const scraper of scrapers) {
-    attemptsByMarketplace[scraper.marketplace] = 0;
-    blockedByMarketplace[scraper.marketplace] = 0;
-  }
-
-  await mapWithConcurrency(jobs, CONCURRENCY, async ({ item, scraper }) => {
-    attempts++;
-    attemptsByMarketplace[scraper.marketplace]++;
-    try {
-      // A URL de busca usa a query LIMPA (ver searchQuery.ts) — ruído
-      // sintático do catálogo (ref interno, medida de embalagem) só
-      // dilui a relevância na página de busca da loja. O ranking abaixo
-      // (`pickBestCandidate`) continua comparando contra `item.name`
-      // ORIGINAL, não contra a query limpa — a limpeza afeta só o que é
-      // mandado pra busca, nunca o critério de "é o produto certo?".
-      const html = await fetchStoreHtml(scraper.buildUrl(buildSearchQuery(item.name)), scraper);
-      const offers = scraper.parse(html);
-
-      if (offers.length === 0) {
-        // HTML veio íntegro (passou por detectBlock) mas o parser não
-        // achou nada: ou a busca não tem resultado mesmo, ou o layout
-        // mudou. Registrado no log com o tamanho do HTML pra distinguir
-        // os dois casos sem precisar reproduzir a busca.
-        console.warn(
-          `[motor-interno] ${scraper.label}: 0 ofertas pra "${item.name}" (HTML ${html.length} bytes — ` +
-            "se isso acontecer com TODOS os produtos, o layout da loja provavelmente mudou; " +
-            "ver os testes de parser em internalSearchProvider.test.ts)"
-        );
-        return;
-      }
-
-      const ranked = pickBestCandidate(
-        item.name,
-        offers,
-        (o) => o.title,
-        (o) => popularityScore(o.reviewCount, o.rating)
-      );
-      if (!ranked) return;
-
-      results[scraper.marketplace][item.sku] = {
-        marketplace: scraper.marketplace,
-        sku: item.sku,
-        price: ranked.candidate.price,
-        competitorCount: Math.max(0, offers.length - 1),
-        buyBoxEligible: true,
-        confidence: confidenceFromSimilarity(ranked.similarity),
-        link: ranked.candidate.link,
-        matchedTitle: ranked.candidate.title,
-        imageUrl: ranked.candidate.thumbnail,
-        approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
-        matchedSource: scraper.label,
-      };
-    } catch (err) {
-      failures++;
-      if (err instanceof StoreBlockedError) {
-        blockedError = err.message;
-        blockedByMarketplace[scraper.marketplace]++;
-      } else {
-        blockedError = blockedError ?? (err instanceof Error ? err.message : String(err));
-      }
-      console.error(`[motor-interno] ${scraper.label} falhou pra "${item.name}":`, err);
-    }
-  });
-
-  // Só propaga se TUDO falhou — mesmo critério dos outros providers.
-  // Falha parcial (uma loja bloqueada, outra não) devolve o que deu
-  // certo, em vez de descartar resultado bom por causa de erro alheio.
-  if (attempts > 0 && failures === attempts && blockedError) {
-    throw new Error(blockedError);
-  }
-
-  // Bloqueio PARCIAL (ver BLOCK_WARNING_RATIO) — não dispara a exceção
-  // acima (nem toda tentativa falhou), mas uma fração alta de UMA loja
-  // específica foi bloqueada de verdade (não "sem match", bloqueio).
-  const warnings: string[] = [];
-  for (const scraper of scrapers) {
-    const total = attemptsByMarketplace[scraper.marketplace];
-    const blocked = blockedByMarketplace[scraper.marketplace];
-    if (total > 0 && blocked < total && blocked / total >= BLOCK_WARNING_RATIO) {
-      warnings.push(
-        `${scraper.label} bloqueou ${blocked} de ${total} tentativa(s) — parte dos produtos sem ` +
-          "resultado nessa loja pode ser bloqueio de IP, não falta de match no catálogo."
-      );
-    }
-  }
-
-  return { results, warning: warnings.length > 0 ? warnings.join(" ") : undefined };
-}
+// `searchInternalShared` (motor interno SEM IA, busca por TEXTO direto
+// pra amazon/ml) foi REMOVIDO daqui (ago/2026) — decisão de produto pós
+// teste A/B: entre os dois "motor interno" testados, só a variante com
+// Gemini (`searchVisionInternalShared`, visionInternalSearchProvider.ts)
+// seguiu. `fetchStoreOffers` acima continua — é o que essa variante usa
+// pro passo de busca por texto (a partir da descrição gerada pela IA, não
+// do nome do catálogo).

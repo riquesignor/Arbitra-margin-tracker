@@ -80,6 +80,73 @@ interface GoogleShoppingStructuredResponse {
   error?: string;
 }
 
+/** Candidato cru do Google Shopping estruturado — sem `link` (ver `fetchGoogleShoppingCandidatesForQuery` abaixo pro motivo). */
+export interface GoogleShoppingCandidate {
+  title: string;
+  price?: number;
+  thumbnail?: string;
+  source?: string;
+}
+
+/**
+ * Busca "geral" (ago/2026) — candidatos do Google Shopping estruturado
+ * pra QUALQUER loja, sem restringir por `matcher`. Extraída da mesma
+ * chamada usada em `searchScraperApiShared` (mesmo endpoint) pra ficar
+ * reutilizável fora do mecanismo "scraperapi": é a mesma fonte multi-loja
+ * que já alimenta o fallback "aproximado" de serpapi/searchapi_lens/
+ * google_lens_products/scraperapi (achar o produto fora das duas lojas
+ * focadas) — só o motor interno + IA (visionInternalSearchProvider.ts)
+ * ainda não tinha acesso a essa fonte, porque a busca dele é direto na
+ * Amazon/Mercado Livre (`fetchStoreOffers`, internalSearchProvider.ts,
+ * sem agregador nenhum no meio).
+ *
+ * Devolve `[]` (não lança) quando a chave não está configurada ou a
+ * chamada falha — é um enriquecimento OPCIONAL, uma fonte a menos não
+ * pode derrubar o item inteiro.
+ *
+ * Sem `link`/`product_link` de propósito: a doc oficial (ago/2026,
+ * docs.scraperapi.com/structured-data-endpoints/search-and-insights/
+ * google/google-shopping-api) confirma que o Google descontinuou o
+ * endpoint de produto individual — o `link` que a Google Shopping SDE
+ * devolve hoje aponta pra uma URL da própria ScraperAPI que precisa de
+ * OUTRA chamada autenticada pra resolver em oferta de verdade, não pra
+ * página da loja. Devolver isso como "link" enganaria o usuário (parece
+ * clicável, mas não leva a lugar nenhum sem uma 2ª chamada paga) — por
+ * isso nem a interface acima nem esta função carregam o campo.
+ */
+export async function fetchGoogleShoppingCandidatesForQuery(query: string): Promise<GoogleShoppingCandidate[]> {
+  const apiKey = SCRAPERAPI_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const url = new URL(GOOGLE_SHOPPING_ENDPOINT);
+    url.searchParams.set("api_key", apiKey);
+    url.searchParams.set("query", query);
+    url.searchParams.set("tld", "com.br");
+    url.searchParams.set("country_code", "br");
+    url.searchParams.set("gl", "br");
+    url.searchParams.set("hl", "pt-br");
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      console.warn(`ScraperAPI (Google Shopping, busca geral) "${query}" retornou ${response.status}`);
+      return [];
+    }
+    const data = (await response.json()) as GoogleShoppingStructuredResponse;
+    if (data.error) {
+      console.warn(`ScraperAPI (Google Shopping, busca geral) "${query}": ${data.error}`);
+      return [];
+    }
+
+    return (data.shopping_results ?? [])
+      .filter((r) => r.extracted_price != null)
+      .map((r) => ({ title: r.title, price: r.extracted_price, thumbnail: r.thumbnail, source: r.source }));
+  } catch (err) {
+    console.warn(`ScraperAPI (Google Shopping, busca geral) falhou pra "${query}":`, err);
+    return [];
+  }
+}
+
 /**
  * Terceiro mecanismo do teste A/B (ago/2026) — ScraperAPI ISOLADA como
  * mecanismo de BUSCA de verdade, não só transporte. Diferente do uso já

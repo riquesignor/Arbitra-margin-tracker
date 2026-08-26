@@ -8,10 +8,8 @@ import {
   parseBrazilianPrice,
   parseJsonLdOffers,
   parseMercadoLivreHtml,
-  searchInternalShared,
 } from "./internalSearchProvider";
 import type { MarketplaceMatcher } from "./googleShoppingProvider";
-import type { CatalogItemQuery } from "../types";
 
 /**
  * Estes testes são a rede de segurança do motor interno. Diferente de um
@@ -403,77 +401,6 @@ describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
       vi.resetModules(); // não deixa a versão "com chave" vazar pros describes seguintes deste arquivo
     }
   );
-});
-
-describe("searchInternalShared — bloqueio parcial", () => {
-  const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  function makeItems(blockedCount: number, okCount: number): CatalogItemQuery[] {
-    const items: CatalogItemQuery[] = [];
-    for (let i = 0; i < blockedCount; i++) items.push({ sku: `B${i}`, name: `Bloqueado item ${i}` });
-    for (let i = 0; i < okCount; i++) items.push({ sku: `O${i}`, name: `Ok item ${i}` });
-    return items;
-  }
-
-  it(
-    "avisa quando uma loja bloqueia 30%+ das tentativas mesmo sem bloquear tudo — " +
-      "regressão do 'achei 3 de 40 sem nenhuma explicação na tela'",
-    async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async (url: string) =>
-          url.includes("bloqueado")
-            ? ({ status: 403, text: async () => "" } as unknown as Response)
-            : ({ status: 200, text: async () => ML_HTML } as unknown as Response)
-        )
-      );
-
-      const outcome = await searchInternalShared(makeItems(4, 6), MATCHERS); // 40% bloqueado
-
-      expect(outcome.warning).toMatch(/bloqueou/i);
-      expect(outcome.warning).toMatch(/Mercado Livre/i);
-    }
-  );
-
-  it("não avisa quando o bloqueio fica abaixo do piso de 30%", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) =>
-        url.includes("bloqueado")
-          ? ({ status: 403, text: async () => "" } as unknown as Response)
-          : ({ status: 200, text: async () => ML_HTML } as unknown as Response)
-      )
-    );
-
-    const outcome = await searchInternalShared(makeItems(1, 9), MATCHERS); // 10% bloqueado
-
-    expect(outcome.warning).toBeUndefined();
-  });
-
-  it("continua lançando exceção quando TUDO bloqueia — comportamento antigo preservado", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ status: 403, text: async () => "" }) as unknown as Response)
-    );
-
-    await expect(searchInternalShared(makeItems(0, 5), MATCHERS)).rejects.toThrow();
-  });
-
-  it("devolve results normalmente quando não há bloqueio nenhum", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ status: 200, text: async () => ML_HTML }) as unknown as Response)
-    );
-
-    const outcome = await searchInternalShared(makeItems(0, 3), MATCHERS);
-
-    expect(outcome.warning).toBeUndefined();
-    expect(outcome.results.mercadolivre).toBeDefined();
-  });
 });
 
 describe("construção de URL de busca", () => {

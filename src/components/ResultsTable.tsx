@@ -601,7 +601,9 @@ export default function ResultsTable({
                           <ExternalLink size={11} /> Ver anúncio
                         </a>
                       ) : (
-                        <span className={styles.noLink}>sem link (simulado)</span>
+                        <span className={styles.noLink} title="A fonte deste preço não retornou um link direto pro anúncio">
+                          sem link
+                        </span>
                       )}
                     </td>
                     <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
@@ -681,6 +683,19 @@ export default function ResultsTable({
                                     ? `${(offer.marginPct * 100).toFixed(1)}% margem`
                                     : "sem custo"}
                                 </span>
+                                {offer.link ? (
+                                  <a
+                                    className={styles.productLink}
+                                    href={offer.link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={offer.matchedTitle ? `Encontrado como: ${offer.matchedTitle}` : undefined}
+                                  >
+                                    <ExternalLink size={10} /> Ver anúncio
+                                  </a>
+                                ) : (
+                                  <span className={styles.noLink}>sem link</span>
+                                )}
                               </>
                             ) : (
                               <span className={styles.noLink}>sem oferta</span>
@@ -752,6 +767,19 @@ export default function ResultsTable({
                               <ApproximateBadge matchedSource={best.matchedSource} />
                             )}
                           </div>
+                          {best.link ? (
+                            <a
+                              className={styles.productLink}
+                              href={best.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={best.matchedTitle ? `Encontrado como: ${best.matchedTitle}` : undefined}
+                            >
+                              <ExternalLink size={11} /> Ver anúncio
+                            </a>
+                          ) : (
+                            <span className={styles.noLink}>sem link</span>
+                          )}
                           {rest.length > 0 && (
                             <button
                               type="button"
@@ -788,6 +816,19 @@ export default function ResultsTable({
                             <td />
                             <td className={styles.productCell}>
                               <span className={styles.subRowHint}>outra oferta</span>
+                              {r.link ? (
+                                <a
+                                  className={styles.productLink}
+                                  href={r.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={r.matchedTitle ? `Encontrado como: ${r.matchedTitle}` : undefined}
+                                >
+                                  <ExternalLink size={10} /> Ver anúncio
+                                </a>
+                              ) : (
+                                <span className={styles.noLink}>sem link</span>
+                              )}
                             </td>
                             <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
                             <CostCell value={r.supplierPrice} />

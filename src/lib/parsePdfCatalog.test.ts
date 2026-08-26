@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractGridBlocks,
   extractProductBlocksWithoutPrice,
+  extractProductBlocksWithoutPriceIndexed,
   extractRows,
   sanitizeProductName,
 } from "./parsePdfCatalog";
@@ -480,5 +481,36 @@ describe("extractProductBlocksWithoutPrice", () => {
   it("é no-op (retorna []) quando não há nenhum marcador de SKU standalone — não interfere em catálogo que já funciona", () => {
     expect(extractProductBlocksWithoutPrice(["MODELO: BM-F1324", "Produto Normal", "Unid.CX: 12,00"])).toEqual([]);
     expect(extractProductBlocksWithoutPrice([])).toEqual([]);
+  });
+});
+
+describe("extractProductBlocksWithoutPriceIndexed", () => {
+  it(
+    "carrega o lineIndex do MARCADOR (linha do SKU sozinho), não da primeira linha do corpo — " +
+      "confirmado com PDF real (Catálogo TOPUTIL/DL Grupo) pro recorte de foto do bloco " +
+      "(ver uso em parsePdfCatalogFile > cropRowBand)",
+    () => {
+      const lines = [
+        "TOP2905", // lineIndex 0
+        "Kit Organizadores De Cozinha", // 1
+        "CX MASTER: 20", // 2
+        "TOP2906", // lineIndex 3
+        "Outro Produto Qualquer", // 4
+        "CX MASTER: 10", // 5
+      ];
+
+      const rows = extractProductBlocksWithoutPriceIndexed(lines);
+
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({ sku: "TOP2905", lineIndex: 0 });
+      expect(rows[1]).toMatchObject({ sku: "TOP2906", lineIndex: 3 });
+    }
+  );
+
+  it("extractProductBlocksWithoutPrice (sem índice) devolve exatamente os mesmos campos de antes — wrapper não vaza lineIndex", () => {
+    const lines = ["TOP2905", "Produto Normal", "CX MASTER: 20"];
+
+    expect(extractProductBlocksWithoutPrice(lines)).toEqual(extractProductBlocksWithoutPriceIndexed(lines).map(({ lineIndex: _l, ...row }) => row));
+    expect(Object.keys(extractProductBlocksWithoutPrice(lines)[0])).not.toContain("lineIndex");
   });
 });

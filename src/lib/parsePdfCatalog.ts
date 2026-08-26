@@ -536,7 +536,20 @@ const STANDALONE_DIGITS_LINE_PATTERN = /^\d+$/;
  *
  * Exportado pra teste unitário direto — ver parsePdfCatalog.test.ts.
  */
-export function extractProductBlocksWithoutPrice(lines: string[]): CatalogRow[] {
+/**
+ * Versão indexada (ago/2026) — mesma extração acima, mas carrega o
+ * `lineIndex` do MARCADOR de cada produto junto (posição dentro de
+ * `lines`), pro chamador conseguir recortar a foto do bloco (ver uso em
+ * parsePdfCatalogFile, mesmo mecanismo de `cropRowBand` que o layout
+ * linha-única já usa). Confirmado com PDF real (Catálogo TOPUTIL/DL
+ * Grupo — o mesmo layout que originou este heurístico, ver comentário
+ * acima) que este é justamente o caminho que catálogos assim acionam;
+ * antes desta mudança, "vitrine sem preço" tinha nome/preço reconhecidos
+ * mas NUNCA foto, mesmo com modo imagem selecionado — travava qualquer
+ * provider de foto (Google Lens, SearchApi.io, motor interno + IA) com
+ * "não consegui extrair nenhuma foto".
+ */
+export function extractProductBlocksWithoutPriceIndexed(lines: string[]): (CatalogRow & { lineIndex: number })[] {
   const markers: { sku: string; index: number }[] = [];
   lines.forEach((line, index) => {
     const trimmed = line.trim();
@@ -544,7 +557,7 @@ export function extractProductBlocksWithoutPrice(lines: string[]): CatalogRow[] 
   });
   if (markers.length === 0) return [];
 
-  const rows: CatalogRow[] = [];
+  const rows: (CatalogRow & { lineIndex: number })[] = [];
   for (let i = 0; i < markers.length; i++) {
     const { sku, index } = markers[i];
     const end = i + 1 < markers.length ? markers[i + 1].index : lines.length;
@@ -570,10 +583,15 @@ export function extractProductBlocksWithoutPrice(lines: string[]): CatalogRow[] 
     if (!name) name = sku;
     if (name.length > MAX_PLAUSIBLE_NAME_LENGTH) name = name.slice(0, MAX_PLAUSIBLE_NAME_LENGTH).trim();
 
-    rows.push(supplierPrice != null ? { sku, name, supplierPrice } : { sku, name });
+    rows.push({ ...(supplierPrice != null ? { sku, name, supplierPrice } : { sku, name }), lineIndex: index });
   }
 
   return rows;
+}
+
+/** Exportado pra teste unitário direto (sem posição, mesma interface de antes desta mudança) — ver parsePdfCatalog.test.ts. */
+export function extractProductBlocksWithoutPrice(lines: string[]): CatalogRow[] {
+  return extractProductBlocksWithoutPriceIndexed(lines).map(({ lineIndex: _lineIndex, ...row }) => row);
 }
 
 // ── Catálogo em GRADE (cartões) ──────────────────────────────────────
@@ -1321,15 +1339,39 @@ export async function parsePdfCatalogFile(
           });
         }
       } else {
-        // Nem grade nem linha-única acharam produto nesta página — último
-        // recurso ANTES da IA: layout "vitrine" sem preço (ver
-        // extractProductBlocksWithoutPrice acima). Sem suporte a foto
-        // nesta v1 (escopo contido) — busca por texto/nome continua
-        // disponível normalmente pra esses produtos.
-        const noPriceRows = extractProductBlocksWithoutPrice(pageLines.map((l) => l.text));
+        // Nem grade nem linha-única acharam produto nesta página —
+        // próximo recurso ANTES da IA: layout "vitrine" sem preço (ver
+        // extractProductBlocksWithoutPriceIndexed acima). Suporte a foto
+        // (ago/2026, confirmado com PDF real — Catálogo TOPUTIL/DL Grupo,
+        // o mesmo layout que motivou este heurístico): cada marcador de
+        // SKU já tem posição Y conhecida, então o recorte usa o mesmo
+        // `cropRowBand` do layout linha-única, com o marcador ANTERIOR/
+        // PRÓXIMO como limite (não a linha de texto adjacente — o bloco
+        // aqui tem várias linhas, precisa da posição do PRODUTO vizinho,
+        // não da linha vizinha).
+        const noPriceRowsIndexed = extractProductBlocksWithoutPriceIndexed(pageLines.map((l) => l.text));
 
-        if (noPriceRows.length > 0) {
-          rows.push(...noPriceRows);
+        if (noPriceRowsIndexed.length > 0) {
+          rows.push(...noPriceRowsIndexed.map(({ lineIndex: _lineIndex, ...row }) => row));
+
+          if (withImages) {
+            const { canvas: c, viewport: v } = await ensureCanvas();
+            const cropTargets = noPriceRowsIndexed.map((row, i) => ({
+              row,
+              prevY: i > 0 ? pageLines[noPriceRowsIndexed[i - 1].lineIndex].y : null,
+              nextY:
+                i < noPriceRowsIndexed.length - 1 ? pageLines[noPriceRowsIndexed[i + 1].lineIndex].y : null,
+            }));
+            await mapWithConcurrency(cropTargets, IMAGE_UPLOAD_CONCURRENCY, async ({ row, prevY, nextY }) => {
+              try {
+                const cropped = cropRowBand(c!, v!, IMAGE_RENDER_SCALE, pageLines[row.lineIndex].y, prevY, nextY);
+                const url = await uploadCatalogImage(options!.userId!, row.sku, cropped);
+                imagesBySku[row.sku] = url;
+              } catch (err) {
+                console.warn(`Falha ao extrair/subir imagem do produto "${row.sku}" (layout vitrine sem preço):`, err);
+              }
+            });
+          }
         } else if (options?.geminiApiKey && !geminiQuotaExhausted) {
           // ÚLTIMO recurso de todos: NENHUMA heurística (grade com rótulo
           // conhecido, linha única, bloco sem preço) reconheceu produto
