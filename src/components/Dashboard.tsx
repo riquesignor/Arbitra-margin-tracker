@@ -230,8 +230,30 @@ function buildParseInfoMessage(
  * "mercadolivre_direct" falha e o usuário já tem a chave cadastrada (ver
  * mlFallbackOffer mais abaixo).
  */
-/** Grid principal de seleção (seção 01) — sem "serpapi" (ver comentário em SEARCH_PROVIDERS acima). */
-const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi");
+/**
+ * ⚠️ MODO TESTE A/B (ago/2026) — temporário, ver conversa sobre comparar
+ * os 3 mecanismos de terceiros depois do ScraperAPI entrar no motor
+ * interno. Grid principal reduzido de propósito a só 3 opções, pra
+ * comparação direta com o MESMO catálogo:
+ *
+ *   - internal_search  → "a scraper": motor interno, agora com o proxy
+ *     ScraperAPI por baixo (fetchStoreHtmlOnce, internalSearchProvider.ts)
+ *   - serpapi           → "a serp api": Google Shopping, cota renovada
+ *   - searchapi_lens     → "a search": busca por foto via SearchApi.io
+ *
+ * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
+ * (não são "terceiro" no sentido testado aqui), google_lens_products
+ * (mesma chave/cota da SerpApi acima — testar os dois juntos dilui a
+ * leitura de qual dos 3 rendeu melhor) e vision_internal (grátis/BYOK,
+ * não é um dos 3 mecanismos pagos em comparação).
+ *
+ * Reverter depois do teste: trocar a linha abaixo de volta pra
+ * `SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi")` (o filtro
+ * original, que só tirava a SerpApi do grid principal — ver comentário
+ * antigo preservado acima em SEARCH_PROVIDERS).
+ */
+const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>(["internal_search", "serpapi", "searchapi_lens"]);
+const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => AB_TEST_PROVIDER_IDS.has(p.id));
 
 // Tamanho do lote de busca — catálogos grandes são processados em
 // lotes sequenciais (não tudo de uma vez) só pra reportar progresso
@@ -1091,7 +1113,11 @@ export default function Dashboard({
                 <div className={styles.subGroup}>
                   <span className={styles.subGroupLabel}>API em uso agora</span>
                   <div className={styles.apiSwitchRow}>
-                    {SEARCH_PROVIDERS.map((p) => {
+                    {/* Antes iterava SEARCH_PROVIDERS (todos), o que reintroduzia
+                        google_lens_products/vision_internal aqui mesmo escondidos
+                        do grid principal (ver AB_TEST_PROVIDER_IDS acima) — troca
+                        pra SELECTABLE_PROVIDERS pra respeitar o mesmo recorte. */}
+                    {SELECTABLE_PROVIDERS.filter((p) => IMAGE_MODE_PROVIDERS.has(p.id)).map((p) => {
                       const active = p.id === searchProvider;
                       const Icon = p.icon;
                       return (
