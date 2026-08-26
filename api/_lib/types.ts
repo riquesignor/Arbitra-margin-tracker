@@ -59,6 +59,13 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  *     visionInternalSearchProvider.ts e geminiVision.ts. Opção adicional
  *     ao lado de "google_lens_products"/"searchapi_lens", não
  *     substituição — só vira default depois de validado em uso real.
+ *   - "scraperapi" → 3º mecanismo do teste A/B (ago/2026): Structured Data
+ *     Endpoints da ScraperAPI (Amazon Search API nativa + Google Shopping
+ *     API), a própria ScraperAPI faz o parsing e devolve JSON pronto —
+ *     papel equivalente ao de "serpapi". Diferente de "internal_search"
+ *     (que usa a MESMA `SCRAPERAPI_KEY`, mas só como proxy de transporte
+ *     pro parser próprio) — ver scraperApiSearchProvider.ts. Chave é
+ *     secret de servidor, não BYOK — sem `apiKey` no corpo da requisição.
  */
 export type SearchProviderId =
   | "internal_search"
@@ -68,7 +75,8 @@ export type SearchProviderId =
   | "mercadolivre_alt"
   | "google_lens_products"
   | "searchapi_lens"
-  | "vision_internal";
+  | "vision_internal"
+  | "scraperapi";
 
 export interface CatalogItemQuery {
   sku: string;

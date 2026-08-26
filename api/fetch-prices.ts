@@ -12,6 +12,7 @@ import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvi
 import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
 import { searchInternalShared } from "./_lib/providers/internalSearchProvider.js";
 import { searchVisionInternalShared } from "./_lib/providers/visionInternalSearchProvider.js";
+import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
@@ -27,6 +28,7 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
+  "scraperapi",
 ];
 
 // Providers que só cobrem UM marketplace fixo cada — ver
@@ -278,7 +280,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
                 ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
                 : provider === "searchapi_lens"
                   ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
-                  : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+                  : provider === "scraperapi"
+                    ? // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
+                      // propósito, mesma razão de "internal_search" — é secret
+                      // de servidor (SCRAPERAPI_KEY), não BYOK.
+                      await searchScraperApiShared(missItems, matchers)
+                    : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);

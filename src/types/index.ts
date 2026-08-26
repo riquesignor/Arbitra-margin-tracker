@@ -36,6 +36,15 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
  * texto; ainda é opção adicional ao lado de "google_lens_products"/
  * "searchapi_lens", não substituição — precisa validar taxa de acerto em
  * uso real antes de virar default.
+ *
+ * "scraperapi" (ago/2026) — 3º mecanismo do teste A/B de terceiros. Usa os
+ * "Structured Data Endpoints" da ScraperAPI (Amazon Search API + Google
+ * Shopping API) — a própria ScraperAPI faz o parsing e devolve JSON pronto,
+ * papel equivalente ao da SerpApi/SearchApi.io. Diferente de
+ * "internal_search" (que também usa a mesma SCRAPERAPI_KEY, mas só como
+ * PROXY de transporte pro parser próprio) — ver scraperApiSearchProvider.ts.
+ * Chave é secret de servidor (`SCRAPERAPI_KEY`), não BYOK — `needsKey: null`
+ * em Dashboard.tsx, mesmo padrão de "internal_search".
  */
 export type SearchProviderId =
   | "internal_search"
@@ -45,7 +54,8 @@ export type SearchProviderId =
   | "mercadolivre_alt"
   | "google_lens_products"
   | "searchapi_lens"
-  | "vision_internal";
+  | "vision_internal"
+  | "scraperapi";
 
 /**
  * "home" — tela de entrada (ver docs/design-critique-log.md, Session 4):

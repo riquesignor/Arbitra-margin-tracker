@@ -164,6 +164,20 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "geminiApiKey",
   },
+  // 3º mecanismo do teste A/B (ago/2026) — ScraperAPI como busca de
+  // verdade (Structured Data Endpoints: Amazon Search API + Google
+  // Shopping API), não só o proxy de transporte já usado dentro de
+  // "internal_search" — ver scraperApiSearchProvider.ts. `needsKey: null`
+  // porque a chave (`SCRAPERAPI_KEY`) é secret de servidor, não BYOK —
+  // mesmo padrão de "internal_search", não pede cadastro em Conta.
+  {
+    id: "scraperapi",
+    label: "ScraperAPI (Amazon + Google Shopping)",
+    note: "Amazon + Mercado Livre · endpoints estruturados, sem chave própria",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Zap,
+    needsKey: null,
+  },
 ];
 
 // Providers que buscam por FOTO (não por nome) — precisam de imagem
@@ -189,6 +203,7 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
+  "scraperapi",
 ]);
 
 /** Default da tela: motor interno — único sem chave e sem custo por busca, então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
@@ -232,27 +247,41 @@ function buildParseInfoMessage(
  */
 /**
  * ⚠️ MODO TESTE A/B (ago/2026) — temporário, ver conversa sobre comparar
- * os 3 mecanismos de terceiros depois do ScraperAPI entrar no motor
- * interno. Grid principal reduzido de propósito a só 3 opções, pra
- * comparação direta com o MESMO catálogo:
+ * os mecanismos de terceiros depois do ScraperAPI entrar no motor
+ * interno. Grid principal reduzido de propósito, pra comparação direta
+ * com o MESMO catálogo:
  *
- *   - internal_search  → "a scraper": motor interno, agora com o proxy
- *     ScraperAPI por baixo (fetchStoreHtmlOnce, internalSearchProvider.ts)
+ *   - internal_search  → "a scraper" (via proxy): motor interno, com o
+ *     proxy ScraperAPI por baixo (fetchStoreHtmlOnce, internalSearchProvider.ts)
  *   - serpapi           → "a serp api": Google Shopping, cota renovada
  *   - searchapi_lens     → "a search": busca por foto via SearchApi.io
+ *   - scraperapi         → "a scraper" (nativa): Structured Data Endpoints
+ *     da própria ScraperAPI (Amazon Search API + Google Shopping API), ver
+ *     scraperApiSearchProvider.ts — mecanismo de busca de verdade, não só
+ *     transporte, adicionado pra comparar contra os 3 acima.
+ *   - vision_internal    → reincluído (ago/2026, 2ª rodada): catálogo lido
+ *     por OCR (sem texto real, ver usedOcr/parsePdfCatalog.ts) invalida
+ *     busca por NOME — motor interno + Gemini é o único dos mecanismos
+ *     acima que resolve isso sem depender de SerpApi/SearchApi.io (foto +
+ *     confirmação visual via IA, não só casamento visual puro do Lens).
  *
  * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
- * (não são "terceiro" no sentido testado aqui), google_lens_products
+ * (não são "terceiro" no sentido testado aqui) e google_lens_products
  * (mesma chave/cota da SerpApi acima — testar os dois juntos dilui a
- * leitura de qual dos 3 rendeu melhor) e vision_internal (grátis/BYOK,
- * não é um dos 3 mecanismos pagos em comparação).
+ * leitura de qual mecanismo rendeu melhor).
  *
  * Reverter depois do teste: trocar a linha abaixo de volta pra
  * `SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi")` (o filtro
  * original, que só tirava a SerpApi do grid principal — ver comentário
  * antigo preservado acima em SEARCH_PROVIDERS).
  */
-const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>(["internal_search", "serpapi", "searchapi_lens"]);
+const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>([
+  "internal_search",
+  "serpapi",
+  "searchapi_lens",
+  "scraperapi",
+  "vision_internal",
+]);
 const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => AB_TEST_PROVIDER_IDS.has(p.id));
 
 // Tamanho do lote de busca — catálogos grandes são processados em
@@ -665,16 +694,35 @@ export default function Dashboard({
     // Catálogo sem texto real (nomes vieram de OCR de imagem, ver
     // usedOcr/ExtractResult) — busca por NOME tende a errar o produto
     // nesse caso (nome pode ter saído torto do OCR, ou ser só o código
-    // do modelo). Só "busca por imagem" (Google Lens/SearchApi.io, casa
-    // pela foto, não pelo nome) é confiável aqui — trava os outros
-    // providers com um erro claro em vez de deixar rodar e devolver
-    // preço errado silenciosamente.
+    // do modelo). Só "busca por imagem" (Google Lens/SearchApi.io/motor
+    // interno + IA, casa pela foto, não pelo nome) é confiável aqui —
+    // trava os outros providers com um erro claro em vez de deixar
+    // rodar e devolver preço errado silenciosamente.
+    //
+    // Auto-troca de provider (ago/2026): antes o usuário só via o erro e
+    // precisava achar/clicar manualmente a opção de imagem certa antes de
+    // reprocessar — ciclo de tentativa-e-erro real reportado em catálogo
+    // OCR (ver conversa/diagnóstico). Já troca `searchProvider` sozinho
+    // pra um provider de imagem disponível no grid atual — `withImages`
+    // (processFile/handleForceReprocess) lê `searchProvider` no momento
+    // do PRÓXIMO parse, então só falta o usuário clicar "Reprocessar
+    // agora" (ver botão junto do banner de erro) pra image mode entrar
+    // em vigor. Só troca em fluxo normal (`!providerOverride`) — não mexe
+    // no caminho de retry do Unwrangle, que é um caso à parte.
     if (meta.usedOcr && !IMAGE_MODE_PROVIDERS.has(effectiveProvider)) {
+      const imageModeFallback = !providerOverride
+        ? SELECTABLE_PROVIDERS.find((p) => IMAGE_MODE_PROVIDERS.has(p.id))
+        : undefined;
+      if (imageModeFallback) setSearchProvider(imageModeFallback.id);
       setState("error");
       setError(
-        "Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME " +
-          "tende a errar o produto nesse caso. Troque pra \"Busca por imagem (Google Lens)\" na " +
-          "seção 01 antes de continuar."
+        imageModeFallback
+          ? `Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME ` +
+              `tende a errar o produto nesse caso. Já troquei o mecanismo pra "${imageModeFallback.label}" ` +
+              `— clique em "Reprocessar agora" abaixo pra extrair as fotos e buscar de novo.`
+          : "Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME " +
+              "tende a errar o produto nesse caso. Troque pra \"Busca por imagem\" na seção 01 antes " +
+              "de continuar."
       );
       return;
     }
@@ -1325,7 +1373,20 @@ export default function Dashboard({
                 {error && (
                   <p className={styles.error}>
                     <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    {error}
+                    {error}{" "}
+                    {/* Reprocessa o MESMO arquivo já guardado em `lastUpload` (setado logo no
+                        início de processFile, antes de qualquer guard) — cobre tanto o guard de
+                        OCR (que já troca `searchProvider` sozinho, ver finishWithRows) quanto
+                        qualquer outro erro recuperável sem precisar re-selecionar o arquivo. */}
+                    {lastUpload && (
+                      <button
+                        className={styles.linkButton}
+                        type="button"
+                        onClick={() => void handleForceReprocess()}
+                      >
+                        Reprocessar agora
+                      </button>
+                    )}
                   </p>
                 )}
                 {mlFallbackOffer && (
