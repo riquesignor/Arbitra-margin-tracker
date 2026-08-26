@@ -88,15 +88,30 @@ const CONCURRENCY = 1;
 const CANDIDATES_PER_STORE = 3;
 
 /**
- * Nota mínima da comparação visual pra aceitar o candidato. Alinhado com
- * a escala pedida no prompt de comparação (geminiVision.ts,
- * COMPARE_PROMPT): 0.5 = "mesma categoria, modelo incerto" é o piso —
- * abaixo disso a própria IA está dizendo que pode ser produto diferente,
- * e mostrar isso como resultado seria pior que não mostrar nada.
+ * Nota da comparação visual, escala do prompt (geminiVision.ts,
+ * COMPARE_PROMPT): 1 = certamente o mesmo produto, 0.5 = mesma
+ * categoria/modelo incerto, 0 = produtos diferentes.
+ *
+ * ── Piso rebaixado de 0.5 pra 0.2 (ago/2026, teste real Issam_completo) ──
+ * Antes: `best.score < 0.5` descartava o candidato INTEIRO — nem
+ * aproximado, sumia da tela igual "sem match nenhum". Teste real (12
+ * produtos, catálogo eletrônicos variados): 0 de 12 voltaram com preço,
+ * SEM nenhuma pista pro usuário — indistinguível de "a busca não achou
+ * nada" quando na real pode ser "achou candidato, IA comparou, só não
+ * ficou confiante o bastante pra 0.5". Mesma filantropia já aplicada em
+ * googleShoppingProvider.ts/searchApiLensProvider.ts/
+ * scraperApiSearchProvider.ts (fallback aproximado quando o candidato
+ * existe mas não é confiança total) — aqui faltava o equivalente pro
+ * pipeline visual. Abaixo de `MIN_APPROXIMATE_SCORE` continua descartado
+ * de vez (a própria IA dizendo "provavelmente produto diferente" — exibir
+ * isso é pior que não exibir nada, mesmo raciocínio de
+ * MIN_ACCEPTABLE_SIMILARITY em rankCandidates.ts). Entre os dois pisos,
+ * o candidato agora aparece marcado `approximate: true` em vez de
+ * simplesmente sumir.
  */
-const MIN_ACCEPT_SCORE = 0.5;
+const MIN_APPROXIMATE_SCORE = 0.2;
 
-/** Abaixo disso o match entra marcado como aproximado, mesmo tendo passado do piso de aceite acima — é a faixa "categoria bate, mas não é certeza de ser o mesmo modelo". */
+/** Abaixo disso o match entra marcado como aproximado — faixa "categoria bate, mas não é certeza de ser o mesmo modelo" (inclui toda a faixa nova entre MIN_APPROXIMATE_SCORE e aqui, ver comentário acima). */
 const APPROXIMATE_BELOW_SCORE = 0.8;
 
 interface BestVisualMatch {
@@ -166,15 +181,21 @@ export async function searchVisionInternalShared(
   // de "0 resultados" silencioso no fim.
   let quotaExhausted = false;
 
-  // Só observabilidade (ago/2026) — antes, um candidato achado na loja
-  // mas com nota de comparação visual abaixo do piso (MIN_ACCEPT_SCORE)
-  // era descartado 100% em silêncio: nenhum warn, nenhum error, nada no
-  // log. Ficava indistinguível de "loja bloqueou" ou "sem match nenhum"
-  // — as três causas têm solução DIFERENTE (proxy/retry pra bloqueio,
-  // ajustar o piso pra nota baixa, nada a fazer pra sem match de
-  // verdade), então valia separar. Resumo no fim, não por item, pra não
-  // inflar o log de um catálogo grande.
-  let belowThresholdCount = 0;
+  // Observabilidade (ago/2026, reforçada após o teste real do
+  // Issam_completo: 0 de 12 sem NENHUMA pista) — duas causas de "sem
+  // resultado" que antes eram indistinguíveis uma da outra E do "cota
+  // esgotada" acima, cada uma com solução diferente:
+  //   - `noCandidatesCount`: passo 2 (busca por texto com a descrição da
+  //     IA) não achou candidato NENHUM pra comparar — sinal de que a
+  //     descrição curta gerada (DESCRIBE_PROMPT, geminiVision.ts) não
+  //     está achando nada na loja, ou a loja bloqueou/mudou layout (mesma
+  //     raspagem de internal_search).
+  //   - `rejectedAsNoiseCount`: passo 2 achou candidato, passo 3 (IA)
+  //     comparou, mas a nota ficou abaixo até do piso de aproximado
+  //     (MIN_APPROXIMATE_SCORE) — a IA está dizendo "provavelmente produto
+  //     diferente", não "baixa confiança".
+  let noCandidatesCount = 0;
+  let rejectedAsNoiseCount = 0;
 
   await mapWithConcurrency(itemsWithImage, CONCURRENCY, async (item) => {
     if (quotaExhausted) {
@@ -205,7 +226,10 @@ export async function searchVisionInternalShared(
           (o) => popularityScore(o.reviewCount, o.rating),
           CANDIDATES_PER_STORE
         );
-        if (candidates.length === 0) continue;
+        if (candidates.length === 0) {
+          noCandidatesCount++;
+          continue;
+        }
 
         let best: BestVisualMatch | null = null;
         for (const { candidate } of candidates) {
@@ -232,8 +256,8 @@ export async function searchVisionInternalShared(
           }
         }
 
-        if (!best || best.score < MIN_ACCEPT_SCORE) {
-          if (best) belowThresholdCount++;
+        if (!best || best.score < MIN_APPROXIMATE_SCORE) {
+          if (best) rejectedAsNoiseCount++;
           continue;
         }
 
@@ -275,11 +299,17 @@ export async function searchVisionInternalShared(
     throw new Error(lastError);
   }
 
-  if (belowThresholdCount > 0) {
+  if (rejectedAsNoiseCount > 0) {
     console.warn(
-      `[motor-interno+IA] ${belowThresholdCount} candidato(s) descartado(s) por nota visual abaixo do piso ` +
-        `de aceite (${MIN_ACCEPT_SCORE}) — a busca achou produto na loja, a IA comparou a foto, mas não ` +
-        "confiou o bastante pra aceitar como o mesmo produto. Não é bloqueio nem falta de resultado na loja."
+      `[motor-interno+IA] ${rejectedAsNoiseCount} candidato(s) descartado(s) por nota visual abaixo do piso ` +
+        `de aproximado (${MIN_APPROXIMATE_SCORE}) — a IA comparou a foto e considerou provavelmente produto ` +
+        "diferente, não só baixa confiança."
+    );
+  }
+  if (noCandidatesCount > 0) {
+    console.warn(
+      `[motor-interno+IA] ${noCandidatesCount} busca(s) por texto (descrição gerada pela IA) não achou ` +
+        "candidato nenhum na loja pra comparar visualmente."
     );
   }
 
@@ -296,6 +326,34 @@ export async function searchVisionInternalShared(
       `produto(s) — ${notReached > 0 ? `${notReached} produto(s) nem chegaram a ser buscados` : "o restante não foi buscado"}. ` +
       "O free tier libera cota de novo após ~1 minuto: tente de novo em instantes, processe em lotes menores, " +
       "ou use uma chave Gemini paga em Conta pra não esbarrar nesse teto.";
+    console.warn(`[motor-interno+IA] ${warning}`);
+  } else if (
+    (noCandidatesCount > 0 || rejectedAsNoiseCount > 0) &&
+    Object.values(results).every((r) => Object.keys(r).length === 0)
+  ) {
+    // Mesmo racional do warning de cota acima — antes disto, um lote que
+    // terminou zerado por causa DIAGNOSTICÁVEL (busca não achou nada, ou
+    // achou mas a IA rejeitou tudo) chegava na UI indistinguível de "0
+    // resultados" genérico (ver ResultsTable.tsx > "Causas comuns"). Só
+    // dispara quando o resultado final está TOTALMENTE vazio — se pelo
+    // menos um item deu certo, os contadores acima já viraram log, não
+    // precisam de banner (não é sistêmico).
+    const parts: string[] = [];
+    if (noCandidatesCount > 0) {
+      parts.push(
+        `${noCandidatesCount} produto(s): a descrição gerada pela IA não achou candidato nenhum na loja`
+      );
+    }
+    if (rejectedAsNoiseCount > 0) {
+      parts.push(
+        `${rejectedAsNoiseCount} produto(s): achou candidato, mas a IA comparou a foto e considerou ` +
+          "provavelmente produto diferente"
+      );
+    }
+    warning =
+      `Motor interno + IA não achou preço em nenhum produto deste lote — ${parts.join("; ")}. ` +
+      "Confira se a foto extraída do catálogo está nítida (Resultados > coluna de foto) ou tente outro " +
+      "mecanismo (busca por imagem via SerpApi/SearchApi.io, ou busca por nome).";
     console.warn(`[motor-interno+IA] ${warning}`);
   }
 

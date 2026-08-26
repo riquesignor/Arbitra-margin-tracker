@@ -252,40 +252,49 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         // texto (SerpApi/Shopping) ou por foto — e por foto ainda tem 2
         // vendors possíveis (SerpApi vs SearchApi.io, ver
         // IMAGE_SEARCH_PROVIDERS acima) — ver comentário no topo do arquivo.
-        const fresh =
-          provider === "internal_search"
-            ? // Motor próprio: sem `apiKey` de propósito — não existe
-              // chave, é a característica que justifica ele existir (ver
-              // internalSearchProvider.ts). Devolve `{results, warning}`
-              // (ago/2026) — bloqueio PARCIAL de uma loja (nem todo
-              // produto falhou, então não vira exceção) precisa chegar
-              // até a UI, senão fica indistinguível de "sem match".
-              await searchInternalShared(missItems, matchers).then((outcome) => {
-                internalSearchWarning = outcome.warning;
-                return outcome.results;
-              })
-            : provider === "vision_internal"
-              ? // Motor interno + IA: `apiKey` aqui é a chave GEMINI do
-                // usuário (BYOK), não SerpApi/SearchApi.io — ver
-                // visionInternalSearchProvider.ts. `.then(...)` extrai o
-                // warning de cota esgotada (ago/2026) pro mesmo canal
-                // `internalSearchWarning` usado pelo motor interno puro —
-                // mesmo formato de saída, `_warning` não distingue a origem
-                // porque a UI só precisa mostrar o aviso, não a causa exata.
-                await searchVisionInternalShared(missItems, matchers, body.apiKey).then((outcome) => {
-                  internalSearchWarning = outcome.warning;
-                  return outcome.results;
-                })
-              : provider === "google_lens_products"
-                ? await searchGoogleLensProductsShared(missItems, matchers, body.apiKey)
-                : provider === "searchapi_lens"
-                  ? await searchSearchApiLensShared(missItems, matchers, body.apiKey)
-                  : provider === "scraperapi"
-                    ? // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
-                      // propósito, mesma razão de "internal_search" — é secret
-                      // de servidor (SCRAPERAPI_KEY), não BYOK.
-                      await searchScraperApiShared(missItems, matchers)
-                    : await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+        //
+        // if/else-if em vez de ternário encadeado (ago/2026, ao somar o
+        // 5º ramo/"scraperapi"): a versão em ternário profundamente
+        // aninhado (5 níveis) fazia o TS se confundir inferindo o tipo de
+        // retorno através dos `.then(...)` dos dois primeiros ramos —
+        // passava a achar que `fresh` podia ser um `VisionInternalSearchOutcome`
+        // cru (o objeto `{results, warning}` inteiro, não só `.results`)
+        // mesmo com anotação explícita no `const`. Cada branch aqui é
+        // checado de forma independente contra o tipo de `fresh` — mais
+        // robusto E mais legível que insistir no ternário.
+        let fresh: Record<MarketplaceId, Record<string, MarketplacePriceResult>>;
+        if (provider === "internal_search") {
+          // Motor próprio: sem `apiKey` de propósito — não existe chave,
+          // é a característica que justifica ele existir (ver
+          // internalSearchProvider.ts). Bloqueio PARCIAL de uma loja (nem
+          // todo produto falhou, então não vira exceção) precisa chegar
+          // até a UI, senão fica indistinguível de "sem match".
+          const outcome = await searchInternalShared(missItems, matchers);
+          internalSearchWarning = outcome.warning;
+          fresh = outcome.results;
+        } else if (provider === "vision_internal") {
+          // Motor interno + IA: `apiKey` aqui é a chave GEMINI do usuário
+          // (BYOK), não SerpApi/SearchApi.io — ver
+          // visionInternalSearchProvider.ts. Warning de cota esgotada
+          // (ago/2026) vai pro mesmo canal `internalSearchWarning` usado
+          // pelo motor interno puro — mesmo formato de saída, `_warning`
+          // não distingue a origem porque a UI só precisa mostrar o
+          // aviso, não a causa exata.
+          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey);
+          internalSearchWarning = outcome.warning;
+          fresh = outcome.results;
+        } else if (provider === "google_lens_products") {
+          fresh = await searchGoogleLensProductsShared(missItems, matchers, body.apiKey);
+        } else if (provider === "searchapi_lens") {
+          fresh = await searchSearchApiLensShared(missItems, matchers, body.apiKey);
+        } else if (provider === "scraperapi") {
+          // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
+          // propósito, mesma razão de "internal_search" — é secret de
+          // servidor (SCRAPERAPI_KEY), não BYOK.
+          fresh = await searchScraperApiShared(missItems, matchers);
+        } else {
+          fresh = await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+        }
 
         for (const marketplace of sharedMarketplaces) {
           const misses = new Set(cacheByMarketplace.get(marketplace)!.misses);

@@ -105,7 +105,7 @@ describe("searchVisionInternalShared", () => {
       compareProductImages.mockImplementation((_catalogUrl: string, candidateUrl: string) => {
         if (candidateUrl === "https://loja/amazon-mais-parecido.jpg") return Promise.resolve(0.9);
         if (candidateUrl === "https://loja/amazon-menos-parecido.jpg") return Promise.resolve(0.6);
-        if (candidateUrl === "https://loja/ml-produto-diferente.jpg") return Promise.resolve(0.3);
+        if (candidateUrl === "https://loja/ml-produto-diferente.jpg") return Promise.resolve(0.1);
         return Promise.resolve(0);
       });
 
@@ -121,8 +121,25 @@ describe("searchVisionInternalShared", () => {
         matchedSource: "Amazon",
       });
 
-      // Mercado Livre: único candidato ficou com nota 0.3 (< piso de aceite 0.5) — sem resultado.
+      // Mercado Livre: único candidato ficou com nota 0.1 (< piso mínimo 0.2, ver MIN_APPROXIMATE_SCORE) — sem resultado mesmo assim.
       expect(result.results.mercadolivre["SKU-1"]).toBeUndefined();
+    }
+  );
+
+  it(
+    "aceita candidato com nota BAIXA (mas acima do piso mínimo) como APROXIMADO, em vez de descartar — " +
+      "regressão do teste real Issam_completo (12 produtos, 0 voltaram com preço, sem nenhuma pista): " +
+      "antes qualquer nota < 0.5 sumia da tela igual 'sem match'; agora só < 0.2 some de vez",
+    async () => {
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/x.jpg", link: "lx" })] },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.3); // abaixo do antigo piso (0.5), acima do novo piso mínimo (0.2)
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+
+      expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.3, approximate: true });
     }
   );
 
@@ -173,7 +190,7 @@ describe("searchVisionInternalShared", () => {
 
   it(
     "avisa (console.warn, resumo agregado) quando um candidato é descartado por nota visual " +
-      "abaixo do piso — antes disso era 100% silencioso, indistinguível de bloqueio ou de sem match",
+      "abaixo do piso mínimo — antes disso era 100% silencioso, indistinguível de bloqueio ou de sem match",
     async () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       describeProductImage.mockResolvedValue("query");
@@ -184,13 +201,47 @@ describe("searchVisionInternalShared", () => {
           offers: [offer({ thumbnail: "https://loja/fraco.jpg", link: "l1" })],
         },
       ] satisfies StoreOffers[]);
-      compareProductImages.mockResolvedValue(0.3); // < piso de aceite (0.5)
+      compareProductImages.mockResolvedValue(0.1); // < piso mínimo (0.2, MIN_APPROXIMATE_SCORE)
 
       const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
 
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/1 candidato.*nota visual abaixo do piso/i));
       warnSpy.mockRestore();
+    }
+  );
+
+  it(
+    "warning explicando o motivo quando o lote termina TOTALMENTE vazio por nota visual baixa (não cota) — " +
+      "regressão do Issam_completo: 0 de 12 sem nenhuma pista de causa na UI",
+    async () => {
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/fraco.jpg", link: "l1" })] },
+      ] satisfies StoreOffers[]);
+      describeProductImage.mockResolvedValue("query");
+      compareProductImages.mockResolvedValue(0.1); // abaixo até do piso de aproximado — item some de vez
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+
+      expect(result.results.amazon["SKU-1"]).toBeUndefined();
+      expect(result.warning).toMatch(/produto diferente/i);
+    }
+  );
+
+  it(
+    "warning explicando o motivo quando o lote termina vazio porque a busca por texto não achou " +
+      "candidato NENHUM (descrição da IA não bateu com nada na loja) — causa diferente de nota visual baixa",
+    async () => {
+      describeProductImage.mockResolvedValue("query genérica demais");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [] }, // busca não achou candidato nenhum
+      ] satisfies StoreOffers[]);
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+
+      expect(result.results.amazon["SKU-1"]).toBeUndefined();
+      expect(compareProductImages).not.toHaveBeenCalled();
+      expect(result.warning).toMatch(/não achou candidato/i);
     }
   );
 

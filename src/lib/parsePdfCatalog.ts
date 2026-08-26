@@ -928,6 +928,42 @@ function cropGridBlock(
   return cropped;
 }
 
+/**
+ * Recorte pra produto achado pela extração GENÉRICA via Gemini (ver
+ * extractCatalogPageProductsWithGemini, geminiCatalogVision.ts) — usa
+ * `box_2d` normalizado (0-1000, convenção nativa do Gemini pra detecção
+ * de objeto), não coordenada PDF como `cropGridBlock`/`cropRowBand`
+ * (aqueles vêm de posição de TEXTO extraída localmente, isto vem de
+ * estimativa espacial da própria IA sobre a imagem que ela recebeu).
+ * Normalizado = independente de resolução: aplica a mesma fração
+ * diretamente no canvas de RENDER COMPLETO (`c`, IMAGE_RENDER_SCALE),
+ * não no JPEG reduzido que foi mandado pro Gemini (GEMINI_PAGE_MAX_WIDTH)
+ * — a foto final sai na resolução alta de sempre, só a ESTIMATIVA da
+ * caixa veio de uma imagem menor.
+ */
+function cropNormalizedBox(
+  canvas: HTMLCanvasElement,
+  box: { yMin: number; xMin: number; yMax: number; xMax: number }
+): HTMLCanvasElement {
+  const toX = (v: number) => Math.round((v / 1000) * canvas.width);
+  const toY = (v: number) => Math.round((v / 1000) * canvas.height);
+
+  const sx = Math.max(0, toX(box.xMin));
+  const sy = Math.max(0, toY(box.yMin));
+  const sxRight = Math.min(canvas.width, toX(box.xMax));
+  const syBottom = Math.min(canvas.height, toY(box.yMax));
+  const sw = Math.max(1, sxRight - sx);
+  const sh = Math.max(1, syBottom - sy);
+
+  const cropped = document.createElement("canvas");
+  cropped.width = sw;
+  cropped.height = sh;
+  const ctx = cropped.getContext("2d");
+  if (!ctx) throw new PdfParseError("Não consegui recortar a imagem (contexto 2d indisponível).");
+  ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  return cropped;
+}
+
 // ── OCR fallback (páginas sem NENHUMA camada de texto) ───────────────
 //
 // Descoberto via diagnóstico real (usuário mandou o PDF): alguns
@@ -1308,9 +1344,16 @@ export async function parsePdfCatalogFile(
           // centenas de páginas com layout desconhecido bateria a cota
           // na primeira e ficaria martelando o resto sem chance nenhuma.
           //
-          // Sem suporte a foto nesta v1 (mesma decisão de escopo do
-          // fallback "vitrine" acima) — busca por texto/nome continua
-          // disponível normalmente pra esses produtos.
+          // Suporte a foto (ago/2026) — antes "v1" não tinha: um catálogo
+          // real que só reconhecia produto por AQUI (grade+linha não
+          // bateram em nada) ficava com `imagesBySku` sempre vazio,
+          // travando qualquer provider de foto com "não consegui extrair
+          // nenhuma foto" mesmo com modo imagem selecionado ANTES do
+          // upload. Ver box_2d em geminiCatalogVision.ts (a própria IA
+          // estima a caixa da foto, normalizada) e cropNormalizedBox
+          // acima. Continua best-effort: produto sem `box` (IA não
+          // confiante o bastante) ainda entra pra busca por texto, só
+          // sem imagem — nenhuma regressão pro comportamento antigo.
           try {
             const { canvas: c } = await ensureCanvas();
             const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
@@ -1318,15 +1361,27 @@ export async function parsePdfCatalogFile(
 
             if (geminiProducts.length > 0) {
               geminiPageExtractionUsed = true;
+              const inStockProducts = geminiProducts.filter((p) => p.inStock);
               rows.push(
-                ...geminiProducts
-                  .filter((p) => p.inStock)
-                  .map((p) =>
-                    p.price != null
-                      ? { sku: p.sku, name: p.name, supplierPrice: p.price }
-                      : { sku: p.sku, name: p.name } // sem preço legível — vira "sem_custo" mais adiante (marginCalculator.ts)
-                  )
+                ...inStockProducts.map((p) =>
+                  p.price != null
+                    ? { sku: p.sku, name: p.name, supplierPrice: p.price }
+                    : { sku: p.sku, name: p.name } // sem preço legível — vira "sem_custo" mais adiante (marginCalculator.ts)
+                )
               );
+
+              if (withImages) {
+                const withBox = inStockProducts.filter((p) => p.box);
+                await mapWithConcurrency(withBox, IMAGE_UPLOAD_CONCURRENCY, async (p) => {
+                  try {
+                    const cropped = cropNormalizedBox(c!, p.box!);
+                    const url = await uploadCatalogImage(options!.userId!, p.sku, cropped);
+                    imagesBySku[p.sku] = url;
+                  } catch (err) {
+                    console.warn(`Falha ao extrair/subir imagem do produto "${p.sku}" (extração genérica via IA):`, err);
+                  }
+                });
+              }
             }
           } catch (err) {
             if (err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;

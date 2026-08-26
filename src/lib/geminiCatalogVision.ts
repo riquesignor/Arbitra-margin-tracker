@@ -279,6 +279,15 @@ export interface CatalogPageFullProduct {
   inStock: boolean;
   /** null quando esgotado/indisponível OU quando o preço não ficou legível nem pro Gemini. */
   price: number | null;
+  /**
+   * Caixa delimitadora da FOTO do produto, normalizada 0-1000 na ordem
+   * [yMin, xMin, yMax, xMax] — convenção nativa do Gemini pra detecção de
+   * objeto (ver FULL_PAGE_EXTRACTION_PROMPT). Opcional: ausente quando a
+   * IA não identificou a foto com confiança — item ainda é válido pra
+   * busca por texto, só não vai ter imagem pro modo foto (ver
+   * cropNormalizedBox em parsePdfCatalog.ts).
+   */
+  box?: { yMin: number; xMin: number; yMax: number; xMax: number };
 }
 
 // Deliberadamente GENÉRICO — não assume nenhum rótulo específico
@@ -286,6 +295,25 @@ export interface CatalogPageFullProduct {
 // idioma de rótulo. É exatamente o ponto: catálogo de fornecedor novo
 // com convenção nunca vista antes não deve precisar de código novo aqui,
 // só funcionar direto (ver comentário no topo do arquivo).
+// `box_2d` (ago/2026): campo NOVO, adicionado depois de um catálogo real
+// (layout fora do padrão de grade/linha, foto não extraída pra NENHUM
+// mecanismo de busca por imagem — só texto funcionava). Causa raiz: esta
+// extração genérica é o ÚNICO caminho que reconhecia produto nesse
+// catálogo, mas devolvia só sku+name+price, sem posição nenhuma na
+// página — `parsePdfCatalogFile` não tinha o que recortar, então
+// `imagesBySku` ficava vazio e qualquer provider de FOTO (Google Lens,
+// SearchApi.io, motor interno + IA) travava com "não consegui extrair
+// nenhuma foto" mesmo o usuário já tendo escolhido modo imagem ANTES de
+// subir o arquivo. `box_2d` normalizado 0-1000 no formato
+// [yMin, xMin, yMax, xMax] é a convenção NATIVA do Gemini pra detecção de
+// objeto (o modelo foi de fato treinado nesse formato pra tarefas
+// espaciais, ao contrário de inventar um esquema de coordenada próprio) —
+// ver cropNormalizedBox em parsePdfCatalog.ts pro recorte. Campo
+// OPCIONAL de propósito: se a IA não conseguir estimar a caixa da foto
+// (produto sem foto visível, ou baixa confiança espacial), o item ainda
+// entra no catálogo com sku+nome+preço — só fica sem imagem, mesmo
+// comportamento de antes desta mudança (busca por texto nunca dependeu
+// disso).
 const FULL_PAGE_EXTRACTION_PROMPT =
   "Você está vendo uma página de um catálogo de produtos de um fornecedor (venda no atacado ou " +
   "varejo). Cada produto tem um código/referência (rotulado como 'SKU', 'CÓD.', 'CÓDIGO', 'MODELO', " +
@@ -296,11 +324,14 @@ const FULL_PAGE_EXTRACTION_PROMPT =
   "3) se está em estoque (true) ou esgotado/indisponível (false, ex.: faixa 'ESGOTADO'); 4) se em " +
   "estoque, o preço UNITÁRIO em reais (ignore quantidade por caixa tipo '32PCS/CX' ou código de " +
   "referência numérico solto sem 'R$' — isso não é preço; ignore também o preço da caixa fechada se " +
-  "vier separado do preço unitário). Se esgotado ou o preço não estiver legível, use null pro preço " +
-  "mas AINDA ASSIM inclua o produto com sku e name. Se não conseguir identificar nem um código/SKU " +
-  "pra um produto, pule-o (não invente nada). Responda SOMENTE com um array JSON, sem texto antes ou " +
-  "depois, sem markdown: [{\"sku\": \"BM-F1324\", \"name\": \"Nome do produto\", \"inStock\": true, " +
-  '"price": 17.00}, ...]. Use ponto decimal (não vírgula) no preço.';
+  "vier separado do preço unitário); 5) a caixa delimitadora (bounding box) SÓ DA FOTO do produto " +
+  "(não do texto/preço ao redor), como \"box_2d\": [yMin, xMin, yMax, xMax] normalizado de 0 a 1000 " +
+  "relativo ao tamanho da imagem inteira — omita este campo se não conseguir identificar a foto do " +
+  "produto com confiança. Se esgotado ou o preço não estiver legível, use null pro preço mas AINDA " +
+  "ASSIM inclua o produto com sku e name. Se não conseguir identificar nem um código/SKU pra um " +
+  "produto, pule-o (não invente nada). Responda SOMENTE com um array JSON, sem texto antes ou depois, " +
+  "sem markdown: [{\"sku\": \"BM-F1324\", \"name\": \"Nome do produto\", \"inStock\": true, " +
+  '"price": 17.00, "box_2d": [100, 50, 300, 250]}, ...]. Use ponto decimal (não vírgula) no preço.';
 
 /**
  * Exportado pra teste direto — parseia a resposta de texto do Gemini pra
@@ -341,7 +372,23 @@ export function parseCatalogPageFullResponse(text: string): CatalogPageFullProdu
     const rawPrice = (entry as Record<string, unknown>).price;
     const price = typeof rawPrice === "number" && Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : null;
 
-    products.push({ sku, name, inStock, price });
+    // box_2d é opcional e TOLERANTE — formato inesperado (não é array de
+    // 4 números, valor fora de 0-1000) descarta só a caixa, nunca o
+    // produto inteiro: sku+nome+preço continuam válidos pra busca por
+    // texto mesmo sem foto (mesma filosofia "faltou uma imagem" do resto
+    // deste parser, não "faltou um produto").
+    const rawBox = (entry as Record<string, unknown>).box_2d;
+    let box: CatalogPageFullProduct["box"];
+    if (
+      Array.isArray(rawBox) &&
+      rawBox.length === 4 &&
+      rawBox.every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1000)
+    ) {
+      const [yMin, xMin, yMax, xMax] = rawBox as number[];
+      if (yMax > yMin && xMax > xMin) box = { yMin, xMin, yMax, xMax };
+    }
+
+    products.push({ sku, name, inStock, price, box });
   }
   return products;
 }
