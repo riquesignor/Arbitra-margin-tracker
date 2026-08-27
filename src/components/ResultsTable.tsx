@@ -209,6 +209,7 @@ export const MARKETPLACE_LABEL: Record<MarketplaceId, string> = {
   amazon: "Amazon",
   mercadolivre: "Mercado Livre",
   shopee: "Shopee",
+  geral: "Lojas gerais",
 };
 
 const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [

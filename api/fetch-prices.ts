@@ -17,7 +17,7 @@ import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDire
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 
-const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre"];
+const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre", "geral"];
 const VALID_PROVIDERS: SearchProviderId[] = [
   "serpapi",
   "rapidapi_amazon",

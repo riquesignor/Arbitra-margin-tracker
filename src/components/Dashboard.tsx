@@ -14,6 +14,7 @@ import {
   Trash2,
   Gauge,
   Zap,
+  Globe,
 } from "lucide-react";
 import type {
   CatalogRow,
@@ -78,6 +79,23 @@ const AVAILABLE_MARKETPLACES: {
   { id: "mercadolivre", label: "Mercado Livre", note: "real com servidor", icon: Store },
   { id: "amazon", label: "Amazon", note: "real com servidor", icon: ShoppingBag },
 ];
+
+/**
+ * "Lojas gerais" (ago/2026) — pseudo-marketplace opt-in (`"geral"`, ver
+ * MarketplaceId em ../types). Não entra em `AVAILABLE_MARKETPLACES`
+ * acima de propósito: só faz sentido pro motor interno + IA
+ * (vision_internal, ver visionInternalSearchProvider.ts > Passo 4) —
+ * nos outros mecanismos o matcher existe mas é inerte (não traz produto
+ * nenhum, ver GOOGLE_SHOPPING_MATCHERS). Renderizado à parte, só quando
+ * `searchProvider === "vision_internal"` (ver seção 01 mais abaixo), pra
+ * não oferecer uma opção que não faz nada nos outros 4.
+ */
+const GENERAL_STORES_MARKETPLACE: { id: MarketplaceId; label: string; note: string; icon: typeof Store } = {
+  id: "geral",
+  label: "Lojas gerais",
+  note: "qualquer loja fora de Amazon/ML (Shopee, Magalu...) — só quando as duas focadas não têm o produto",
+  icon: Globe,
+};
 
 // Qual API resolve o preço — eixo INDEPENDENTE de marketplace (ver
 // SearchProviderId em ../types e o comentário em api/fetch-prices.ts).
@@ -483,9 +501,12 @@ export default function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingSharedCatalog]);
 
-  const marketplaceLabels = AVAILABLE_MARKETPLACES.filter((m) =>
-    selectedMarketplaces.includes(m.id)
-  )
+  // Inclui GENERAL_STORES_MARKETPLACE aqui (fora de AVAILABLE_MARKETPLACES
+  // de propósito, ver comentário lá) só pra resolver o LABEL quando
+  // selecionado — não afeta se a opção aparece no grid (isso continua
+  // condicionado a `searchProvider === "vision_internal"` no JSX).
+  const marketplaceLabels = [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE]
+    .filter((m) => selectedMarketplaces.includes(m.id))
     .map((m) => m.label)
     .join(" + ");
 
@@ -1190,7 +1211,10 @@ export default function Dashboard({
                     onde comparar ({activeProvider.label} cobre os dois — escolha um ou os dois)
                   </span>
                   <div className={styles.marketplaceGrid}>
-                    {AVAILABLE_MARKETPLACES.map((m) => {
+                    {(searchProvider === "vision_internal"
+                      ? [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE]
+                      : AVAILABLE_MARKETPLACES
+                    ).map((m) => {
                       const active = selectedMarketplaces.includes(m.id);
                       const Icon = m.icon;
                       return (
@@ -1218,6 +1242,14 @@ export default function Dashboard({
                       );
                     })}
                   </div>
+                  {searchProvider === "vision_internal" && selectedMarketplaces.includes("geral") && (
+                    <p className={styles.subGroupHint}>
+                      "Lojas gerais" marcado: quando Amazon/Mercado Livre não confirmarem o produto por
+                      foto, o motor interno + IA tenta achar em qualquer outra loja (Shopee, Magalu, loja
+                      própria...) antes de desistir — entra marcado "Aproximado" na tela de Resultados,
+                      numa coluna própria.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

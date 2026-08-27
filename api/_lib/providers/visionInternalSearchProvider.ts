@@ -34,16 +34,21 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  *      — o texto do passo 1/2 só serve pra ACHAR os candidatos, não pra
  *      escolher entre eles.
  *
- *   4. BUSCA GERAL (ago/2026, condicional) — só roda quando NENHUMA loja
- *      focada (passo 2/3) confirmou o produto pra este item. Busca a
- *      MESMA frase do passo 1 no Google Shopping estruturado da
- *      ScraperAPI (`fetchGoogleShoppingCandidatesForQuery`,
- *      scraperApiSearchProvider.ts — mesma fonte multi-loja que os
- *      outros mecanismos já usam como fallback "aproximado"), filtra só
- *      lojas DE FORA das pedidas, e confirma visualmente igual ao passo
- *      3. Existe pra achar produto em lojas que a Arbitra não foca
- *      (Shopee, Magalu, loja própria...) em vez do item simplesmente
- *      ficar sem preço nenhum quando Amazon/ML não têm o produto.
+ *   4. BUSCA GERAL (ago/2026, OPT-IN) — só roda quando o usuário marcou
+ *      "Lojas gerais" no seletor (pseudo-marketplace `"geral"`, ver
+ *      MarketplaceId em types.ts e o checkbox extra em Dashboard.tsx,
+ *      visível só com este provider ativo) E nenhuma loja focada (passo
+ *      2/3) confirmou o produto pra este item. Busca a MESMA frase do
+ *      passo 1 no Google Shopping estruturado da ScraperAPI
+ *      (`fetchGoogleShoppingCandidatesForQuery`, scraperApiSearchProvider.ts
+ *      — mesma fonte multi-loja que os outros mecanismos já usam como
+ *      fallback "aproximado"), filtra só lojas DE FORA das focadas, e
+ *      confirma visualmente igual ao passo 3. Resultado vai pra
+ *      `results.geral` (chave própria, não empresta o slot de Amazon/ML).
+ *      Existe pra achar produto em lojas que a Arbitra não foca (Shopee,
+ *      Magalu, loja própria...) em vez do item simplesmente ficar sem
+ *      preço nenhum quando Amazon/ML não têm o produto — mas só quando o
+ *      usuário PEDIU essa cobertura extra, não automaticamente.
  *
  * Custo por produto: 1 chamada de descrição + até `CANDIDATES_PER_STORE`
  * chamadas de comparação POR loja pedida (ex.: 2 lojas × 3 candidatos = 6
@@ -173,6 +178,15 @@ export async function searchVisionInternalShared(
   const results = {} as Record<string, Record<string, MarketplacePriceResult>>;
   for (const { marketplace } of matchers) results[marketplace] = {};
 
+  // "geral" (ago/2026) é um pseudo-marketplace OPT-IN — só entra em
+  // `matchers` quando o usuário marcou "Lojas gerais" no seletor (ver
+  // Dashboard.tsx). `focusedMatchers` é o que sobra pra Amazon/ML de
+  // verdade (Passo 2/3 abaixo); `geralRequested` decide se o Passo 4
+  // (busca geral) sequer tenta rodar — sem a marcação explícita, o
+  // comportamento é o de sempre (só Amazon/ML, sem chamada extra).
+  const focusedMatchers = matchers.filter((m) => m.marketplace !== "geral");
+  const geralRequested = matchers.some((m) => m.marketplace === "geral");
+
   const itemsWithImage = items.filter((i) => i.imageUrl);
   if (itemsWithImage.length === 0) return { results };
 
@@ -224,8 +238,11 @@ export async function searchVisionInternalShared(
       const query = await describeProductImage(item.imageUrl!, apiKey);
 
       // Passo 2 — buscar (motor interno, mesma raspagem da busca por
-      // texto, sem custo por chamada).
-      const storeOffers = await fetchStoreOffers(query, matchers);
+      // texto, sem custo por chamada). `focusedMatchers`, não `matchers`
+      // cru — "geral" não é uma loja de verdade pra `fetchStoreOffers`
+      // raspar (STORE_SCRAPERS não tem entrada pra ela; passar `matchers`
+      // aqui seria inofensivo mas sem sentido).
+      const storeOffers = await fetchStoreOffers(query, focusedMatchers);
 
       // Passo 3 — confirmar visualmente, loja por loja. Cada loja
       // concorre pelo seu próprio marketplace no resultado final — o
@@ -301,30 +318,35 @@ export async function searchVisionInternalShared(
         };
       }
 
-      // Passo 4 — busca geral (ago/2026): nenhuma das lojas focadas
-      // (Amazon/Mercado Livre, via `fetchStoreOffers`) confirmou
-      // visualmente o produto pra este item — antes disto o item
-      // simplesmente ficava sem preço nenhum, mesmo que o produto
-      // existisse em alguma OUTRA loja (Shopee, Magalu, loja própria...).
-      // Mesmo fallback "aproximado" que os outros mecanismos já têm (ver
-      // `matchedRequestedMarketplace` em googleShoppingProvider.ts/
-      // searchApiLensProvider.ts/scraperApiSearchProvider.ts) — só
-      // faltava aqui porque `fetchStoreOffers` raspa direto Amazon/ML,
-      // sem agregador. Fonte: Google Shopping estruturado da ScraperAPI
-      // (mesmo endpoint do mecanismo "scraperapi", cobre várias lojas
-      // numa chamada só) — ver `fetchGoogleShoppingCandidatesForQuery`.
+      // Passo 4 — busca geral (ago/2026, OPT-IN via marketplace "geral" —
+      // ver Dashboard.tsx): só roda quando o usuário marcou "Lojas
+      // gerais" explicitamente E nenhuma loja focada (Amazon/Mercado
+      // Livre, via `fetchStoreOffers`) confirmou visualmente o produto
+      // pra este item. Sem a marcação, comportamento é o de sempre (nada
+      // muda) — antes desta opção existir, um produto fora de Amazon/ML
+      // simplesmente ficava sem preço nenhum, sem jeito de pedir pro
+      // motor tentar mais longe. Fonte: Google Shopping estruturado da
+      // ScraperAPI (mesmo endpoint do mecanismo "scraperapi", cobre
+      // várias lojas numa chamada só) — ver
+      // `fetchGoogleShoppingCandidatesForQuery`.
       //
-      // Só dispara quando as lojas focadas JÁ falharam pra este item:
-      // custa comparação visual (Gemini) extra, então não é feito
-      // incondicionalmente, pra não agravar o teto de cota do free tier
-      // (ver comentário "Cota do Gemini free tier..." no topo do arquivo).
-      if (!matchedAnyStore && !quotaExhausted) {
+      // Mesmo com a opção marcada, só dispara quando as lojas focadas JÁ
+      // falharam pra este item: custa comparação visual (Gemini) extra,
+      // então não é feito incondicionalmente, pra não agravar o teto de
+      // cota do free tier (ver comentário "Cota do Gemini free tier..."
+      // no topo do arquivo).
+      if (geralRequested && !matchedAnyStore && !quotaExhausted) {
         try {
           const broadCandidates = await fetchGoogleShoppingCandidatesForQuery(query);
-          // Só interessa achar em lojas DE FORA das pedidas — Amazon/ML já
-          // foram tentadas (e falharam) no passo 3 acima.
+          // Só interessa achar em lojas DE FORA das focadas — Amazon/ML
+          // já foram tentadas (e falharam) no passo 3 acima. Exclui só
+          // `focusedMatchers` daqui (não `matchers` cru): o matcher de
+          // "geral" em si tem `matchesSource: () => false` (ver
+          // GOOGLE_SHOPPING_MATCHERS) e nunca deveria contar como "já
+          // coberta" — usar `matchers` funcionaria igual por acaso (never
+          // exclui nada), mas `focusedMatchers` deixa a intenção clara.
           const otherStoreCandidates = broadCandidates.filter(
-            (c) => c.source && !matchers.some((m) => m.matchesSource(c.source!.toLowerCase()))
+            (c) => c.source && !focusedMatchers.some((m) => m.matchesSource(c.source!.toLowerCase()))
           );
           const topBroad = getTopCandidates(
             query,
@@ -353,13 +375,14 @@ export async function searchVisionInternalShared(
           }
 
           if (bestBroad && bestBroad.score >= MIN_APPROXIMATE_SCORE && bestBroad.candidate.price != null) {
-            // Só no primeiro marketplace pedido — o preço não é de
-            // nenhum dos marketplaces focados, replicá-lo nos dois
-            // inventaria uma oferta que não existe lá (mesmo racional do
-            // fallback aproximado nos outros providers).
-            const { marketplace } = matchers[0];
-            results[marketplace][item.sku] = {
-              marketplace,
+            // Chave PRÓPRIA "geral" — não empresta o slot de Amazon/ML
+            // (diferente do fallback aproximado dos outros mecanismos,
+            // que precisa reaproveitar `matchers[0]` por não ter um
+            // marketplace "geral" de verdade). Aqui o usuário PEDIU
+            // "geral" explicitamente, então tem coluna própria na tela de
+            // Resultados.
+            results.geral[item.sku] = {
+              marketplace: "geral",
               sku: item.sku,
               price: bestBroad.candidate.price,
               competitorCount: Math.max(0, otherStoreCandidates.length - 1),

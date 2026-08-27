@@ -8,7 +8,21 @@
  * no contrato do endpoint. Ver docs/adr/0001-marketplace-adapter-pattern.md.
  */
 
-export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
+/**
+ * "geral" (ago/2026) — pseudo-marketplace OPT-IN: "qualquer loja
+ * encontrada, fora de Amazon/Mercado Livre" (Shopee, Magalu, loja
+ * própria...). Diferente de "shopee" (uma loja REAL específica, ainda sem
+ * provider — ver comentário abaixo), "geral" nunca aponta pra uma loja
+ * fixa; é resolvido em tempo de busca pelo motor interno + IA
+ * (vision_internal, ver visionInternalSearchProvider.ts > Passo 4 /
+ * fetchGoogleShoppingCandidatesForQuery) via Google Shopping estruturado
+ * da ScraperAPI. Selecionável só quando esse provider está ativo (ver
+ * Dashboard.tsx) — nos demais mecanismos compartilhados
+ * (GOOGLE_SHOPPING_MATCHERS) o matcher existe mas não casa com nada de
+ * propósito, então marcar "geral" com outro provider simplesmente não
+ * traz produto nenhum por essa via, sem quebrar nada.
+ */
+export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
 
 /**
  * Qual API de busca resolve o preço — eixo independente de

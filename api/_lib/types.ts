@@ -6,7 +6,18 @@
  * extrair pra um pacote `packages/shared` (workspace) resolve — ver
  * docs/adr/0001-marketplace-adapter-pattern.md > Consequências.
  */
-export type MarketplaceId = "amazon" | "shopee" | "mercadolivre";
+/**
+ * "geral" (ago/2026) — pseudo-marketplace OPT-IN: "qualquer loja
+ * encontrada, fora de Amazon/Mercado Livre" (Shopee, Magalu, loja
+ * própria...). Resolvido em tempo de busca pelo motor interno + IA
+ * (vision_internal, ver visionInternalSearchProvider.ts > Passo 4) via
+ * Google Shopping estruturado da ScraperAPI — não tem provider próprio
+ * fixo como "shopee" (esse sim, uma loja real específica, ainda sem
+ * provider). Presente em GOOGLE_SHOPPING_MATCHERS (googleShoppingProvider.ts)
+ * com `matchesSource` sempre `false` pros OUTROS mecanismos — inerte lá
+ * de propósito, sem quebrar nada; só "vision_internal" trata de verdade.
+ */
+export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
 
 /**
  * Qual API de busca resolve o preço — eixo INDEPENDENTE de MarketplaceId

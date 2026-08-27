@@ -51,10 +51,24 @@ export interface MarketplaceMatcher {
  * resultado. Adicionar um marketplace novo nesse grupo (ex: Shopee) é só
  * uma entrada nova aqui — `searchGoogleShoppingShared` já cobre
  * qualquer quantidade de marketplaces na mesma busca.
+ *
+ * "geral" (ago/2026) — `matchesSource: () => false` DE PROPÓSITO: pra
+ * este provider (e searchApiLensProvider.ts/scraperApiSearchProvider.ts/
+ * googleLensProvider.ts, que também consomem este array) "geral" nunca
+ * casa com um candidato de verdade — o marketplace existe aqui só pra
+ * `isGoogleShoppingMarketplace` (registry.ts) deixar o pedido passar até
+ * `matchers` sem 400 na validação, e pra `results["geral"]` já sair
+ * inicializado (vazio) na resposta desses 4 mecanismos. Quem trata
+ * "geral" de verdade é só `searchVisionInternalShared`
+ * (visionInternalSearchProvider.ts > Passo 4), com sua própria fonte
+ * (Google Shopping estruturado da ScraperAPI) — os outros 4 simplesmente
+ * não têm esse passo, então marcar "geral" com um deles não traz produto
+ * nenhum por essa via, sem lançar erro nem quebrar nada.
  */
 export const GOOGLE_SHOPPING_MATCHERS: MarketplaceMatcher[] = [
   { marketplace: "amazon", matchesSource: (s) => s.includes("amazon") },
   { marketplace: "mercadolivre", matchesSource: (s) => s.includes("mercado") },
+  { marketplace: "geral", matchesSource: () => false },
 ];
 
 /**
