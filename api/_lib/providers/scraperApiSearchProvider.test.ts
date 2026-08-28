@@ -13,6 +13,7 @@ import type { CatalogItemQuery } from "../types";
 
 const MATCHERS_BOTH: MarketplaceMatcher[] = GOOGLE_SHOPPING_MATCHERS;
 const MATCHERS_ML_ONLY: MarketplaceMatcher[] = GOOGLE_SHOPPING_MATCHERS.filter((m) => m.marketplace === "mercadolivre");
+const MATCHERS_AMAZON_ONLY: MarketplaceMatcher[] = GOOGLE_SHOPPING_MATCHERS.filter((m) => m.marketplace === "amazon");
 
 function items(): CatalogItemQuery[] {
   return [{ sku: "SKU1", name: "Fone de Ouvido Bluetooth XYZ" }];
@@ -92,6 +93,47 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
     expect(result.amazon.SKU1.price).toBe(199.9); // ganhou o candidato NATIVO (popularidade real > 0)
     expect(result.amazon.SKU1.matchedSource).toBe("Amazon");
   });
+
+  it(
+    "marketplace amazon SOZINHO: NÃO chama Google Shopping (custo desnecessário — a Amazon Search API " +
+      "nativa já cobre sozinha) — regressão do estouro real de créditos (20 produtos = ~400 créditos, " +
+      "ScraperAPI cobra 5/req pra Amazon e 25/req pra Google/SERP)",
+    async () => {
+      const { searchScraperApiShared } = await importWithKey();
+
+      let calledGoogleShopping = false;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (urlStr: string) => {
+          const url = new URL(urlStr);
+          if (url.hostname === "api.scraperapi.com" && url.pathname.includes("/structured/amazon/search")) {
+            return {
+              ok: true,
+              json: async () => ({
+                results: [
+                  {
+                    name: "Fone de Ouvido Bluetooth XYZ",
+                    price: 199.9,
+                    url: "https://amazon.com.br/dp/B0X",
+                    stars: 4.8,
+                    total_reviews: 5000,
+                  },
+                ],
+              }),
+            } as unknown as Response;
+          }
+          calledGoogleShopping = true;
+          return { ok: true, json: async () => ({ shopping_results: [] }) } as unknown as Response;
+        })
+      );
+
+      const result = await searchScraperApiShared(items(), MATCHERS_AMAZON_ONLY);
+
+      expect(calledGoogleShopping).toBe(false);
+      expect(result.amazon.SKU1).toBeDefined();
+      expect(result.amazon.SKU1.price).toBe(199.9);
+    }
+  );
 
   it("marketplace mercadolivre: só usa candidato do Google Shopping (Amazon Search API não cobre ML)", async () => {
     const { searchScraperApiShared } = await importWithKey();

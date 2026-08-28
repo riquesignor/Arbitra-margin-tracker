@@ -155,24 +155,42 @@ export async function fetchGoogleShoppingCandidatesForQuery(query: string): Prom
  * Endpoints" da ScraperAPI — a própria ScraperAPI faz o parsing e devolve
  * JSON pronto, papel equivalente ao da SerpApi/SearchApi.io.
  *
- * Dois endpoints combinados (decisão explícita do usuário — cobertura
- * maior aceitando consumir mais crédito por produto testado):
- *   1) Amazon Search API (`/structured/amazon/search`) — dado NATIVO da
- *      Amazon, com rating/reviews reais, usado só pro marketplace "amazon".
- *   2) Google Shopping API (`/structured/google/shopping`) — mesma fonte
- *      de dado que SerpApi/SearchApi.io já usam, cobre amazon+mercadolivre
- *      na mesma chamada via `matchesSource` (reaproveita `MarketplaceMatcher`
- *      de googleShoppingProvider.ts) — terceiro vendor redundante ao lado
- *      dos outros dois pra esse dado.
+ * Dois endpoints, cada um chamado só quando de fato precisa (ago/2026,
+ * revisado após estouro real de créditos — plano trial tem 5.000 créditos
+ * e uma busca de 20 produtos com os dois marketplaces marcados consumiu
+ * ~400: cada endpoint estruturado da ScraperAPI tem multiplicador de custo
+ * PRÓPRIO por domínio, bem acima de "1 crédito por request" —
+ * confirmado em docs.scraperapi.com/getting-started/quick-start/
+ * credits-and-requests-costs: **Amazon = 5 créditos/request**, **Google
+ * (SERP, cobre todos os subdomínios incl. Google Shopping) = 25
+ * créditos/request**. Disparar os dois sempre, incondicionalmente, custava
+ * até 30 créditos por produto mesmo quando só um dos dois tinha alguma
+ * chance de mudar o resultado):
+ *   1) Amazon Search API (`/structured/amazon/search`, 5 créditos) — dado
+ *      NATIVO da Amazon, com rating/reviews reais. Só dispara quando
+ *      "amazon" está entre os marketplaces pedidos (`needsAmazonNative`,
+ *      já era condicional antes desta revisão).
+ *   2) Google Shopping API (`/structured/google/shopping`, 25 créditos) —
+ *      mesma fonte de dado que SerpApi/SearchApi.io já usam. É a ÚNICA
+ *      fonte pra "mercadolivre" e pro fallback "geral" (não existe
+ *      endpoint nativo estruturado da ScraperAPI pra nenhum dos dois) —
+ *      mas quando o pedido é EXCLUSIVAMENTE "amazon", ela só serve de
+ *      candidato supletivo pro que a Amazon Search API nativa já cobre
+ *      sozinha; nesse caso específico (`needsGoogleShopping` abaixo)
+ *      ela é PULADA, cortando o custo de 30 pra 5 créditos/produto sem
+ *      perder marketplace nenhum — só abre mão de um segundo candidato
+ *      supletivo que raramente muda o vencedor (a Amazon nativa já
+ *      desempata por rating/reviews reais).
  *
- * Pro marketplace "amazon", os candidatos das DUAS fontes entram na mesma
- * disputa de `pickBestCandidate` — o nativo tende a ganhar no desempate por
- * popularidade (tem rating/reviews reais), mas o do Google Shopping continua
- * disponível como candidato caso o nativo não tenha achado nada ou tenha
- * similaridade pior. Pro marketplace "mercadolivre", só o Google Shopping
- * cobre (a Amazon Search API é exclusiva da Amazon, ScraperAPI não expõe
- * endpoint estruturado equivalente pro Mercado Livre até a data desta
- * implementação).
+ * Pro marketplace "amazon" com AMBAS as fontes ativas (mercadolivre/geral
+ * também pedidos, então o Google Shopping já ia disparar mesmo), os
+ * candidatos das DUAS entram na mesma disputa de `pickBestCandidate` — o
+ * nativo tende a ganhar no desempate por popularidade, mas o do Google
+ * Shopping continua disponível como candidato caso o nativo não tenha
+ * achado nada ou tenha similaridade pior. Pro marketplace "mercadolivre",
+ * só o Google Shopping cobre (a Amazon Search API é exclusiva da Amazon,
+ * ScraperAPI não expõe endpoint estruturado equivalente pro Mercado Livre
+ * até a data desta implementação).
  */
 export async function searchScraperApiShared(
   items: CatalogItemQuery[],
@@ -189,6 +207,12 @@ export async function searchScraperApiShared(
   for (const { marketplace } of matchers) results[marketplace] = {};
 
   const needsAmazonNative = matchers.some((m) => m.marketplace === "amazon");
+  // Google Shopping é a ÚNICA fonte pra qualquer marketplace que não seja
+  // "amazon" (mercadolivre, geral) — se algum deles foi pedido, a chamada é
+  // obrigatória. Se o pedido for EXCLUSIVAMENTE "amazon", ela vira supletiva
+  // (a Amazon Search API nativa já cobre sozinha) e é pulada — ver
+  // justificativa completa de custo no comentário no topo do arquivo.
+  const needsGoogleShopping = matchers.some((m) => m.marketplace !== "amazon");
 
   // Mesma separação de erro SISTÊMICO vs "esse produto não achou match" dos
   // outros providers — ver googleShoppingProvider.ts pra motivação completa.
@@ -249,43 +273,47 @@ export async function searchScraperApiShared(
         );
       }
 
-      fetches.push(
-        (async () => {
-          const url = new URL(GOOGLE_SHOPPING_ENDPOINT);
-          url.searchParams.set("api_key", apiKey);
-          url.searchParams.set("query", query);
-          url.searchParams.set("tld", "com.br");
-          url.searchParams.set("country_code", "br");
-          url.searchParams.set("gl", "br");
-          url.searchParams.set("hl", "pt-br");
+      if (needsGoogleShopping) {
+        fetches.push(
+          (async () => {
+            const url = new URL(GOOGLE_SHOPPING_ENDPOINT);
+            url.searchParams.set("api_key", apiKey);
+            url.searchParams.set("query", query);
+            url.searchParams.set("tld", "com.br");
+            url.searchParams.set("country_code", "br");
+            url.searchParams.set("gl", "br");
+            url.searchParams.set("hl", "pt-br");
 
-          const response = await fetch(url.toString());
-          if (!response.ok) {
-            console.warn(`ScraperAPI (Google Shopping) "${name}" (${sku}) retornou ${response.status}`);
-            return;
-          }
-          const data = (await response.json()) as GoogleShoppingStructuredResponse;
-          if (data.error) {
-            console.warn(`ScraperAPI (Google Shopping) "${name}" (${sku}): ${data.error}`);
-            return;
-          }
-          googleShoppingCandidates = (data.shopping_results ?? [])
-            .filter((r) => r.extracted_price != null)
-            .map((r) => ({
-              title: r.title,
-              price: r.extracted_price,
-              thumbnail: r.thumbnail,
-              source: r.source,
-            }));
-        })()
-      );
+            const response = await fetch(url.toString());
+            if (!response.ok) {
+              console.warn(`ScraperAPI (Google Shopping) "${name}" (${sku}) retornou ${response.status}`);
+              return;
+            }
+            const data = (await response.json()) as GoogleShoppingStructuredResponse;
+            if (data.error) {
+              console.warn(`ScraperAPI (Google Shopping) "${name}" (${sku}): ${data.error}`);
+              return;
+            }
+            googleShoppingCandidates = (data.shopping_results ?? [])
+              .filter((r) => r.extracted_price != null)
+              .map((r) => ({
+                title: r.title,
+                price: r.extracted_price,
+                thumbnail: r.thumbnail,
+                source: r.source,
+              }));
+          })()
+        );
+      }
 
       await Promise.all(fetches);
 
-      // Erro sistêmico só conta se AMBAS as chamadas feitas pra este item
-      // vieram vazias (0 candidatos) — uma falhar sozinha (ex: Amazon
-      // Search API fora do ar mas Google Shopping ok) não deve contar como
-      // falha total do item, só reduz a fonte de candidato disponível.
+      // Erro sistêmico só conta se NENHUMA fonte disparada pra este item
+      // trouxe candidato — quando `needsGoogleShopping` é false (só "amazon"
+      // pedido), a única fonte disparada é a nativa, então o critério
+      // naturalmente vira "amazonNativeCandidates vazio" sozinho (o
+      // `googleShoppingCandidates` fica `[]` de propósito, nunca foi
+      // chamado, e não deve contar como "fonte que falhou").
       if (amazonNativeCandidates.length === 0 && googleShoppingCandidates.length === 0) {
         errorCount++;
         lastApiError = lastApiError ?? "ScraperAPI (Amazon Search + Google Shopping) sem resultado pra nenhum item.";

@@ -61,6 +61,8 @@ interface ParseOutcome {
   usedOcr?: boolean;
   /** true se ALGUMA página precisou do fallback genérico de IA (Gemini) por não bater em nenhuma heurística conhecida — ver ExtractResult em parsePdfCatalog.ts. CSV nunca seta isso. */
   usedGeminiPageExtraction?: boolean;
+  /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas que não contribuíram produto nenhum. CSV nunca seta isso (não tem conceito de "página"). */
+  pagesWithNoProducts?: number[];
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -229,7 +231,8 @@ const DEFAULT_PROVIDER: SearchProviderId = "scraperapi";
 function buildParseInfoMessage(
   rowCount: number,
   skippedAmbiguous: number,
-  usedGeminiPageExtraction?: boolean
+  usedGeminiPageExtraction?: boolean,
+  pagesWithNoProducts?: number[]
 ): string | null {
   const parts: string[] = [];
   if (skippedAmbiguous > 0) {
@@ -242,6 +245,19 @@ function buildParseInfoMessage(
     parts.push(
       "Uma ou mais páginas não bateram em nenhum padrão conhecido e foram lidas por IA (Gemini) — " +
         "confira nome e preço desses produtos antes de decidir compra."
+    );
+  }
+  // Ver pagesWithNoProducts em ExtractResult (parsePdfCatalog.ts, ago/2026) —
+  // regressão real reportada: catálogo de N páginas devolvia menos produto
+  // que o esperado sem NENHUMA pista de qual página falhou. Lista as
+  // páginas explicitamente pra virar um ponto de partida concreto (conferir
+  // layout, tentar Gemini se ainda não tinha chave) em vez de "sumiu
+  // produto, não sei por quê".
+  if (pagesWithNoProducts && pagesWithNoProducts.length > 0) {
+    parts.push(
+      `Página(s) ${pagesWithNoProducts.join(", ")} não tiveram produto nenhum reconhecido — layout ` +
+        "diferente do resto do catálogo, ou é só uma página de capa/divisor. Confira essas páginas " +
+        "manualmente ou reprocesse só elas com uma chave Gemini em Conta (leitura por IA como último recurso)."
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;
@@ -959,8 +975,11 @@ export default function Dashboard({
         return;
       }
 
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction } = await parse();
-      setSkippedInfo(buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction));
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction, pagesWithNoProducts } =
+        await parse();
+      setSkippedInfo(
+        buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction, pagesWithNoProducts)
+      );
       await finishWithRows(
         rows,
         {
@@ -999,8 +1018,11 @@ export default function Dashboard({
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction } = await parse();
-      setSkippedInfo(buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction));
+      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction, pagesWithNoProducts } =
+        await parse();
+      setSkippedInfo(
+        buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction, pagesWithNoProducts)
+      );
       await finishWithRows(
         rows,
         {

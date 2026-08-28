@@ -200,6 +200,8 @@ function extractPriceGroup(match: RegExpMatchArray): string {
 }
 // SKU: código tipo "SKU-001", "REF12345" ou sequência de 4+ dígitos
 const SKU_PATTERN = /\b([A-Z]{2,}[-\s]?\d{2,}|\d{4,})\b/;
+/** Versão global de SKU_PATTERN — só pra CONTAR/localizar ocorrências (ver trySplitMultiPriceLine abaixo), nunca usada pra extrair o SKU de verdade (isso continua sendo SKU_PATTERN, primeiro match de cada segmento). */
+const SKU_PATTERN_GLOBAL = new RegExp(SKU_PATTERN.source, "g");
 // Label explícito de código de produto usado por catálogos em grade
 // (ver extractGridBlocks) — "MODELO: BMG-50" (às vezes sem espaço antes
 // dos dois pontos ou com dois-pontos ausente) ou "CÓD. 002168"/"CÓDIGO:
@@ -405,6 +407,22 @@ export interface ExtractResult {
    * determinística de sempre.
    */
   usedGeminiPageExtraction?: boolean;
+  /**
+   * Números (1-based, absolutos no PDF) das páginas do intervalo
+   * processado que não bateram em NENHUMA heurística (grade, linha
+   * única, bloco "vitrine" sem preço) nem no fallback de IA — ou seja,
+   * zero produto veio dessa página específica. Antes desta contagem
+   * existir, um catálogo de N páginas com só ALGUMAS reconhecidas
+   * simplesmente devolvia menos produto que o esperado sem NENHUMA pista
+   * de qual página falhou nem por quê (regressão real reportada: "6
+   * páginas processadas, só 3 produtos voltaram", sem saber quais 3
+   * páginas ficaram de fora). Página cujo layout é só um divisor de
+   * categoria (sem produto de verdade) também cai aqui — não é
+   * necessariamente erro, mas listar sempre é mais honesto que omitir.
+   * `undefined`/array vazio = todas as páginas do intervalo contribuíram
+   * com pelo menos 1 produto.
+   */
+  pagesWithNoProducts?: number[];
 }
 
 /**
@@ -414,22 +432,95 @@ export interface ExtractResult {
  * achar); nome é o que sobra. Funciona bem pra catálogos com uma linha
  * de texto por produto.
  *
- * Linha com MAIS de um preço (ex: "30PCS/CX Unid.CX: 24PCS/CX
- * Unid.CX: 32,00 5 0PCS/CX Unid.CX:23,00") normalmente é célula de
- * tabela multi-coluna que o agrupamento por Y colou numa linha só —
- * nesse caso não dá pra saber com segurança qual preço é de qual
- * produto, então a linha é DESCARTADA (não vira produto com nome
- * corrompido) e contada em `skippedAmbiguous`, reportado ao usuário.
- * Preferir "faltou um produto" a "produto com nome ilegível".
+ * Linha com MAIS de um preço é normalmente célula de tabela multi-coluna
+ * que o agrupamento por Y colou numa linha só — duas situações bem
+ * diferentes, tratadas de forma diferente (ver `trySplitMultiPriceLine`
+ * logo abaixo):
+ *   - Vários produtos DIFERENTES lado a lado na mesma linha Y (grade de
+ *     2+ colunas sem cabeçalho "MODELO:", ver extractGridBlocks) — cada
+ *     um com o PRÓPRIO código de SKU antes do próprio preço. Recuperável
+ *     com segurança: a ORDEM esquerda-pra-direita da linha já é a mesma
+ *     ordem visual das colunas, então cada trecho "código...preço" é
+ *     inequivocamente um produto (ver trySplitMultiPriceLine).
+ *   - Preços de FAIXA/QUANTIDADE do MESMO produto numa célula só (ex:
+ *     "30PCS/CX Unid.CX: 24PCS/CX Unid.CX: 32,00 5 0PCS/CX
+ *     Unid.CX:23,00") — não tem código de SKU repetido, só texto de
+ *     unidade/quantidade solto entre os preços. Não dá pra saber com
+ *     segurança qual preço é o "certo" pro produto, então a linha é
+ *     DESCARTADA (não vira produto com nome corrompido) e contada em
+ *     `skippedAmbiguous`, reportado ao usuário. Preferir "faltou um
+ *     produto" a "produto com nome ilegível ou preço errado".
  *
- * Layouts multi-coluna persistentes, tabelas com célula de preço muito
- * distante do nome, ou PDFs escaneados (sem camada de texto — pdfjs não
- * extrai nada) continuam fora do escopo deste heurístico — precisariam
- * de parser de tabela real ou OCR.
+ * Layouts multi-coluna sem código de SKU por célula, tabelas com célula
+ * de preço muito distante do nome, ou PDFs escaneados (sem camada de
+ * texto — pdfjs não extrai nada) continuam fora do escopo deste
+ * heurístico — precisariam de parser de tabela real ou OCR.
  */
 interface IndexedExtractResult {
   rows: (CatalogRow & { lineIndex: number })[];
   skippedAmbiguous: number;
+}
+
+/**
+ * Recuperação de linha ambígua (ago/2026, regressão real "12 produtos
+ * numa página, só 8 reconhecidos" — grade de 2 colunas sem "MODELO:",
+ * ver comentário acima de extractRowsIndexed): quando uma linha tem N
+ * preços E pelo menos N ocorrências de SKU_PATTERN, é bem provável que
+ * sejam N produtos DIFERENTES colados na mesma linha Y pelo agrupamento
+ * — não uma tabela de faixa de preço/quantidade do mesmo produto (essas
+ * não costumam ter um código de SKU antes de cada preço, ver o exemplo
+ * "30PCS/CX..." no comentário acima, que tem 0 ocorrências de
+ * SKU_PATTERN e por isso nunca passa nesta guarda).
+ *
+ * Divide a linha em N segmentos, um por preço encontrado — cada segmento
+ * vai do fim do preço ANTERIOR (ou início da linha, no primeiro) até o
+ * fim do preço ATUAL. Como a leitura de texto já segue a ordem visual
+ * esquerda→direita (ver joinLineText), isso reconstrói exatamente
+ * "código + nome + preço" de cada produto, na mesma ordem das colunas.
+ *
+ * Conservador de propósito: exige um SKU_PATTERN de verdade em CADA
+ * segmento (não gera SKU sintético aqui) e só aceita a divisão se
+ * recuperar 2+ produtos válidos — uma divisão que só rescata 1 segmento
+ * não é melhor que descartar a linha inteira, e arrisca mais nome errado
+ * do que vale a pena. Se a guarda ou a extração por segmento falhar em
+ * qualquer ponto, devolve `null` e o chamador cai no comportamento de
+ * sempre (descarta a linha inteira, conta em `skippedAmbiguous`).
+ */
+function trySplitMultiPriceLine(
+  line: string,
+  priceMatchCount: number
+): { sku: string; name: string; supplierPrice: number }[] | null {
+  const skuMatchCount = (line.match(SKU_PATTERN_GLOBAL) ?? []).length;
+  if (skuMatchCount < priceMatchCount) return null;
+
+  const priceMatches = [...line.matchAll(PRICE_PATTERN_GLOBAL)];
+  const segments: string[] = [];
+  let cursor = 0;
+  for (const m of priceMatches) {
+    const end = (m.index ?? 0) + m[0].length;
+    segments.push(line.slice(cursor, end));
+    cursor = end;
+  }
+
+  const results: { sku: string; name: string; supplierPrice: number }[] = [];
+  for (const segment of segments) {
+    const priceMatch = segment.match(PRICE_PATTERN);
+    if (!priceMatch) continue;
+    const price = parseCurrency(extractPriceGroup(priceMatch));
+    if (price <= 0) continue;
+
+    const withoutPrice = segment.replace(priceMatch[0], "").trim();
+    const skuMatch = withoutPrice.match(SKU_PATTERN);
+    if (!skuMatch) continue; // sem código próprio neste segmento — não arrisca inventar um sintético aqui
+
+    const rawName = withoutPrice.replace(skuMatch[0], "").trim();
+    const name = sanitizeProductName(rawName);
+    if (!name || name.length > MAX_PLAUSIBLE_NAME_LENGTH) continue;
+
+    results.push({ sku: skuMatch[1], name, supplierPrice: price });
+  }
+
+  return results.length >= 2 ? results : null;
 }
 
 /**
@@ -449,7 +540,14 @@ function extractRowsIndexed(lines: string[], seenSyntheticSkus: Set<string> = ne
     if (!priceMatches || priceMatches.length === 0) return;
 
     if (priceMatches.length > 1) {
-      skippedAmbiguous++;
+      const split = trySplitMultiPriceLine(line, priceMatches.length);
+      if (split) {
+        for (const { sku, name, supplierPrice } of split) {
+          rows.push({ sku, name, supplierPrice, lineIndex });
+        }
+      } else {
+        skippedAmbiguous++;
+      }
       return;
     }
 
@@ -1162,6 +1260,9 @@ export async function parsePdfCatalogFile(
   // cota já na primeira e ficaria martelando as próximas sem chance
   // nenhuma de sucesso — só timeout/erro repetido gastando tempo.
   let geminiQuotaExhausted = false;
+  // Páginas (número absoluto, 1-based) que não contribuíram NENHUM
+  // produto — ver `pagesWithNoProducts` em ExtractResult pro porquê.
+  const pagesWithNoProducts: number[] = [];
 
   // try/finally garante que o worker do Tesseract (WASM + dado de
   // idioma, alguns MB) é liberado ao final do processamento — mesmo se
@@ -1172,6 +1273,10 @@ export async function parsePdfCatalogFile(
   // worker, então nunca paga esse custo de encerrar algo que não existe.
   try {
     for (let pageNum = from; pageNum <= to; pageNum++) {
+      // Marca ANTES de processar a página — comparado com `rows.length`
+      // no fim da iteração (ver `continue`s abaixo, todos passam por lá)
+      // pra saber se ESTA página especificamente contribuiu algo.
+      const rowsBeforePage = rows.length;
       const page = await doc.getPage(pageNum);
       const content = await page.getTextContent();
       // scale:1 só pra pegar a largura da página em pt — não renderiza
@@ -1307,6 +1412,7 @@ export async function parsePdfCatalogFile(
             }
           });
         }
+        if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
         continue;
       }
 
@@ -1434,6 +1540,8 @@ export async function parsePdfCatalogFile(
           }
         }
       }
+
+      if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
     }
 
     if (rows.length === 0) {
@@ -1465,6 +1573,7 @@ export async function parsePdfCatalogFile(
       imagesBySku: withImages ? imagesBySku : undefined,
       usedOcr: ocrAttempted,
       usedGeminiPageExtraction: geminiPageExtractionUsed,
+      pagesWithNoProducts: pagesWithNoProducts.length > 0 ? pagesWithNoProducts : undefined,
     };
   } finally {
     // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB

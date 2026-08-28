@@ -129,6 +129,47 @@ describe("extractRows", () => {
     expect(rows.map((r) => r.sku)).toEqual(["SKU-001", "SKU-002"]);
   });
 
+  it(
+    "RECUPERA (não descarta) linha com 2 preços quando cada preço tem o PRÓPRIO código de SKU antes dele — " +
+      "regressão real 'página com 12 produtos, só 8 reconhecidos': grade de 2 colunas sem cabeçalho " +
+      "'MODELO:' funde 2 produtos DIFERENTES na mesma linha Y pelo agrupamento; diferente do caso " +
+      "'30PCS/CX...' acima (0 código de SKU, preço de faixa/quantidade do MESMO produto), aqui cada " +
+      "metade da linha tem um SKU_PATTERN de verdade — sinal seguro de que são 2 produtos, não 1",
+    () => {
+      const { rows, skippedAmbiguous } = extractRows([
+        "SKU-100 Fone Bluetooth Preto R$ 45,00 SKU-200 Caixa de Som Portátil R$ 89,90",
+      ]);
+
+      expect(skippedAmbiguous).toBe(0);
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatchObject({ sku: "SKU-100", name: "Fone Bluetooth Preto", supplierPrice: 45 });
+      expect(rows[1]).toMatchObject({ sku: "SKU-200", name: "Caixa de Som Portátil", supplierPrice: 89.9 });
+    }
+  );
+
+  it("recupera 3 produtos de uma linha de grade de 3 colunas fundida (generaliza pra N preços/N SKUs)", () => {
+    const { rows, skippedAmbiguous } = extractRows([
+      "REF001 Caneca Térmica R$ 30,00 REF002 Garrafa Inox R$ 55,00 REF003 Copo Duplo R$ 22,50",
+    ]);
+
+    expect(skippedAmbiguous).toBe(0);
+    expect(rows.map((r) => r.sku)).toEqual(["REF001", "REF002", "REF003"]);
+    expect(rows.map((r) => r.supplierPrice)).toEqual([30, 55, 22.5]);
+  });
+
+  it(
+    "NÃO recupera quando faltam SKUs pra cobrir todos os preços — sinal fraco demais (pode ser " +
+      "faixa de preço do mesmo produto), continua descartando a linha inteira como antes",
+    () => {
+      const { rows, skippedAmbiguous } = extractRows([
+        "SKU-300 Produto Único Com Faixa De Preço R$ 45,00 R$ 89,90", // 1 SKU, 2 preços
+      ]);
+
+      expect(rows).toHaveLength(0);
+      expect(skippedAmbiguous).toBe(1);
+    }
+  );
+
   it("aceita formato de preço US (ponto decimal) além do BR (vírgula)", () => {
     const { rows } = extractRows(["SKU-010 Produto C 199.99"]);
 
