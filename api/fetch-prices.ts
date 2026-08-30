@@ -10,7 +10,11 @@ import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/regis
 import { GOOGLE_SHOPPING_MATCHERS, searchGoogleShoppingShared } from "./_lib/providers/googleShoppingProvider.js";
 import { searchGoogleLensProductsShared } from "./_lib/providers/googleLensProvider.js";
 import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvider.js";
-import { searchVisionInternalShared } from "./_lib/providers/visionInternalSearchProvider.js";
+import {
+  searchVisionInternalShared,
+  GEMINI_BACKEND,
+  GROQ_BACKEND,
+} from "./_lib/providers/visionInternalSearchProvider.js";
 import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
@@ -26,6 +30,7 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
+  "vision_groq",
   "scraperapi",
 ];
 
@@ -269,7 +274,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // pelo motor interno puro — mesmo formato de saída, `_warning`
           // não distingue a origem porque a UI só precisa mostrar o
           // aviso, não a causa exata.
-          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey);
+          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, GEMINI_BACKEND);
+          internalSearchWarning = outcome.warning;
+          fresh = outcome.results;
+        } else if (provider === "vision_groq") {
+          // Mesma orquestração de "vision_internal" acima, backend Groq
+          // (ago/2026, ver groqVision.ts) — `apiKey` aqui é a chave GROQ do
+          // usuário, campo separado do Gemini em Conta.
+          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, GROQ_BACKEND);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "google_lens_products") {

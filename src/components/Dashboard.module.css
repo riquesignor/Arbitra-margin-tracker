@@ -410,6 +410,17 @@
   margin: 0;
 }
 
+/* Contador "N já com preço" ao vivo durante o fetching (ver foundSoFar/
+   onProgress em Dashboard.tsx) — mais discreto que .status (sem ícone
+   girando, fonte menor), é só um complemento informativo, não o status
+   principal da operação. */
+.statusMuted {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  margin: 0;
+}
+
 .progressWrap {
   display: flex;
   flex-direction: column;

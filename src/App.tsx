@@ -164,6 +164,25 @@ export default function App() {
     setScreen("results");
   }
 
+  /**
+   * Ver comentário de `onProgress` em Dashboard.tsx — mesma atualização de
+   * dados que `handleDashboardComplete`, MAS sem `setScreen("results")`.
+   * De propósito: `screen === "dashboard" && <Dashboard/>` em App.tsx
+   * desmonta o Dashboard assim que a tela troca — se `onProgress` também
+   * navegasse, o primeiro lote já tiraria o usuário da tela de progresso
+   * NO MEIO de uma busca de 5+ minutos, perdendo o spinner/barra sem
+   * ganho real (o próprio Dashboard já mostra "N já com preço" ao vivo
+   * enquanto fica na tela — ver `foundSoFar`). Quem navega pra Resultados
+   * continua sendo só o `onComplete` de sempre, no final de verdade.
+   */
+  function handleDashboardProgress(data: DashboardResult) {
+    skipRestoreRef.current = true;
+    setCatalogRows(data.rows);
+    setPricesByMarket(data.pricesByMarket);
+    setResults(data.results);
+    setSource(data.source);
+  }
+
   /** Recarrega o histórico global após uma nova busca ser salva (Dashboard.tsx). */
   function handleHistoryChanged() {
     if (!user) return;
@@ -252,6 +271,7 @@ export default function App() {
                 userId={user?.uid ?? null}
                 profile={profile}
                 onComplete={handleDashboardComplete}
+                onProgress={handleDashboardProgress}
                 onHistoryChanged={handleHistoryChanged}
                 onHistoryDeleted={handleHistoryDeleted}
                 warnAt80PercentQuota={preferences.warnAt80PercentQuota}

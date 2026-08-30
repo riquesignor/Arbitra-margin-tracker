@@ -1,10 +1,48 @@
 import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
-import { describeProductImage, compareProductImages, GeminiVisionError, GeminiQuotaExhaustedError } from "../geminiVision.js";
+import * as gemini from "../geminiVision.js";
+import * as groq from "../groqVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers, type ScrapedOffer } from "./internalSearchProvider.js";
 import { fetchGoogleShoppingCandidatesForQuery, type GoogleShoppingCandidate } from "./scraperApiSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
+
+/**
+ * Motor interno + IA aceita mais de um FORNECEDOR de IA de visão (ago/2026
+ * — Gemini era o único, Groq entrou como 2ª opção depois do relato real
+ * de "5+ minutos, só 2 de 68 produtos" com a cota do Gemini, ver
+ * groqVision.ts pro porquê). Toda a orquestração abaixo (buscar, ranquear,
+ * decidir aceite/aproximado, montar warning) é IDÊNTICA pros dois — só
+ * MUDA quem responde "descreva essa foto"/"essas duas fotos são o mesmo
+ * produto?" — por isso um backend plugável em vez de duplicar ~350 linhas
+ * de orquestração pra cada fornecedor (o que já aconteceria se Groq virasse
+ * uma cópia inteira deste arquivo com find-replace de "Gemini"→"Groq").
+ * `label` entra nas mensagens de erro/warning pro usuário saber qual das
+ * duas chaves (Conta → Gemini/Groq) está em jogo.
+ */
+export interface VisionBackend {
+  label: string;
+  describeProductImage(imageUrl: string, apiKey: string): Promise<string>;
+  compareProductImages(catalogImageUrl: string, candidateImageUrl: string, apiKey: string): Promise<number>;
+  isQuotaExhaustedError(err: unknown): boolean;
+  isVisionError(err: unknown): boolean;
+}
+
+export const GEMINI_BACKEND: VisionBackend = {
+  label: "Gemini",
+  describeProductImage: gemini.describeProductImage,
+  compareProductImages: gemini.compareProductImages,
+  isQuotaExhaustedError: (err): boolean => err instanceof gemini.GeminiQuotaExhaustedError,
+  isVisionError: (err): boolean => err instanceof gemini.GeminiVisionError,
+};
+
+export const GROQ_BACKEND: VisionBackend = {
+  label: "Groq",
+  describeProductImage: groq.describeProductImage,
+  compareProductImages: groq.compareProductImages,
+  isQuotaExhaustedError: (err): boolean => err instanceof groq.GroqQuotaExhaustedError,
+  isVisionError: (err): boolean => err instanceof groq.GroqVisionError,
+};
 
 /**
  * ══════════════════════════════════════════════════════════════════════
@@ -166,12 +204,13 @@ export interface VisionInternalSearchOutcome {
 export async function searchVisionInternalShared(
   items: CatalogItemQuery[],
   matchers: MarketplaceMatcher[],
-  userApiKey?: string
+  userApiKey: string | undefined,
+  backend: VisionBackend
 ): Promise<VisionInternalSearchOutcome> {
   const apiKey = userApiKey?.trim();
   if (!apiKey) {
     throw new Error(
-      "Nenhuma chave Gemini própria configurada. Cadastre a sua em Conta antes de buscar por imagem com o motor interno + IA."
+      `Nenhuma chave ${backend.label} própria configurada. Cadastre a sua em Conta antes de buscar por imagem com o motor interno + IA.`
     );
   }
 
@@ -235,7 +274,7 @@ export async function searchVisionInternalShared(
     processedCount++;
     try {
       // Passo 1 — descrever.
-      const query = await describeProductImage(item.imageUrl!, apiKey);
+      const query = await backend.describeProductImage(item.imageUrl!, apiKey);
 
       // Passo 2 — buscar (motor interno, mesma raspagem da busca por
       // texto, sem custo por chamada). `focusedMatchers`, não `matchers`
@@ -276,15 +315,15 @@ export async function searchVisionInternalShared(
           // "é o mesmo produto" sem uma segunda imagem).
           if (!candidate.thumbnail) continue;
           try {
-            const score = await compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
+            const score = await backend.compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
             if (!best || score > best.score) {
               best = { marketplace: store.marketplace, label: store.label, candidate, score, totalOffers: store.offers.length };
             }
           } catch (err) {
-            if (err instanceof GeminiQuotaExhaustedError) {
+            if (backend.isQuotaExhaustedError(err)) {
               quotaExhausted = true;
               quotaExhaustedAtItem ??= processedCount;
-              lastError = err.message;
+              lastError = err instanceof Error ? err.message : String(err);
               break;
             }
             // Falha de UMA comparação (ex.: thumbnail quebrado, timeout)
@@ -361,13 +400,13 @@ export async function searchVisionInternalShared(
             if (quotaExhausted) break;
             if (!candidate.thumbnail) continue;
             try {
-              const score = await compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
+              const score = await backend.compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
               if (!bestBroad || score > bestBroad.score) bestBroad = { candidate, score };
             } catch (err) {
-              if (err instanceof GeminiQuotaExhaustedError) {
+              if (backend.isQuotaExhaustedError(err)) {
                 quotaExhausted = true;
                 quotaExhaustedAtItem ??= processedCount;
-                lastError = err.message;
+                lastError = err instanceof Error ? err.message : String(err);
                 break;
               }
               console.warn(`[motor-interno+IA] comparação visual (busca geral) falhou ("${query}"):`, err);
@@ -400,16 +439,14 @@ export async function searchVisionInternalShared(
       }
     } catch (err) {
       failures++;
-      if (err instanceof GeminiQuotaExhaustedError) {
+      if (backend.isQuotaExhaustedError(err)) {
         quotaExhausted = true;
         quotaExhaustedAtItem ??= processedCount;
       }
       lastError =
-        err instanceof GeminiVisionError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : String(err);
+        backend.isVisionError(err) || err instanceof Error
+          ? (err as Error).message
+          : String(err);
       console.error(`[motor-interno+IA] falhou pra "${item.name}" (${item.sku}):`, err);
     }
   });
@@ -440,11 +477,15 @@ export async function searchVisionInternalShared(
   let warning: string | undefined;
   if (quotaExhausted && quotaExhaustedAtItem !== null) {
     const notReached = skippedByQuota;
+    // "esgotada depois de" é o marcador ESTÁVEL que o client (Dashboard.tsx,
+    // lastGeminiQuotaExhaustedAtRef) usa pra detectar esse warning
+    // independente de QUAL backend gerou — não mudar essa frase sem
+    // atualizar o marcador lá também.
     warning =
-      `Cota gratuita do Gemini esgotada depois de ${quotaExhaustedAtItem} de ${itemsWithImage.length} ` +
+      `Cota gratuita do ${backend.label} esgotada depois de ${quotaExhaustedAtItem} de ${itemsWithImage.length} ` +
       `produto(s) — ${notReached > 0 ? `${notReached} produto(s) nem chegaram a ser buscados` : "o restante não foi buscado"}. ` +
       "O free tier libera cota de novo após ~1 minuto: tente de novo em instantes, processe em lotes menores, " +
-      "ou use uma chave Gemini paga em Conta pra não esbarrar nesse teto.";
+      `ou use uma chave ${backend.label} paga em Conta pra não esbarrar nesse teto.`;
     console.warn(`[motor-interno+IA] ${warning}`);
   } else if (
     (noCandidatesCount > 0 || rejectedAsNoiseCount > 0) &&

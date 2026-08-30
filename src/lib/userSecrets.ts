@@ -280,3 +280,51 @@ export async function deleteUserGeminiApiKey(userId: string): Promise<void> {
   batch.set(doc(db, "users", userId), { hasGeminiApiKey: false }, { merge: true });
   await batch.commit();
 }
+
+/**
+ * Chave Groq própria do usuário — 2ª opção de backend de IA pro motor
+ * interno + IA, ao lado da chave Gemini acima (provider "vision_groq", ver
+ * api/_lib/providers/visionInternalSearchProvider.ts e groqVision.ts).
+ * Campo SEPARADO (`groqApiKey`, não reaproveita `geminiApiKey`) porque são
+ * contas/vendors diferentes — o usuário pode ter as duas cadastradas ao
+ * mesmo tempo e alternar entre "Motor interno + IA (Gemini)" e "Motor
+ * interno + IA (Groq)" no seletor sem recadastrar nada. Mesmo padrão BYOK
+ * e mesmo doc `users/{uid}/secrets/keys` das chaves acima.
+ */
+export async function getUserGroqApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().groqApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave Groq do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserGroqApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { groqApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasGroqApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserGroqApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { groqApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasGroqApiKey: false }, { merge: true });
+  await batch.commit();
+}

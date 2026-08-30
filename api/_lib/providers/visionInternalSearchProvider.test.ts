@@ -46,11 +46,12 @@ vi.mock("./scraperApiSearchProvider.js", () => ({
 // `vi.fn()` acima já existem, sem precisar de top-level `await` (que o
 // target/module do tsconfig.api.json não suporta).
 let searchVisionInternalShared: typeof import("./visionInternalSearchProvider").searchVisionInternalShared;
+let GEMINI_BACKEND: typeof import("./visionInternalSearchProvider").GEMINI_BACKEND;
 let GeminiVisionError: typeof import("../geminiVision").GeminiVisionError;
 let GeminiQuotaExhaustedError: typeof import("../geminiVision").GeminiQuotaExhaustedError;
 
 beforeAll(async () => {
-  ({ searchVisionInternalShared } = await import("./visionInternalSearchProvider"));
+  ({ searchVisionInternalShared, GEMINI_BACKEND } = await import("./visionInternalSearchProvider"));
   ({ GeminiVisionError, GeminiQuotaExhaustedError } = await import("../geminiVision"));
 });
 
@@ -82,14 +83,16 @@ afterEach(() => {
 
 describe("searchVisionInternalShared", () => {
   it("exige chave Gemini própria — sem BYOK, nem tenta chamar a IA", async () => {
-    await expect(searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "")).rejects.toThrow(/gemini/i);
+    await expect(searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "", GEMINI_BACKEND)).rejects.toThrow(
+      /gemini/i
+    );
     expect(describeProductImage).not.toHaveBeenCalled();
   });
 
   it("pula silenciosamente item sem foto de catálogo — não é erro sistêmico", async () => {
     const semFoto: CatalogItemQuery = { sku: "SKU-2", name: "Sem imagem" };
 
-    const result = await searchVisionInternalShared([semFoto], MATCHERS, "fake-gemini-key");
+    const result = await searchVisionInternalShared([semFoto], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
     expect(result.results).toEqual({ amazon: {}, mercadolivre: {} });
     expect(result.warning).toBeUndefined();
@@ -122,7 +125,7 @@ describe("searchVisionInternalShared", () => {
         return Promise.resolve(0);
       });
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
       // Amazon: venceu o candidato de nota 0.9 (não o mais popular/primeiro da lista).
       expect(result.results.amazon["SKU-1"]).toMatchObject({
@@ -150,7 +153,7 @@ describe("searchVisionInternalShared", () => {
       ] satisfies StoreOffers[]);
       compareProductImages.mockResolvedValue(0.3); // abaixo do antigo piso (0.5), acima do novo piso mínimo (0.2)
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.3, approximate: true });
     }
@@ -167,7 +170,7 @@ describe("searchVisionInternalShared", () => {
     ] satisfies StoreOffers[]);
     compareProductImages.mockResolvedValue(0.6); // aceito (>=0.5) mas não confiante (<0.8)
 
-    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
     expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.6, approximate: true });
   });
@@ -176,7 +179,7 @@ describe("searchVisionInternalShared", () => {
     describeProductImage.mockRejectedValue(new GeminiVisionError("Gemini retornou HTTP 400: chave inválida"));
 
     await expect(
-      searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "chave-invalida")
+      searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "chave-invalida", GEMINI_BACKEND)
     ).rejects.toThrow(/chave inválida/i);
   });
 
@@ -195,7 +198,7 @@ describe("searchVisionInternalShared", () => {
     ] satisfies StoreOffers[]);
     compareProductImages.mockResolvedValue(0.95);
 
-    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key");
+    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
     expect(result.results.amazon["SKU-1"]).toBeUndefined();
     expect(result.results.amazon["SKU-3"]).toMatchObject({ confidence: 0.95 });
@@ -216,7 +219,7 @@ describe("searchVisionInternalShared", () => {
       ] satisfies StoreOffers[]);
       compareProductImages.mockResolvedValue(0.1); // < piso mínimo (0.2, MIN_APPROXIMATE_SCORE)
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
       expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/1 candidato.*nota visual abaixo do piso/i));
@@ -234,7 +237,7 @@ describe("searchVisionInternalShared", () => {
       describeProductImage.mockResolvedValue("query");
       compareProductImages.mockResolvedValue(0.1); // abaixo até do piso de aproximado — item some de vez
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
       expect(result.warning).toMatch(/produto diferente/i);
@@ -250,7 +253,7 @@ describe("searchVisionInternalShared", () => {
         { marketplace: "amazon", label: "Amazon", offers: [] }, // busca não achou candidato nenhum
       ] satisfies StoreOffers[]);
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
       expect(compareProductImages).not.toHaveBeenCalled();
@@ -270,7 +273,7 @@ describe("searchVisionInternalShared", () => {
     ] satisfies StoreOffers[]);
     compareProductImages.mockResolvedValue(0.95); // aceito de sobra
 
-    await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key");
+    await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringMatching(/nota visual abaixo do piso/i));
     warnSpy.mockRestore();
@@ -285,7 +288,7 @@ describe("searchVisionInternalShared", () => {
       describeProductImage.mockRejectedValue(new GeminiQuotaExhaustedError("Gemini sem cota disponível agora"));
 
       await expect(
-        searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key")
+        searchVisionInternalShared([ITEM_WITH_PHOTO, item2], MATCHERS, "fake-gemini-key", GEMINI_BACKEND)
       ).rejects.toThrow(/cota/i);
 
       // Item 2 nem chegou a tentar — a flag de cota esgotada, setada já na
@@ -317,7 +320,8 @@ describe("searchVisionInternalShared", () => {
       const result = await searchVisionInternalShared(
         [ITEM_WITH_PHOTO, item2, item3],
         MATCHERS,
-        "fake-gemini-key"
+        "fake-gemini-key",
+        GEMINI_BACKEND
       );
 
       // O que já deu certo antes da cota estourar continua no resultado —
@@ -364,7 +368,7 @@ describe("searchVisionInternalShared", () => {
           { marketplace: "mercadolivre", label: "Mercado Livre", offers: [] },
         ] satisfies StoreOffers[]);
 
-        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_SEM_GERAL, "fake-gemini-key");
+        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_SEM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
         expect(fetchGoogleShoppingCandidatesForQuery).not.toHaveBeenCalled();
         expect(result.results.amazon?.["SKU-1"]).toBeUndefined();
@@ -378,7 +382,7 @@ describe("searchVisionInternalShared", () => {
       ] satisfies StoreOffers[]);
       compareProductImages.mockResolvedValue(0.95);
 
-      await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key");
+      await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(fetchGoogleShoppingCandidatesForQuery).not.toHaveBeenCalled();
     });
@@ -397,7 +401,7 @@ describe("searchVisionInternalShared", () => {
         ]);
         compareProductImages.mockResolvedValue(0.6);
 
-        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key");
+        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
         expect(fetchGoogleShoppingCandidatesForQuery).toHaveBeenCalledWith("fone bluetooth preto");
         // Chave PRÓPRIA "geral" — não empresta o slot de amazon/mercadolivre
@@ -432,7 +436,7 @@ describe("searchVisionInternalShared", () => {
       ]);
       compareProductImages.mockResolvedValue(0.9);
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
       // Só o candidato "Magazine Luiza" (fora das lojas focadas) chega a ser comparado visualmente.
       expect(compareProductImages).toHaveBeenCalledTimes(1);
@@ -447,7 +451,7 @@ describe("searchVisionInternalShared", () => {
       ] satisfies StoreOffers[]);
       fetchGoogleShoppingCandidatesForQuery.mockRejectedValue(new Error("ScraperAPI fora do ar"));
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key");
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
       expect(fetchGoogleShoppingCandidatesForQuery).toHaveBeenCalled();
       expect(result.results.geral["SKU-1"]).toBeUndefined();

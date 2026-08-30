@@ -50,6 +50,15 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
  * comparando a FOTO de cada um com a foto original — ver
  * visionInternalSearchProvider.ts.
  *
+ * "vision_groq" (ago/2026) — MESMA orquestração de "vision_internal"
+ * acima, trocando o backend de IA de Gemini pra Groq (BYOK, chave própria
+ * em Conta, campo separado do Gemini) — ver `VisionBackend` em
+ * api/_lib/providers/visionInternalSearchProvider.ts. Existe como 2ª
+ * opção pra comparar diretamente com "vision_internal" (mesmo catálogo,
+ * troca só o provider no seletor): o teto de requisições/minuto do free
+ * tier do Groq é maior que o do Gemini, mas ainda não validado se isso
+ * se traduz em mais produto encontrado de verdade num catálogo grande.
+ *
  * "scraperapi" (ago/2026) — usa os "Structured Data Endpoints" da
  * ScraperAPI (Amazon Search API + Google Shopping API) — a própria
  * ScraperAPI faz o parsing e devolve JSON pronto, papel equivalente ao da
@@ -67,6 +76,7 @@ export type SearchProviderId =
   | "google_lens_products"
   | "searchapi_lens"
   | "vision_internal"
+  | "vision_groq"
   | "scraperapi";
 
 /**

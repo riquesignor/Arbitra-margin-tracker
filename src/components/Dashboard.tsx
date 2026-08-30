@@ -1,4 +1,4 @@
-import { useEffect, useState, type DragEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent } from "react";
 import { motion } from "framer-motion";
 import {
   UploadCloud,
@@ -43,6 +43,7 @@ import {
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
+  getUserGroqApiKey,
 } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -119,7 +120,7 @@ const SEARCH_PROVIDERS: {
   note: string;
   marketplaces: MarketplaceId[];
   icon: typeof Store;
-  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | null;
+  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | "groqApiKey" | null;
 }[] = [
   {
     id: "serpapi",
@@ -176,6 +177,22 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "geminiApiKey",
   },
+  // 7ª opção (ago/2026) — MESMA orquestração da anterior (motor interno +
+  // IA), trocando o backend de IA de Gemini pra Groq (ver VisionBackend em
+  // api/_lib/providers/visionInternalSearchProvider.ts e groqVision.ts).
+  // Existe pra comparar diretamente as duas lado a lado no mesmo
+  // catálogo: o teto de requisições/minuto do free tier do Groq é maior
+  // que o do Gemini, mas ainda não validado se isso se traduz em mais
+  // produto encontrado de verdade — motivo real de ter as DUAS no
+  // seletor em vez de só trocar uma pela outra.
+  {
+    id: "vision_groq",
+    label: "Motor interno + IA (Groq)",
+    note: "Amazon + Mercado Livre · foto do catálogo, 2ª opção de IA (compare com a de cima)",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Camera,
+    needsKey: "groqApiKey",
+  },
   // ScraperAPI como busca de verdade (Structured Data Endpoints: Amazon
   // Search API + Google Shopping API), não só transporte — ver
   // scraperApiSearchProvider.ts. `needsKey: null` porque a chave
@@ -200,7 +217,19 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
+  "vision_groq",
 ]);
+
+/**
+ * Subconjunto de IMAGE_MODE_PROVIDERS que é motor interno + IA de VISÃO
+ * "lenta" (várias chamadas Gemini/Groq sequenciais por item, sujeita a
+ * cota por minuto do free tier — ver visionInternalSearchProvider.ts).
+ * Google Lens/SearchApi.io (as outras duas de IMAGE_MODE_PROVIDERS) são 1
+ * chamada por produto, não precisam do mesmo tratamento (lote pequeno,
+ * pausa de cota) que este par precisa — daí um Set separado em vez de
+ * reaproveitar IMAGE_MODE_PROVIDERS pra essas decisões.
+ */
+const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_groq"]);
 
 /**
  * Providers que cobrem amazon + mercadolivre na mesma busca (o usuário
@@ -214,6 +243,7 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
+  "vision_groq",
   "scraperapi",
 ]);
 
@@ -284,11 +314,17 @@ function buildParseInfoMessage(
  *     transporte.
  *   - vision_internal    → motor interno + IA (Gemini): busca por FOTO
  *     sem depender de SerpApi/SearchApi.io, com confirmação visual via IA.
+ *   - vision_groq (ago/2026) → MESMO motor interno + IA, backend Groq no
+ *     lugar do Gemini (ver VisionBackend em visionInternalSearchProvider.ts
+ *     e groqVision.ts) — entrou no grid JUNTO com vision_internal de
+ *     propósito, pra comparar os dois lado a lado no mesmo catálogo (RPM
+ *     do free tier do Groq é maior, mas ainda não validado se isso rende
+ *     mais produto encontrado de verdade num catálogo grande).
  *
  * `internal_search` (motor interno SEM IA) foi REMOVIDO do grid (ago/2026,
- * decisão de produto pós-rodada de teste): entre os dois "motor interno"
- * testados, só a variante com Gemini (`vision_internal`) seguiu — ver
- * SearchProviderId em ../types.
+ * decisão de produto pós-rodada de teste): entre os "motor interno"
+ * testados, só as variantes COM IA (`vision_internal`/`vision_groq`)
+ * seguiram — ver SearchProviderId em ../types.
  *
  * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
  * (não são "terceiro" no sentido testado aqui) e google_lens_products
@@ -305,6 +341,7 @@ const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>([
   "searchapi_lens",
   "scraperapi",
   "vision_internal",
+  "vision_groq",
 ]);
 const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => AB_TEST_PROVIDER_IDS.has(p.id));
 
@@ -330,6 +367,24 @@ const CHUNK_SIZE = 20;
 // antes de um catálogo grande esbarrar nele de novo.
 const VISION_CHUNK_SIZE = 3;
 
+// Ver `lastVisionQuotaExhaustedAtRef` em finishWithRows — substring
+// ESTÁVEL o bastante do warning gerado por searchVisionInternalShared
+// (visionInternalSearchProvider.ts) pra detectar "foi cota, não outro
+// motivo" sem acoplar ao texto inteiro da frase (que pode mudar o resto
+// da redação sem quebrar esta checagem). Backend-agnóstico de propósito
+// (NÃO "...do Gemini esgotada" — ago/2026, entrada do Groq como 2º
+// backend): a frase muda pra "Cota gratuita do Groq esgotada" quando é
+// esse o provider ativo, mas "esgotada depois de" é comum aos dois — ver
+// o warning montado em visionInternalSearchProvider.ts.
+const VISION_QUOTA_WARNING_MARKER = "esgotada depois de";
+
+// Janela aproximada do rate-limit por MINUTO do free tier (Gemini OU
+// Groq, ver comentário "Cota do Gemini free tier..." em
+// visionInternalSearchProvider.ts e a ressalva de TPM em groqVision.ts).
+// Não é um valor documentado de forma estável — é uma estimativa
+// conservadora pra evitar o desperdício descrito abaixo, não uma garantia.
+const VISION_QUOTA_COOLDOWN_MS = 60_000;
+
 export interface DashboardResult {
   rows: CatalogRow[];
   pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>;
@@ -342,6 +397,21 @@ interface Props {
   userId: string | null;
   profile: UserProfile | null;
   onComplete: (result: DashboardResult) => void;
+  /**
+   * Mesma forma de `onComplete`, chamado a cada LOTE (não só no final) —
+   * ago/2026, feedback real: catálogo de 68 produtos com motor interno +
+   * IA rodou 5+ minutos e só no final mostrou 2 resultados, indistinguível
+   * de "achou o resto e jogou fora" (na real, a maior parte dos lotes
+   * ficou re-tentando contra a cota do Gemini esgotada, ver
+   * visionInternalSearchProvider.ts — mas o usuário não tinha como saber
+   * disso enquanto olhava uma barra de progresso muda). Chamar isto a
+   * cada lote deixa a tela de Resultados ir preenchendo AO VIVO conforme
+   * cada lote termina, em vez de um "tudo ou nada" no fim — se o processo
+   * for interrompido (fechar aba, erro sistêmico no meio) o que já
+   * apareceu na tela não se perde, só o que ainda não tinha chegado.
+   * Opcional pra não quebrar quem ainda não passa essa prop.
+   */
+  onProgress?: (result: DashboardResult) => void;
   /** Avisa o App que o histórico salvo mudou (nova busca concluída) — ver seletor de histórico em Precificação/Resultados. */
   onHistoryChanged?: () => void;
   /** Avisa o App que um registro do histórico foi excluído, pra podar o mesmo id da lista global. */
@@ -365,6 +435,7 @@ export default function Dashboard({
   userId,
   profile,
   onComplete,
+  onProgress,
   onHistoryChanged,
   onHistoryDeleted,
   warnAt80PercentQuota = true,
@@ -432,6 +503,11 @@ export default function Dashboard({
   // SerpApi/SearchApi.io). Mesma lógica das chaves acima.
   const [geminiApiKey, setGeminiApiKey] = useState<string | null>(null);
 
+  // BYOK — chave Groq própria (motor interno + IA, provider "vision_groq",
+  // 2ª opção de backend ao lado do Gemini acima). Mesma lógica das chaves
+  // acima, campo separado (ver userSecrets.ts).
+  const [groqApiKey, setGroqApiKey] = useState<string | null>(null);
+
   // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
   // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
   // E o usuário já tem `unwrangleApiKey` cadastrada (ver finishWithRows).
@@ -443,9 +519,55 @@ export default function Dashboard({
     imagesBySku?: Record<string, string>;
   } | null>(null);
 
+  // Mesmo padrão de mlFallbackOffer, pro outro caso onde o usuário
+  // reclamou de "perder tudo" (ago/2026): provider de imagem escolhido,
+  // mas TODAS as fotos falharam ao extrair/subir do PDF (ver o guard
+  // logo no início de finishWithRows). Antes disso, o único jeito de
+  // seguir buscando por TEXTO era clicar "Reprocessar agora", que reroda
+  // o parse INTEIRO do zero (OCR incluso, se for o caso) — caro e lento
+  // à toa, já que `rows` (nome/SKU/preço de fornecedor) já estão
+  // perfeitamente prontas, só a FOTO que não existe. Guarda o suficiente
+  // pra repetir a busca com um provider de texto sem reprocessar nada.
+  const [imageUploadFailedOffer, setImageUploadFailedOffer] = useState<{
+    rows: CatalogRow[];
+    meta: Parameters<typeof finishWithRows>[1];
+  } | null>(null);
+
   // Progresso real da busca (item 8+9 do roadmap) — preenchido só
   // durante state === "fetching", em lotes de CHUNK_SIZE produtos.
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Contador ao vivo de "quantos produtos já têm preço encontrado até
+  // agora" (ago/2026) — junto com `onProgress`, resolve o feedback que
+  // faltava num catálogo grande e lento (motor interno + IA, 5+ minutos):
+  // antes disso, `progress` só mostrava "X/Y produtos" (quantos JÁ FORAM
+  // TENTADOS), sem dizer quantos deram certo — usuário só descobria se
+  // achou algo depois que TUDO terminasse. Resetado no início de cada
+  // busca junto com `progress` (ver finishWithRows).
+  const [foundSoFar, setFoundSoFar] = useState(0);
+
+  // Ver VISION_QUOTA_WARNING_MARKER/VISION_QUOTA_COOLDOWN_MS acima —
+  // `ref` (não `state`) porque só é lido/escrito dentro de finishWithRows,
+  // nunca precisa disparar re-render. Timestamp (ms epoch) da ÚLTIMA vez
+  // que um lote voltou com o warning de cota esgotada (Gemini OU Groq,
+  // qualquer que seja o backend ativo no momento); `null` enquanto isso
+  // nunca aconteceu nesta sessão do componente. Compartilhado entre os
+  // dois de propósito — cada backend usa a PRÓPRIA chave/janela de cota,
+  // então nunca há mistura real (só um dos dois provider está ativo por
+  // vez), um único ref cobre os dois sem duplicar o mecanismo.
+  //
+  // Existe pra parar de desperdiçar tempo: hoje cada lote é uma
+  // requisição SEPARADA ao servidor, e a flag que sabe "a cota já
+  // estourou" (quotaExhausted, visionInternalSearchProvider.ts) é LOCAL
+  // a cada requisição — o lote seguinte chega "sem saber" que o anterior,
+  // 5 segundos atrás, já bateu na mesma parede, tenta de novo, espera o
+  // retry embutido lá (geminiVision.ts/groqVision.ts), desiste, e o
+  // PRÓXIMO lote repete tudo de novo. Num catálogo de 68 produtos (~23
+  // lotes) isso sozinho já explica boa parte dos 5+ minutos pra só 2
+  // resultados reportados pelo usuário. Guardando o timestamp aqui NO
+  // CLIENTE (que já vê o warning de cada lote), dá pra pular esse ciclo
+  // perdido — ver o `await sleep(...)` no início do loop de lotes.
+  const lastVisionQuotaExhaustedAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!userId) {
@@ -485,6 +607,14 @@ export default function Dashboard({
       return;
     }
     getUserGeminiApiKey(userId).then(setGeminiApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setGroqApiKey(null);
+      return;
+    }
+    getUserGroqApiKey(userId).then(setGroqApiKey);
   }, [userId]);
 
   useEffect(() => {
@@ -543,7 +673,9 @@ export default function Dashboard({
           ? searchApiKey
           : activeProvider.needsKey === "geminiApiKey"
             ? geminiApiKey
-            : null;
+            : activeProvider.needsKey === "groqApiKey"
+              ? groqApiKey
+              : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
@@ -678,6 +810,7 @@ export default function Dashboard({
     apiKeyOverride?: string | null
   ) {
     setMlFallbackOffer(null);
+    setImageUploadFailedOffer(null);
     const effectiveProvider = providerOverride ?? searchProvider;
     const effectiveProviderKey = providerOverride ? apiKeyOverride : activeProviderKey;
 
@@ -704,7 +837,9 @@ export default function Dashboard({
               ? "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
               : activeProvider.needsKey === "searchApiKey"
                 ? "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
-                : "Cadastre sua chave Gemini em Conta antes de buscar preço (card \"Gemini (motor interno + IA)\")."
+                : activeProvider.needsKey === "groqApiKey"
+                  ? "Cadastre sua chave Groq em Conta antes de buscar preço (card \"Groq (motor interno + IA)\")."
+                  : "Cadastre sua chave Gemini em Conta antes de buscar preço (card \"Gemini (motor interno + IA)\")."
         );
         return;
       }
@@ -713,9 +848,16 @@ export default function Dashboard({
       setState("error");
       setError(
         "Não consegui extrair/subir nenhuma foto deste PDF (recorte ou upload falhou pra todo " +
-          "mundo) — troque pro Motor interno (ou RapidAPI/Mercado Livre), que buscam por texto, " +
+          "mundo) — use o botão abaixo pra buscar por texto (ScraperAPI) com os produtos já lidos, " +
           "ou tente reprocessar."
       );
+      // Guarda `rows`/`meta` pro botão abaixo (ver imageUploadFailedOffer/
+      // handleRetryAsText) — o catálogo já foi lido e parseado com
+      // sucesso (nome/SKU/preço de fornecedor prontos), só a FOTO que
+      // falhou pra todo mundo. "Reprocessar agora" reroda o parse INTEIRO
+      // do zero à toa; isto deixa buscar por texto imediatamente com o
+      // que já foi extraído, sem re-ler o PDF.
+      if (!providerOverride) setImageUploadFailedOffer({ rows, meta });
       return;
     }
     // Catálogo sem texto real (nomes vieram de OCR de imagem, ver
@@ -768,6 +910,7 @@ export default function Dashboard({
     const searchCost = rowsWithImages.length * meta.marketplaces.length;
     setState("fetching");
     setProgress({ done: 0, total: rowsWithImages.length });
+    setFoundSoFar(0);
 
     const pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>> =
       {};
@@ -793,7 +936,7 @@ export default function Dashboard({
     // da function serverless (relato real: HTTP 504 em /api/fetch-prices
     // com catálogo de ~45 produtos). VISION_CHUNK_SIZE menor reduz o
     // trabalho por chamada, ficando com folga confortável do teto.
-    const chunkSize = effectiveProvider === "vision_internal" ? VISION_CHUNK_SIZE : CHUNK_SIZE;
+    const chunkSize = SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) ? VISION_CHUNK_SIZE : CHUNK_SIZE;
     const chunks: CatalogRow[][] = [];
     for (let i = 0; i < rowsWithImages.length; i += chunkSize) chunks.push(rowsWithImages.slice(i, i + chunkSize));
 
@@ -816,6 +959,27 @@ export default function Dashboard({
 
     try {
       for (const chunk of chunks) {
+        // Ver comentário completo de `lastVisionQuotaExhaustedAtRef` mais
+        // acima — se um lote ANTERIOR (desta busca ou de uma anterior na
+        // mesma sessão, mesmo backend) já avisou que a cota esgotou há
+        // pouco, esperar aqui o resto da janela evita mandar este lote pra
+        // bater na MESMA parede: sem isso, o servidor ainda gastaria o
+        // retry embutido (geminiVision.ts/groqVision.ts) só pra descobrir
+        // de novo o que o client já sabia antes de sequer mandar a
+        // requisição.
+        if (SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) && lastVisionQuotaExhaustedAtRef.current !== null) {
+          const elapsed = Date.now() - lastVisionQuotaExhaustedAtRef.current;
+          const remaining = VISION_QUOTA_COOLDOWN_MS - elapsed;
+          if (remaining > 0) {
+            setSkippedInfo(
+              `Aguardando ~${Math.ceil(remaining / 1000)}s a cota renovar antes do próximo lote ` +
+                "(evita bater na mesma cota esgotada à toa)…"
+            );
+            await new Promise((resolve) => setTimeout(resolve, remaining));
+            setSkippedInfo(null);
+          }
+        }
+
         const chunkItems = chunk.map((r) => ({
           sku: r.sku,
           name: r.name,
@@ -878,7 +1042,18 @@ export default function Dashboard({
           const { results: prices, source, warning } = fetched[marketplace];
           pricesByMarket[marketplace] = { ...pricesByMarket[marketplace], ...prices };
           if (source !== "server") allFromServer = false;
-          if (warning) searchWarnings.add(warning);
+          if (warning) {
+            searchWarnings.add(warning);
+            // Ver comentário de lastVisionQuotaExhaustedAtRef — marca o
+            // instante pro PRÓXIMO lote (se houver) esperar a janela
+            // renovar em vez de tentar às cegas e desperdiçar o retry
+            // embutido no servidor. Marcador backend-agnóstico (ver
+            // VISION_QUOTA_WARNING_MARKER) — pega tanto "Cota gratuita do
+            // Gemini esgotada..." quanto "...do Groq esgotada...".
+            if (warning.includes(VISION_QUOTA_WARNING_MARKER)) {
+              lastVisionQuotaExhaustedAtRef.current = Date.now();
+            }
+          }
         }
 
         setProgress((p) =>
@@ -886,6 +1061,33 @@ export default function Dashboard({
             ? { done: Math.min(p.done + chunk.length, rowsWithImages.length), total: rowsWithImages.length }
             : p
         );
+
+        // Ver comentário de `onProgress` na interface Props — entrega o
+        // que já foi encontrado ATÉ AQUI, lote por lote, em vez de segurar
+        // tudo pro final. `rowsWithImages` completo (não só o chunk atual)
+        // porque `calculateMargins` precisa da lista toda pra calcular
+        // margem de cada linha — linhas de lotes ainda não processados
+        // simplesmente não têm entrada em `pricesByMarket` ainda, o que
+        // já é o comportamento normal de "sem preço encontrado ainda".
+        {
+          let resultsSoFar: MarginResult[] = [];
+          for (const marketplace of meta.marketplaces) {
+            resultsSoFar = resultsSoFar.concat(
+              calculateMargins(rowsWithImages, pricesByMarket[marketplace] ?? {}, rules)
+            );
+          }
+          // `resultsSoFar` tem 1 linha por (produto × marketplace) — SKUs
+          // distintos é a contagem que faz sentido pro usuário ("quantos
+          // PRODUTOS já têm preço", não "quantas linhas"), senão um
+          // catálogo com 2 marketplaces marcados contaria em dobro.
+          setFoundSoFar(new Set(resultsSoFar.map((r) => r.sku)).size);
+          onProgress?.({
+            rows: rowsWithImages,
+            pricesByMarket,
+            results: resultsSoFar,
+            source: allFromServer ? "server" : "local",
+          });
+        }
       }
 
       if (failedChunks > 0 && failedChunks === chunks.length) {
@@ -1053,6 +1255,24 @@ export default function Dashboard({
     const { rows, meta, imagesBySku } = mlFallbackOffer;
     setMlFallbackOffer(null);
     await finishWithRows(rows, meta, imagesBySku, "mercadolivre_alt", unwrangleApiKey);
+  }
+
+  /**
+   * "Buscar por texto agora" — repete a busca com os PRODUTOS JÁ LIDOS
+   * (nome/SKU/preço de fornecedor, ver imageUploadFailedOffer), sem
+   * reprocessar o PDF do zero, quando um provider de imagem falhou por
+   * não ter conseguido extrair/subir foto nenhuma.
+   *
+   * "scraperapi" (não "internal_search", que foi removido — ver
+   * AB_TEST_PROVIDER_IDS) porque é o único provider por TEXTO sem chave
+   * própria (`needsKey: null`) no grid atual — zero fricção, mesmo motivo
+   * de ser o DEFAULT_PROVIDER da tela.
+   */
+  async function handleRetryAsText() {
+    if (!imageUploadFailedOffer) return;
+    const { rows, meta } = imageUploadFailedOffer;
+    setImageUploadFailedOffer(null);
+    await finishWithRows(rows, meta, undefined, "scraperapi");
   }
 
   async function handleCsv(file: File) {
@@ -1378,7 +1598,7 @@ export default function Dashboard({
               )}
             </div>
 
-            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || !userId || !hasRequiredKey) && (
+            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || imageUploadFailedOffer || !userId || !hasRequiredKey) && (
               <div className={styles.cardFooter}>
                 {state === "parsing" && (
                   <p className={styles.status}>
@@ -1391,6 +1611,16 @@ export default function Dashboard({
                       <Loader2 size={14} className="spin" /> Buscando preço ({marketplaceLabels})
                       {progress ? ` — ${progress.done}/${progress.total} produtos` : "…"}
                     </p>
+                    {/* Contador ao vivo (ver onProgress/foundSoFar) — resolve o "rodou 5
+                        minutos e só no final mostrou 2" (catálogo grande, motor interno + IA):
+                        agora dá pra ver quantos JÁ deram certo sem esperar o lote inteiro
+                        terminar, lote a lote. Só aparece depois do 1º lote resolver (evita
+                        piscar "0 de X" no instante inicial, quando nada rodou ainda). */}
+                    {progress && progress.done > 0 && (
+                      <p className={styles.statusMuted}>
+                        {foundSoFar} de {progress.done} já com preço encontrado até agora
+                      </p>
+                    )}
                     {progress && progress.total > 0 && (
                       <div className={styles.progressTrack}>
                         <div
@@ -1433,6 +1663,20 @@ export default function Dashboard({
                     </button>
                   </p>
                 )}
+                {imageUploadFailedOffer && (
+                  <p className={styles.warningNote}>
+                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                    Os {imageUploadFailedOffer.rows.length} produto(s) já lidos deste PDF continuam disponíveis
+                    — buscar o preço deles por texto (ScraperAPI) agora, sem reprocessar o arquivo?{" "}
+                    <button
+                      className={styles.linkButton}
+                      type="button"
+                      onClick={() => void handleRetryAsText()}
+                    >
+                      Buscar por texto agora
+                    </button>
+                  </p>
+                )}
                 {historyInfo && (
                   <p className={styles.status}>
                     <History size={14} /> {historyInfo}{" "}
@@ -1462,7 +1706,9 @@ export default function Dashboard({
                           ? "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
                           : activeProvider.needsKey === "searchApiKey"
                             ? "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
-                            : "Cadastre sua chave Gemini em Conta (grátis, sem cartão) pra poder buscar preço."}
+                            : activeProvider.needsKey === "groqApiKey"
+                              ? "Cadastre sua chave Groq em Conta (grátis, sem cartão) pra poder buscar preço."
+                              : "Cadastre sua chave Gemini em Conta (grátis, sem cartão) pra poder buscar preço."}
                   </p>
                 )}
               </div>
@@ -1567,7 +1813,9 @@ export default function Dashboard({
                         ? "Chave SearchApi.io própria"
                         : activeProvider.needsKey === "geminiApiKey"
                           ? "Chave Gemini própria"
-                          : "Chave de API"}
+                          : activeProvider.needsKey === "groqApiKey"
+                            ? "Chave Groq própria"
+                            : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>
                   {activeProvider.needsKey === null
