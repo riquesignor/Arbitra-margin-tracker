@@ -1,10 +1,10 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
+import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import * as gemini from "../geminiVision.js";
 import * as groq from "../groqVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
-import { fetchStoreOffers, type ScrapedOffer } from "./internalSearchProvider.js";
-import { fetchGoogleShoppingCandidatesForQuery, type GoogleShoppingCandidate } from "./scraperApiSearchProvider.js";
+import { fetchStoreOffers } from "./internalSearchProvider.js";
+import { fetchGoogleShoppingCandidatesForQuery } from "./scraperApiSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -24,6 +24,24 @@ export interface VisionBackend {
   label: string;
   describeProductImage(imageUrl: string, apiKey: string): Promise<string>;
   compareProductImages(catalogImageUrl: string, candidateImageUrl: string, apiKey: string): Promise<number>;
+  /**
+   * Variante em LOTE, OPCIONAL (ago/2026, fix do Groq zerando resultado
+   * por estourar TPM do tier gratuito — ver comentário grande em
+   * groqVision.ts > compareProductImagesBatch). Quando o backend
+   * implementa isto, `pickBestVisualMatch` abaixo usa em vez do laço de
+   * comparação 1-a-1: manda a foto do catálogo + todos os candidatos com
+   * foto numa chamada só, em vez de reenviar o catálogo a cada
+   * comparação. Gemini NÃO implementa (fica `undefined`) — comportamento
+   * bit-a-bit igual ao de antes desta mudança pra esse backend, só o
+   * Groq muda. Devolve nota na MESMA ORDEM dos candidatos passados;
+   * `null` numa posição = "não comparável" (mesmo tratamento de uma
+   * comparação isolada que falhou no laço 1-a-1).
+   */
+  compareProductImagesBatch?(
+    catalogImageUrl: string,
+    candidateImageUrls: string[],
+    apiKey: string
+  ): Promise<(number | null)[]>;
   isQuotaExhaustedError(err: unknown): boolean;
   isVisionError(err: unknown): boolean;
 }
@@ -40,9 +58,88 @@ export const GROQ_BACKEND: VisionBackend = {
   label: "Groq",
   describeProductImage: groq.describeProductImage,
   compareProductImages: groq.compareProductImages,
+  compareProductImagesBatch: groq.compareProductImagesBatch,
   isQuotaExhaustedError: (err): boolean => err instanceof groq.GroqQuotaExhaustedError,
   isVisionError: (err): boolean => err instanceof groq.GroqVisionError,
 };
+
+/**
+ * Resultado genérico de "qual candidato é o mesmo produto" — usado pelo
+ * Passo 3 (lojas focadas) e pelo Passo 4 (busca geral), que só diferem
+ * no TIPO de candidato (`ScrapedOffer` vs `GoogleShoppingCandidate`) e em
+ * como o vencedor vira `MarketplacePriceResult` no fim (cada um faz isso
+ * na própria chamada, ver os dois usos abaixo).
+ */
+interface VisualMatch<T> {
+  candidate: T;
+  score: number;
+}
+
+/**
+ * Escolhe o candidato de maior nota visual entre uma lista — usa
+ * comparação em LOTE quando `backend.compareProductImagesBatch` existe
+ * (Groq, ver comentário no VisionBackend acima), ou o laço de sempre, 1
+ * chamada por candidato (Gemini, sem nenhuma mudança de comportamento).
+ * Mesmo critério de escolha (maior nota) e mesmo tratamento de cota
+ * esgotada nos dois caminhos — só muda QUANTAS chamadas de IA acontecem
+ * por baixo. `quota.markExhausted`/`quota.isExhausted` são callbacks pro
+ * chamador atualizar/consultar o estado compartilhado entre lojas
+ * (`quotaExhausted`/`quotaExhaustedAtItem`/`lastError`, todos de escopo
+ * de `searchVisionInternalShared`) sem esta função precisar conhecer
+ * esse estado diretamente.
+ */
+async function pickBestVisualMatch<T>(
+  backend: VisionBackend,
+  apiKey: string,
+  catalogImageUrl: string,
+  candidates: T[],
+  getThumbnail: (candidate: T) => string | undefined,
+  quota: { isExhausted: () => boolean; markExhausted: (err: unknown) => void },
+  logContext: string
+): Promise<VisualMatch<T> | null> {
+  const withThumbnail = candidates.filter((c) => getThumbnail(c));
+  if (withThumbnail.length === 0) return null;
+
+  let best: VisualMatch<T> | null = null;
+
+  if (backend.compareProductImagesBatch) {
+    try {
+      const scores = await backend.compareProductImagesBatch(
+        catalogImageUrl,
+        withThumbnail.map((c) => getThumbnail(c)!),
+        apiKey
+      );
+      withThumbnail.forEach((candidate, i) => {
+        const score = scores[i];
+        if (score != null && (!best || score > best.score)) best = { candidate, score };
+      });
+    } catch (err) {
+      if (backend.isQuotaExhaustedError(err)) {
+        quota.markExhausted(err);
+      } else {
+        console.warn(`[motor-interno+IA] comparação visual em lote falhou (${logContext}):`, err);
+      }
+    }
+    return best;
+  }
+
+  for (const candidate of withThumbnail) {
+    if (quota.isExhausted()) break;
+    try {
+      const score = await backend.compareProductImages(catalogImageUrl, getThumbnail(candidate)!, apiKey);
+      if (!best || score > best.score) best = { candidate, score };
+    } catch (err) {
+      if (backend.isQuotaExhaustedError(err)) {
+        quota.markExhausted(err);
+        break;
+      }
+      // Falha de UMA comparação (ex.: thumbnail quebrado, timeout) não
+      // invalida os outros candidatos.
+      console.warn(`[motor-interno+IA] comparação visual falhou (${logContext}):`, err);
+    }
+  }
+  return best;
+}
 
 /**
  * ══════════════════════════════════════════════════════════════════════
@@ -172,15 +269,6 @@ const MIN_APPROXIMATE_SCORE = 0.2;
 /** Abaixo disso o match entra marcado como aproximado — faixa "categoria bate, mas não é certeza de ser o mesmo modelo" (inclui toda a faixa nova entre MIN_APPROXIMATE_SCORE e aqui, ver comentário acima). */
 const APPROXIMATE_BELOW_SCORE = 0.8;
 
-interface BestVisualMatch {
-  marketplace: MarketplaceId;
-  label: string;
-  candidate: ScrapedOffer;
-  score: number;
-  /** Quantas ofertas a loja retornou no total pra essa query — vira `competitorCount`, mesmo critério dos outros providers. */
-  totalOffers: number;
-}
-
 /**
  * Busca de preço por FOTO usando o motor interno + IA de visão (BYOK,
  * Gemini). Mesma assinatura dos outros providers multi-marketplace
@@ -307,30 +395,22 @@ export async function searchVisionInternalShared(
           continue;
         }
 
-        let best: BestVisualMatch | null = null;
-        for (const { candidate } of candidates) {
-          if (quotaExhausted) break;
-          // Sem foto no anúncio não tem o que comparar visualmente —
-          // pular é o comportamento certo aqui (não dá pra confirmar
-          // "é o mesmo produto" sem uma segunda imagem).
-          if (!candidate.thumbnail) continue;
-          try {
-            const score = await backend.compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
-            if (!best || score > best.score) {
-              best = { marketplace: store.marketplace, label: store.label, candidate, score, totalOffers: store.offers.length };
-            }
-          } catch (err) {
-            if (backend.isQuotaExhaustedError(err)) {
+        const best = await pickBestVisualMatch(
+          backend,
+          apiKey,
+          item.imageUrl!,
+          candidates.map((c) => c.candidate),
+          (candidate) => candidate.thumbnail,
+          {
+            isExhausted: () => quotaExhausted,
+            markExhausted: (err) => {
               quotaExhausted = true;
               quotaExhaustedAtItem ??= processedCount;
               lastError = err instanceof Error ? err.message : String(err);
-              break;
-            }
-            // Falha de UMA comparação (ex.: thumbnail quebrado, timeout)
-            // não invalida os outros candidatos da mesma loja.
-            console.warn(`[motor-interno+IA] comparação visual falhou (${store.label}, "${query}"):`, err);
-          }
-        }
+            },
+          },
+          `${store.label}, "${query}"`
+        );
 
         if (!best || best.score < MIN_APPROXIMATE_SCORE) {
           if (best) rejectedAsNoiseCount++;
@@ -338,11 +418,11 @@ export async function searchVisionInternalShared(
         }
 
         matchedAnyStore = true;
-        results[best.marketplace][item.sku] = {
-          marketplace: best.marketplace,
+        results[store.marketplace][item.sku] = {
+          marketplace: store.marketplace,
           sku: item.sku,
           price: best.candidate.price,
-          competitorCount: Math.max(0, best.totalOffers - 1),
+          competitorCount: Math.max(0, store.offers.length - 1),
           buyBoxEligible: true,
           // Confiança = a própria nota de similaridade visual, na mesma
           // escala 0-1 usada no resto do projeto pra `confidence` — não
@@ -353,7 +433,7 @@ export async function searchVisionInternalShared(
           matchedTitle: best.candidate.title,
           imageUrl: best.candidate.thumbnail,
           approximate: best.score < APPROXIMATE_BELOW_SCORE,
-          matchedSource: best.label,
+          matchedSource: store.label,
         };
       }
 
@@ -395,23 +475,22 @@ export async function searchVisionInternalShared(
             CANDIDATES_PER_STORE
           );
 
-          let bestBroad: { candidate: GoogleShoppingCandidate; score: number } | null = null;
-          for (const { candidate } of topBroad) {
-            if (quotaExhausted) break;
-            if (!candidate.thumbnail) continue;
-            try {
-              const score = await backend.compareProductImages(item.imageUrl!, candidate.thumbnail, apiKey);
-              if (!bestBroad || score > bestBroad.score) bestBroad = { candidate, score };
-            } catch (err) {
-              if (backend.isQuotaExhaustedError(err)) {
+          const bestBroad = await pickBestVisualMatch(
+            backend,
+            apiKey,
+            item.imageUrl!,
+            topBroad.map((c) => c.candidate),
+            (candidate) => candidate.thumbnail,
+            {
+              isExhausted: () => quotaExhausted,
+              markExhausted: (err) => {
                 quotaExhausted = true;
                 quotaExhaustedAtItem ??= processedCount;
                 lastError = err instanceof Error ? err.message : String(err);
-                break;
-              }
-              console.warn(`[motor-interno+IA] comparação visual (busca geral) falhou ("${query}"):`, err);
-            }
-          }
+              },
+            },
+            `busca geral, "${query}"`
+          );
 
           if (bestBroad && bestBroad.score >= MIN_APPROXIMATE_SCORE && bestBroad.candidate.price != null) {
             // Chave PRÓPRIA "geral" — não empresta o slot de Amazon/ML

@@ -20,21 +20,22 @@
  * lado (mesmo catálogo, trocando só o provider no seletor), não uma
  * promessa de que resolve o gargalo sozinho.
  *
- * ⚠️ Ressalva importante de TPM (tokens/minuto): o modelo usado aqui
- * conta cada IMAGEM como ~2048 tokens de entrada (ver
- * console.groq.com/docs/vision), e o tier gratuito tem TPM = 8.000. Uma
- * comparação (2 fotos) já consome ~4.100 tokens só de imagem — ou seja,
- * na prática cabem uns 2 comparações por minuto antes do TPM (não o RPM)
- * virar o teto real, MESMO com RPM=30 (o dobro do Gemini). Isso é uma
- * ressalva HONESTA, não um problema já resolvido aqui: `compareProductImages`
- * abaixo segue 1 candidato por chamada (mesmo contrato do Gemini, pra
- * comparação de qualidade lado a lado não ficar viesada por formato de
- * prompt diferente). Uma otimização real e ainda NÃO implementada: o
- * modelo aceita até 5 imagens por requisição, então uma chamada só com
- * catálogo + N candidatos (em vez de N chamadas repetindo a foto do
- * catálogo) cortaria o custo de token proporcionalmente — fica como
- * próximo passo se o teste real mostrar que TPM é de fato o gargalo
- * (antes de otimizar, vale medir).
+ * ⚠️ Ressalva de TPM (tokens/minuto) — CONFIRMADA como o gargalo real
+ * (ago/2026, relato "testei Groq, não trouxe nenhum resultado"): o
+ * modelo usado aqui conta cada IMAGEM como ~2048 tokens de entrada (ver
+ * console.groq.com/docs/vision), e o tier gratuito tem TPM = 8.000.
+ * `compareProductImages` abaixo é 1 candidato por chamada (mesmo
+ * contrato do Gemini) e reenvia a foto do CATÁLOGO inteira a cada
+ * chamada — com CANDIDATES_PER_STORE=3 × 2 lojas (ver
+ * visionInternalSearchProvider.ts), um produto só já estoura o TPM antes
+ * de terminar de processar. `compareProductImagesBatch` (mais abaixo)
+ * é o fix: manda catálogo + até 4 candidatos numa chamada só, cortando o
+ * reenvio redundante do catálogo — `searchVisionInternalShared` usa essa
+ * versão automaticamente quando o backend a implementa (Groq sim, Gemini
+ * não, ver VisionBackend). Não elimina o risco de estourar TPM em
+ * catálogos grandes (o custo de token dos candidatos em si continua o
+ * mesmo), mas reduz o consumo por produto o bastante pra sair do "zero
+ * resultado" — ver o comentário completo em compareProductImagesBatch.
  *
  * Modelo em `qwen/qwen3.6-27b` — verificado ago/2026 em
  * console.groq.com/docs/vision (multimodal, até 5 imagens/requisição,
@@ -244,4 +245,98 @@ export async function compareProductImages(
     throw new GroqVisionError(`Groq devolveu algo que não é um número de similaridade: "${text}"`);
   }
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * ── Comparação em LOTE (ago/2026, fix do estouro real de TPM do tier gratuito) ──
+ * Diagnóstico do relato real "testei Groq, não trouxe nenhum resultado":
+ * `compareProductImages` acima é 1 chamada por candidato, e CADA chamada
+ * reenvia a foto do CATÁLOGO inteira de novo (2.048 tokens flat/imagem,
+ * ver console.groq.com/docs/vision) — com CANDIDATES_PER_STORE=3 (ver
+ * visionInternalSearchProvider.ts) × 2 lojas, um produto só já gasta
+ * ~6× a foto do catálogo + 6× foto de candidato ≈ 24.500 tokens, MUITO
+ * acima do teto de 8.000 TPM do tier gratuito (console.groq.com/docs/
+ * rate-limits) — a cota estoura dentro do PRIMEIRO produto do catálogo,
+ * antes de qualquer resultado sair. RPM (30, mais folgado que o Gemini)
+ * nunca chega a ser o teto real; TPM é.
+ *
+ * Fix: manda a foto do catálogo UMA VEZ + até MAX_CANDIDATES_PER_BATCH
+ * fotos de candidato NA MESMA chamada, em vez de reenviar o catálogo a
+ * cada comparação. Não elimina o custo de token das fotos dos candidatos
+ * (cada uma ainda conta os 2.048 tokens de sempre), mas corta o reenvio
+ * REDUNDANTE do catálogo: 3 candidatos por loja passa de ~4 imagens
+ * "efetivas" × 3 chamadas = 12.288 tokens pra 4 imagens × 1 chamada =
+ * 8.192 tokens (redução de ~33% só nessa parte). Ainda pode esbarrar no
+ * teto de TPM em catálogos grandes/lojas com muito candidato — isso é
+ * uma mitigação real, não uma garantia de "nunca mais estoura cota".
+ */
+const MAX_CANDIDATES_PER_BATCH = 4; // teto de imagens/requisição do modelo (5) menos 1 pra foto do catálogo
+
+function buildBatchComparePrompt(count: number): string {
+  const example = Array.from({ length: count }, (_, i) => (i === 0 ? "0.9" : i === 1 ? "0.2" : "0")).join(",");
+  return (
+    "Você é parte de um sistema de busca de preço. A PRIMEIRA foto é de um catálogo de " +
+    `fornecedor. As próximas ${count} foto(s) são candidatos numerados de 1 a ${count}, encontrados ` +
+    "numa loja online. Pra CADA candidato, diga se é O MESMO PRODUTO (mesmo modelo, não só a mesma " +
+    "categoria) que a primeira foto, com um número decimal de 0 a 1: 1 = certamente o mesmo produto, " +
+    "0.5 = mesma categoria mas modelo/versão incerta ou diferente, 0 = claramente produtos diferentes. " +
+    `Responda SOMENTE ${count} número(s) separados por vírgula, na MESMA ordem dos candidatos (do 1 ao ` +
+    `${count}), sem texto nenhum antes ou depois. Exemplo com ${count} candidato(s): ${example}`
+  );
+}
+
+/**
+ * Compara a foto do catálogo com VÁRIOS candidatos numa chamada só — ver
+ * comentário acima pro porquê. Devolve um array na MESMA ORDEM de
+ * `candidateImageUrls`; `null` numa posição quando a resposta não trouxe
+ * nota utilizável pra aquele índice (chamador trata igual a uma
+ * comparação isolada que falhou — "não comparável", não erro fatal).
+ *
+ * Chunka em grupos de até MAX_CANDIDATES_PER_BATCH quando a lista é
+ * maior que isso (defensivo — CANDIDATES_PER_STORE de hoje, 3, sempre
+ * cabe numa chamada só; isso só entra em ação se esse número mudar no
+ * futuro). Erro de COTA (429) em qualquer chunk propaga na hora, mesmo
+ * contrato de `compareProductImages` — quem chamou decide o que fazer
+ * com os chunks anteriores que já resolveram.
+ */
+export async function compareProductImagesBatch(
+  catalogImageUrl: string,
+  candidateImageUrls: string[],
+  apiKey: string
+): Promise<(number | null)[]> {
+  if (candidateImageUrls.length === 0) return [];
+
+  const catalogUri = await fetchImageAsDataUri(catalogImageUrl);
+  const results: (number | null)[] = [];
+
+  for (let i = 0; i < candidateImageUrls.length; i += MAX_CANDIDATES_PER_BATCH) {
+    const chunk = candidateImageUrls.slice(i, i + MAX_CANDIDATES_PER_BATCH);
+    const candidateUris = await Promise.all(chunk.map((url) => fetchImageAsDataUri(url)));
+
+    const content: GroqContent[] = [
+      { type: "text", text: buildBatchComparePrompt(chunk.length) },
+      { type: "image_url", image_url: { url: catalogUri } },
+      ...candidateUris.map((url): GroqImageContent => ({ type: "image_url", image_url: { url } })),
+    ];
+
+    const text = await callGroq(content, apiKey);
+    const numbers = text.match(/[\d.]+/g) ?? [];
+
+    if (numbers.length !== chunk.length) {
+      // Contagem não bate com a quantidade de candidatos mandados — não
+      // dá pra saber com segurança qual nota é de qual candidato (a IA
+      // pode ter pulado um, juntado dois, ou devolvido texto extra que a
+      // regex confundiu com número). Mais seguro tratar o CHUNK inteiro
+      // como "não comparável" do que arriscar atribuir nota errada.
+      console.warn(
+        `[groqVision] resposta em lote veio com ${numbers.length} nota(s) pra ${chunk.length} candidato(s) — descartando o lote ("${text}").`
+      );
+      results.push(...chunk.map(() => null));
+      continue;
+    }
+
+    results.push(...numbers.map((n) => Math.min(1, Math.max(0, Number(n)))));
+  }
+
+  return results;
 }
