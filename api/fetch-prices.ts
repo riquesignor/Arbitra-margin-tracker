@@ -13,7 +13,7 @@ import { searchSearchApiLensShared } from "./_lib/providers/searchApiLensProvide
 import {
   searchVisionInternalShared,
   GEMINI_BACKEND,
-  GROQ_BACKEND,
+  MISTRAL_BACKEND,
 } from "./_lib/providers/visionInternalSearchProvider.js";
 import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
@@ -30,7 +30,7 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
-  "vision_groq",
+  "vision_mistral",
   "scraperapi",
 ];
 
@@ -277,11 +277,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, GEMINI_BACKEND);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
-        } else if (provider === "vision_groq") {
-          // Mesma orquestração de "vision_internal" acima, backend Groq
-          // (ago/2026, ver groqVision.ts) — `apiKey` aqui é a chave GROQ do
-          // usuário, campo separado do Gemini em Conta.
-          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, GROQ_BACKEND);
+        } else if (provider === "vision_mistral") {
+          // Mesma orquestração de "vision_internal" acima, backend Mistral
+          // (ago/2026, substituiu o Groq — ver mistralVision.ts) — `apiKey`
+          // aqui é a chave MISTRAL do usuário, campo separado do Gemini em
+          // Conta.
+          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, MISTRAL_BACKEND);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "google_lens_products") {

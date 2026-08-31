@@ -1,7 +1,7 @@
 import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import * as gemini from "../geminiVision.js";
-import * as groq from "../groqVision.js";
+import * as mistral from "../mistralVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers } from "./internalSearchProvider.js";
 import { fetchGoogleShoppingCandidatesForQuery } from "./scraperApiSearchProvider.js";
@@ -9,33 +9,37 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
  * Motor interno + IA aceita mais de um FORNECEDOR de IA de visão (ago/2026
- * — Gemini era o único, Groq entrou como 2ª opção depois do relato real
- * de "5+ minutos, só 2 de 68 produtos" com a cota do Gemini, ver
- * groqVision.ts pro porquê). Toda a orquestração abaixo (buscar, ranquear,
- * decidir aceite/aproximado, montar warning) é IDÊNTICA pros dois — só
- * MUDA quem responde "descreva essa foto"/"essas duas fotos são o mesmo
- * produto?" — por isso um backend plugável em vez de duplicar ~350 linhas
- * de orquestração pra cada fornecedor (o que já aconteceria se Groq virasse
- * uma cópia inteira deste arquivo com find-replace de "Gemini"→"Groq").
- * `label` entra nas mensagens de erro/warning pro usuário saber qual das
- * duas chaves (Conta → Gemini/Groq) está em jogo.
+ * — Gemini era o único, um 2º backend entrou depois do relato real de
+ * "5+ minutos, só 2 de 68 produtos" com a cota do Gemini). A 1ª tentativa
+ * de 2º backend foi Groq — removida depois (mesmo mês) por outro relato
+ * real, "não traz nenhum resultado sequer": o free tier da Groq (8.000
+ * tokens/minuto) zerava a cota dentro do PRIMEIRO produto do catálogo,
+ * mesmo depois de otimizar as chamadas em lote (ver histórico de
+ * groqVision.ts, se ainda existir no repo). Mistral entrou no lugar —
+ * free tier de 500.000 tokens/minuto (ver mistralVision.ts), folga bem
+ * maior pro mesmo padrão de uso. Toda a orquestração abaixo (buscar,
+ * ranquear, decidir aceite/aproximado, montar warning) é IDÊNTICA pros
+ * dois — só MUDA quem responde "descreva essa foto"/"essas duas fotos são
+ * o mesmo produto?" — por isso um backend plugável em vez de duplicar
+ * ~350 linhas de orquestração pra cada fornecedor. `label` entra nas
+ * mensagens de erro/warning pro usuário saber qual das duas chaves
+ * (Conta → Gemini/Mistral) está em jogo.
  */
 export interface VisionBackend {
   label: string;
   describeProductImage(imageUrl: string, apiKey: string): Promise<string>;
   compareProductImages(catalogImageUrl: string, candidateImageUrl: string, apiKey: string): Promise<number>;
   /**
-   * Variante em LOTE, OPCIONAL (ago/2026, fix do Groq zerando resultado
-   * por estourar TPM do tier gratuito — ver comentário grande em
-   * groqVision.ts > compareProductImagesBatch). Quando o backend
-   * implementa isto, `pickBestVisualMatch` abaixo usa em vez do laço de
-   * comparação 1-a-1: manda a foto do catálogo + todos os candidatos com
-   * foto numa chamada só, em vez de reenviar o catálogo a cada
-   * comparação. Gemini NÃO implementa (fica `undefined`) — comportamento
-   * bit-a-bit igual ao de antes desta mudança pra esse backend, só o
-   * Groq muda. Devolve nota na MESMA ORDEM dos candidatos passados;
-   * `null` numa posição = "não comparável" (mesmo tratamento de uma
-   * comparação isolada que falhou no laço 1-a-1).
+   * Variante em LOTE, OPCIONAL (ago/2026, mesma ideia usada primeiro pro
+   * Groq — ver mistralVision.ts > compareProductImagesBatch). Quando o
+   * backend implementa isto, `pickBestVisualMatch` abaixo usa em vez do
+   * laço de comparação 1-a-1: manda a foto do catálogo + todos os
+   * candidatos com foto numa chamada só, em vez de reenviar o catálogo a
+   * cada comparação. Gemini NÃO implementa (fica `undefined`) —
+   * comportamento bit-a-bit igual ao de antes desta mudança pra esse
+   * backend, só o Mistral muda. Devolve nota na MESMA ORDEM dos
+   * candidatos passados; `null` numa posição = "não comparável" (mesmo
+   * tratamento de uma comparação isolada que falhou no laço 1-a-1).
    */
   compareProductImagesBatch?(
     catalogImageUrl: string,
@@ -54,13 +58,13 @@ export const GEMINI_BACKEND: VisionBackend = {
   isVisionError: (err): boolean => err instanceof gemini.GeminiVisionError,
 };
 
-export const GROQ_BACKEND: VisionBackend = {
-  label: "Groq",
-  describeProductImage: groq.describeProductImage,
-  compareProductImages: groq.compareProductImages,
-  compareProductImagesBatch: groq.compareProductImagesBatch,
-  isQuotaExhaustedError: (err): boolean => err instanceof groq.GroqQuotaExhaustedError,
-  isVisionError: (err): boolean => err instanceof groq.GroqVisionError,
+export const MISTRAL_BACKEND: VisionBackend = {
+  label: "Mistral",
+  describeProductImage: mistral.describeProductImage,
+  compareProductImages: mistral.compareProductImages,
+  compareProductImagesBatch: mistral.compareProductImagesBatch,
+  isQuotaExhaustedError: (err): boolean => err instanceof mistral.MistralQuotaExhaustedError,
+  isVisionError: (err): boolean => err instanceof mistral.MistralVisionError,
 };
 
 /**
@@ -78,7 +82,7 @@ interface VisualMatch<T> {
 /**
  * Escolhe o candidato de maior nota visual entre uma lista — usa
  * comparação em LOTE quando `backend.compareProductImagesBatch` existe
- * (Groq, ver comentário no VisionBackend acima), ou o laço de sempre, 1
+ * (Mistral, ver comentário no VisionBackend acima), ou o laço de sempre, 1
  * chamada por candidato (Gemini, sem nenhuma mudança de comportamento).
  * Mesmo critério de escolha (maior nota) e mesmo tratamento de cota
  * esgotada nos dois caminhos — só muda QUANTAS chamadas de IA acontecem

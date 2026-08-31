@@ -71,13 +71,17 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
  *     "serpapi"/"scraperapi"/"searchapi_lens"/"google_lens_products" já
  *     tinham, ver `fetchGoogleShoppingCandidatesForQuery` em
  *     scraperApiSearchProvider.ts.
- *   - "vision_groq" (ago/2026) → MESMA orquestração de "vision_internal"
+ *   - "vision_mistral" (ago/2026) → MESMA orquestração de "vision_internal"
  *     acima (busca por foto, raspagem Amazon+ML, confirmação visual,
- *     busca geral), mas com Groq (BYOK, chave própria em Conta, campo
+ *     busca geral), mas com Mistral (BYOK, chave própria em Conta, campo
  *     separado do Gemini) no lugar do Gemini pra descrever/comparar foto —
  *     ver `VisionBackend` em visionInternalSearchProvider.ts e
- *     groqVision.ts pro porquê de existir (RPM maior que o free tier do
- *     Gemini, teste A/B real pra comparar qualidade).
+ *     mistralVision.ts pro porquê de existir. SUBSTITUIU "vision_groq"
+ *     (removido ago/2026): o free tier da Groq (8.000 tokens/minuto)
+ *     zerava resultado mesmo depois de otimizar as chamadas em lote — o
+ *     da Mistral (500.000 tokens/minuto, 1 req/segundo) tem folga bem
+ *     maior pro mesmo padrão de uso (várias comparações visuais por
+ *     produto).
  *   - "scraperapi" → Structured Data Endpoints da ScraperAPI (Amazon
  *     Search API nativa + Google Shopping API), a própria ScraperAPI faz
  *     o parsing e devolve JSON pronto — papel equivalente ao de "serpapi"
@@ -94,7 +98,7 @@ export type SearchProviderId =
   | "google_lens_products"
   | "searchapi_lens"
   | "vision_internal"
-  | "vision_groq"
+  | "vision_mistral"
   | "scraperapi";
 
 export interface CatalogItemQuery {

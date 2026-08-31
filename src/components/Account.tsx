@@ -21,19 +21,19 @@ import {
   deleteUserSearchApiKey,
   deleteUserUnwrangleApiKey,
   deleteUserGeminiApiKey,
-  deleteUserGroqApiKey,
+  deleteUserMistralApiKey,
   getUserSerpApiKey,
   getUserRapidApiKey,
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
-  getUserGroqApiKey,
+  getUserMistralApiKey,
   saveUserSerpApiKey,
   saveUserRapidApiKey,
   saveUserSearchApiKey,
   saveUserUnwrangleApiKey,
   saveUserGeminiApiKey,
-  saveUserGroqApiKey,
+  saveUserMistralApiKey,
 } from "../lib/userSecrets";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
@@ -196,14 +196,20 @@ const GEMINI_INTRO = (
 // pra comparar qualidade/velocidade lado a lado no mesmo catálogo. Chave
 // SEPARADA da Gemini de propósito — contas diferentes, o usuário pode
 // cadastrar as duas e alternar no seletor sem recadastrar nada.
-const GROQ_INTRO = (
+//
+// SUBSTITUIU o card Groq (removido no mesmo mês, ago/2026 — relato real
+// "não traz nenhum resultado sequer": free tier de 8.000 tokens/minuto
+// zerava a cota mesmo com comparação em lote implementada). Mistral tem
+// free tier de 500.000 tokens/minuto (ver mistralVision.ts) — folga bem
+// maior pro mesmo padrão de uso.
+const MISTRAL_INTRO = (
   <>
     Opcional — mesma ideia do card Gemini acima (motor de busca por foto sem SerpApi/SearchApi.io),
     fornecedor de IA diferente pra comparar qualidade/velocidade.{" "}
-    <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer">
-      crie grátis em console.groq.com
+    <a href="https://console.mistral.ai" target="_blank" rel="noreferrer">
+      crie grátis em console.mistral.ai
     </a>{" "}
-    (sem cartão) e cole a API key abaixo.
+    (sem cartão, precisa confirmar telefone) e cole a API key abaixo.
   </>
 );
 
@@ -276,13 +282,14 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [geminiKeyMsg, setGeminiKeyMsg] = useState<string | null>(null);
   const [geminiKeyError, setGeminiKeyError] = useState<string | null>(null);
 
-  // BYOK — chave Groq própria (motor interno + IA, provider "vision_groq",
-  // ver GROQ_INTRO acima). Mesmo padrão de estado das chaves acima.
-  const [hasGroqKey, setHasGroqKey] = useState(false);
-  const [groqKeyInput, setGroqKeyInput] = useState("");
-  const [savingGroqKey, setSavingGroqKey] = useState(false);
-  const [groqKeyMsg, setGroqKeyMsg] = useState<string | null>(null);
-  const [groqKeyError, setGroqKeyError] = useState<string | null>(null);
+  // BYOK — chave Mistral própria (motor interno + IA, provider
+  // "vision_mistral", ver MISTRAL_INTRO acima). Mesmo padrão de estado
+  // das chaves acima.
+  const [hasMistralKey, setHasMistralKey] = useState(false);
+  const [mistralKeyInput, setMistralKeyInput] = useState("");
+  const [savingMistralKey, setSavingMistralKey] = useState(false);
+  const [mistralKeyMsg, setMistralKeyMsg] = useState<string | null>(null);
+  const [mistralKeyError, setMistralKeyError] = useState<string | null>(null);
 
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
@@ -295,7 +302,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     getUserSearchApiKey(user.uid).then((key) => setHasSearchApiKey(Boolean(key)));
     getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
     getUserGeminiApiKey(user.uid).then((key) => setHasGeminiKey(Boolean(key)));
-    getUserGroqApiKey(user.uid).then((key) => setHasGroqKey(Boolean(key)));
+    getUserMistralApiKey(user.uid).then((key) => setHasMistralKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
 
@@ -437,37 +444,37 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     }
   }
 
-  async function handleSaveGroqKey(e: FormEvent) {
+  async function handleSaveMistralKey(e: FormEvent) {
     e.preventDefault();
-    if (!user || !groqKeyInput.trim()) return;
-    setSavingGroqKey(true);
-    setGroqKeyError(null);
-    setGroqKeyMsg(null);
+    if (!user || !mistralKeyInput.trim()) return;
+    setSavingMistralKey(true);
+    setMistralKeyError(null);
+    setMistralKeyMsg(null);
     try {
-      await saveUserGroqApiKey(user.uid, groqKeyInput);
-      setHasGroqKey(true);
-      setGroqKeyInput("");
-      setGroqKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (Groq)\" como API de busca por imagem.");
+      await saveUserMistralApiKey(user.uid, mistralKeyInput);
+      setHasMistralKey(true);
+      setMistralKeyInput("");
+      setMistralKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (Mistral)\" como API de busca por imagem.");
     } catch (err) {
-      setGroqKeyError(err instanceof Error ? err.message : String(err));
+      setMistralKeyError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSavingGroqKey(false);
+      setSavingMistralKey(false);
     }
   }
 
-  async function handleRemoveGroqKey() {
+  async function handleRemoveMistralKey() {
     if (!user) return;
-    setSavingGroqKey(true);
-    setGroqKeyError(null);
-    setGroqKeyMsg(null);
+    setSavingMistralKey(true);
+    setMistralKeyError(null);
+    setMistralKeyMsg(null);
     try {
-      await deleteUserGroqApiKey(user.uid);
-      setHasGroqKey(false);
-      setGroqKeyMsg("Chave removida.");
+      await deleteUserMistralApiKey(user.uid);
+      setHasMistralKey(false);
+      setMistralKeyMsg("Chave removida.");
     } catch (err) {
-      setGroqKeyError(err instanceof Error ? err.message : String(err));
+      setMistralKeyError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSavingGroqKey(false);
+      setSavingMistralKey(false);
     }
   }
 
@@ -878,47 +885,47 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <span className={styles.cardHeaderIcon}>
                 <KeyRound size={14} />
               </span>
-              <h2 className={styles.cardHeaderTitle}>Groq (motor interno + IA)</h2>
-              <span className={hasGroqKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasGroqKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasGroqKey ? "configurada" : "não configurada"}
+              <h2 className={styles.cardHeaderTitle}>Mistral (motor interno + IA)</h2>
+              <span className={hasMistralKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasMistralKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasMistralKey ? "configurada" : "não configurada"}
               </span>
             </div>
 
-            <form className={styles.compactKeyForm} onSubmit={handleSaveGroqKey}>
-              <p className={styles.cardIntro}>{GROQ_INTRO}</p>
+            <form className={styles.compactKeyForm} onSubmit={handleSaveMistralKey}>
+              <p className={styles.cardIntro}>{MISTRAL_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
                 <input
                   className={styles.input}
                   type="password"
-                  placeholder={hasGroqKey ? "Substituir a chave atual…" : "Cole sua chave Groq"}
-                  value={groqKeyInput}
-                  onChange={(e) => setGroqKeyInput(e.target.value)}
+                  placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
+                  value={mistralKeyInput}
+                  onChange={(e) => setMistralKeyInput(e.target.value)}
                   autoComplete="off"
                 />
                 <button
                   className={styles.primaryButton}
                   type="submit"
-                  disabled={savingGroqKey || !groqKeyInput.trim()}
+                  disabled={savingMistralKey || !mistralKeyInput.trim()}
                 >
-                  {savingGroqKey ? "Salvando…" : "Salvar"}
+                  {savingMistralKey ? "Salvando…" : "Salvar"}
                 </button>
-                {hasGroqKey && (
+                {hasMistralKey && (
                   <button
                     type="button"
                     className={styles.iconButton}
                     title="Remover chave"
-                    onClick={() => void handleRemoveGroqKey()}
-                    disabled={savingGroqKey}
+                    onClick={() => void handleRemoveMistralKey()}
+                    disabled={savingMistralKey}
                   >
                     <Trash2 size={13} />
                   </button>
                 )}
               </div>
 
-              {groqKeyMsg && <p className={styles.successText}>{groqKeyMsg}</p>}
-              {groqKeyError && <p className={styles.errorText}>{groqKeyError}</p>}
+              {mistralKeyMsg && <p className={styles.successText}>{mistralKeyMsg}</p>}
+              {mistralKeyError && <p className={styles.errorText}>{mistralKeyError}</p>}
             </form>
           </section>
 

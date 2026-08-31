@@ -282,16 +282,23 @@ export async function deleteUserGeminiApiKey(userId: string): Promise<void> {
 }
 
 /**
- * Chave Groq própria do usuário — 2ª opção de backend de IA pro motor
- * interno + IA, ao lado da chave Gemini acima (provider "vision_groq", ver
- * api/_lib/providers/visionInternalSearchProvider.ts e groqVision.ts).
- * Campo SEPARADO (`groqApiKey`, não reaproveita `geminiApiKey`) porque são
- * contas/vendors diferentes — o usuário pode ter as duas cadastradas ao
- * mesmo tempo e alternar entre "Motor interno + IA (Gemini)" e "Motor
- * interno + IA (Groq)" no seletor sem recadastrar nada. Mesmo padrão BYOK
- * e mesmo doc `users/{uid}/secrets/keys` das chaves acima.
+ * Chave Mistral própria do usuário — 2ª opção de backend de IA pro motor
+ * interno + IA, ao lado da chave Gemini acima (provider "vision_mistral",
+ * ver api/_lib/providers/visionInternalSearchProvider.ts e
+ * mistralVision.ts). Campo SEPARADO (`mistralApiKey`, não reaproveita
+ * `geminiApiKey`) porque são contas/vendors diferentes — o usuário pode
+ * ter as duas cadastradas ao mesmo tempo e alternar entre "Motor interno +
+ * IA (Gemini)" e "Motor interno + IA (Mistral)" no seletor sem recadastrar
+ * nada. Mesmo padrão BYOK e mesmo doc `users/{uid}/secrets/keys` das
+ * chaves acima.
+ *
+ * SUBSTITUIU a chave Groq (removido ago/2026 — free tier de 8.000
+ * tokens/minuto zerava resultado mesmo com o batching implementado antes
+ * da troca; ver mistralVision.ts pro raciocínio completo). Usuários com
+ * `groqApiKey`/`hasGroqApiKey` salvos do backend antigo ficam com campo
+ * órfão no Firestore — inofensivo (nada mais lê), sem migração necessária.
  */
-export async function getUserGroqApiKey(userId: string | null): Promise<string | null> {
+export async function getUserMistralApiKey(userId: string | null): Promise<string | null> {
   if (!userId || !firebaseConfigured) return null;
 
   try {
@@ -299,32 +306,32 @@ export async function getUserGroqApiKey(userId: string | null): Promise<string |
     const { doc, getDoc } = await import("firebase/firestore");
     const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
     if (!snap.exists()) return null;
-    const key = snap.data().groqApiKey as string | undefined;
+    const key = snap.data().mistralApiKey as string | undefined;
     return key?.trim() || null;
   } catch (err) {
-    console.warn("Não consegui ler a chave Groq do usuário:", err);
+    console.warn("Não consegui ler a chave Mistral do usuário:", err);
     return null;
   }
 }
 
-export async function saveUserGroqApiKey(userId: string, key: string): Promise<void> {
+export async function saveUserMistralApiKey(userId: string, key: string): Promise<void> {
   const db = await getFirebaseDb();
   const { doc, writeBatch } = await import("firebase/firestore");
   const batch = writeBatch(db);
   batch.set(
     doc(db, ...secretsDocPath(userId)),
-    { groqApiKey: key.trim(), updatedAt: Date.now() },
+    { mistralApiKey: key.trim(), updatedAt: Date.now() },
     { merge: true }
   );
-  batch.set(doc(db, "users", userId), { hasGroqApiKey: true }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasMistralApiKey: true }, { merge: true });
   await batch.commit();
 }
 
-export async function deleteUserGroqApiKey(userId: string): Promise<void> {
+export async function deleteUserMistralApiKey(userId: string): Promise<void> {
   const db = await getFirebaseDb();
   const { doc, writeBatch } = await import("firebase/firestore");
   const batch = writeBatch(db);
-  batch.set(doc(db, ...secretsDocPath(userId)), { groqApiKey: null }, { merge: true });
-  batch.set(doc(db, "users", userId), { hasGroqApiKey: false }, { merge: true });
+  batch.set(doc(db, ...secretsDocPath(userId)), { mistralApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasMistralApiKey: false }, { merge: true });
   await batch.commit();
 }

@@ -43,7 +43,7 @@ import {
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
-  getUserGroqApiKey,
+  getUserMistralApiKey,
 } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -120,7 +120,7 @@ const SEARCH_PROVIDERS: {
   note: string;
   marketplaces: MarketplaceId[];
   icon: typeof Store;
-  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | "groqApiKey" | null;
+  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | "mistralApiKey" | null;
 }[] = [
   {
     id: "serpapi",
@@ -178,20 +178,21 @@ const SEARCH_PROVIDERS: {
     needsKey: "geminiApiKey",
   },
   // 7ª opção (ago/2026) — MESMA orquestração da anterior (motor interno +
-  // IA), trocando o backend de IA de Gemini pra Groq (ver VisionBackend em
-  // api/_lib/providers/visionInternalSearchProvider.ts e groqVision.ts).
-  // Existe pra comparar diretamente as duas lado a lado no mesmo
-  // catálogo: o teto de requisições/minuto do free tier do Groq é maior
-  // que o do Gemini, mas ainda não validado se isso se traduz em mais
-  // produto encontrado de verdade — motivo real de ter as DUAS no
-  // seletor em vez de só trocar uma pela outra.
+  // IA), trocando o backend de IA de Gemini pra Mistral (ver VisionBackend
+  // em api/_lib/providers/visionInternalSearchProvider.ts e
+  // mistralVision.ts). SUBSTITUIU "vision_groq" (removido no mesmo mês —
+  // relato real "não traz nenhum resultado sequer": o free tier de 8.000
+  // tokens/minuto da Groq zerava a cota mesmo com comparação em lote). O
+  // tier gratuito da Mistral (500.000 tokens/minuto) tem folga bem maior
+  // pro mesmo padrão de uso — existe pra comparar diretamente com a opção
+  // de cima no mesmo catálogo.
   {
-    id: "vision_groq",
-    label: "Motor interno + IA (Groq)",
+    id: "vision_mistral",
+    label: "Motor interno + IA (Mistral)",
     note: "Amazon + Mercado Livre · foto do catálogo, 2ª opção de IA (compare com a de cima)",
     marketplaces: ["mercadolivre", "amazon"],
     icon: Camera,
-    needsKey: "groqApiKey",
+    needsKey: "mistralApiKey",
   },
   // ScraperAPI como busca de verdade (Structured Data Endpoints: Amazon
   // Search API + Google Shopping API), não só transporte — ver
@@ -217,19 +218,19 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
-  "vision_groq",
+  "vision_mistral",
 ]);
 
 /**
  * Subconjunto de IMAGE_MODE_PROVIDERS que é motor interno + IA de VISÃO
- * "lenta" (várias chamadas Gemini/Groq sequenciais por item, sujeita a
+ * "lenta" (várias chamadas Gemini/Mistral sequenciais por item, sujeita a
  * cota por minuto do free tier — ver visionInternalSearchProvider.ts).
  * Google Lens/SearchApi.io (as outras duas de IMAGE_MODE_PROVIDERS) são 1
  * chamada por produto, não precisam do mesmo tratamento (lote pequeno,
  * pausa de cota) que este par precisa — daí um Set separado em vez de
  * reaproveitar IMAGE_MODE_PROVIDERS pra essas decisões.
  */
-const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_groq"]);
+const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_mistral"]);
 
 /**
  * Providers que cobrem amazon + mercadolivre na mesma busca (o usuário
@@ -243,7 +244,7 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "google_lens_products",
   "searchapi_lens",
   "vision_internal",
-  "vision_groq",
+  "vision_mistral",
   "scraperapi",
 ]);
 
@@ -314,16 +315,18 @@ function buildParseInfoMessage(
  *     transporte.
  *   - vision_internal    → motor interno + IA (Gemini): busca por FOTO
  *     sem depender de SerpApi/SearchApi.io, com confirmação visual via IA.
- *   - vision_groq (ago/2026) → MESMO motor interno + IA, backend Groq no
- *     lugar do Gemini (ver VisionBackend em visionInternalSearchProvider.ts
- *     e groqVision.ts) — entrou no grid JUNTO com vision_internal de
- *     propósito, pra comparar os dois lado a lado no mesmo catálogo (RPM
- *     do free tier do Groq é maior, mas ainda não validado se isso rende
- *     mais produto encontrado de verdade num catálogo grande).
+ *   - vision_mistral (ago/2026) → MESMO motor interno + IA, backend
+ *     Mistral no lugar do Gemini (ver VisionBackend em
+ *     visionInternalSearchProvider.ts e mistralVision.ts) — entrou no
+ *     grid JUNTO com vision_internal de propósito, pra comparar os dois
+ *     lado a lado no mesmo catálogo. SUBSTITUIU vision_groq (removido no
+ *     mesmo mês — free tier de 8.000 tokens/minuto zerava resultado
+ *     mesmo com comparação em lote; o da Mistral, 500.000 tokens/minuto,
+ *     tem folga bem maior).
  *
  * `internal_search` (motor interno SEM IA) foi REMOVIDO do grid (ago/2026,
  * decisão de produto pós-rodada de teste): entre os "motor interno"
- * testados, só as variantes COM IA (`vision_internal`/`vision_groq`)
+ * testados, só as variantes COM IA (`vision_internal`/`vision_mistral`)
  * seguiram — ver SearchProviderId em ../types.
  *
  * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
@@ -341,7 +344,7 @@ const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>([
   "searchapi_lens",
   "scraperapi",
   "vision_internal",
-  "vision_groq",
+  "vision_mistral",
 ]);
 const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => AB_TEST_PROVIDER_IDS.has(p.id));
 
@@ -372,16 +375,16 @@ const VISION_CHUNK_SIZE = 3;
 // (visionInternalSearchProvider.ts) pra detectar "foi cota, não outro
 // motivo" sem acoplar ao texto inteiro da frase (que pode mudar o resto
 // da redação sem quebrar esta checagem). Backend-agnóstico de propósito
-// (NÃO "...do Gemini esgotada" — ago/2026, entrada do Groq como 2º
-// backend): a frase muda pra "Cota gratuita do Groq esgotada" quando é
+// (NÃO "...do Gemini esgotada" — ago/2026, entrada de um 2º backend, hoje
+// Mistral): a frase muda pra "Cota gratuita do Mistral esgotada" quando é
 // esse o provider ativo, mas "esgotada depois de" é comum aos dois — ver
 // o warning montado em visionInternalSearchProvider.ts.
 const VISION_QUOTA_WARNING_MARKER = "esgotada depois de";
 
 // Janela aproximada do rate-limit por MINUTO do free tier (Gemini OU
-// Groq, ver comentário "Cota do Gemini free tier..." em
-// visionInternalSearchProvider.ts e a ressalva de TPM em groqVision.ts).
-// Não é um valor documentado de forma estável — é uma estimativa
+// Mistral, ver comentário "Cota do Gemini free tier..." em
+// visionInternalSearchProvider.ts e o comentário de topo de
+// mistralVision.ts). Não é um valor documentado de forma estável — é uma estimativa
 // conservadora pra evitar o desperdício descrito abaixo, não uma garantia.
 const VISION_QUOTA_COOLDOWN_MS = 60_000;
 
@@ -503,10 +506,10 @@ export default function Dashboard({
   // SerpApi/SearchApi.io). Mesma lógica das chaves acima.
   const [geminiApiKey, setGeminiApiKey] = useState<string | null>(null);
 
-  // BYOK — chave Groq própria (motor interno + IA, provider "vision_groq",
-  // 2ª opção de backend ao lado do Gemini acima). Mesma lógica das chaves
-  // acima, campo separado (ver userSecrets.ts).
-  const [groqApiKey, setGroqApiKey] = useState<string | null>(null);
+  // BYOK — chave Mistral própria (motor interno + IA, provider
+  // "vision_mistral", 2ª opção de backend ao lado do Gemini acima).
+  // Mesma lógica das chaves acima, campo separado (ver userSecrets.ts).
+  const [mistralApiKey, setMistralApiKey] = useState<string | null>(null);
 
   // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
   // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
@@ -549,7 +552,7 @@ export default function Dashboard({
   // Ver VISION_QUOTA_WARNING_MARKER/VISION_QUOTA_COOLDOWN_MS acima —
   // `ref` (não `state`) porque só é lido/escrito dentro de finishWithRows,
   // nunca precisa disparar re-render. Timestamp (ms epoch) da ÚLTIMA vez
-  // que um lote voltou com o warning de cota esgotada (Gemini OU Groq,
+  // que um lote voltou com o warning de cota esgotada (Gemini OU Mistral,
   // qualquer que seja o backend ativo no momento); `null` enquanto isso
   // nunca aconteceu nesta sessão do componente. Compartilhado entre os
   // dois de propósito — cada backend usa a PRÓPRIA chave/janela de cota,
@@ -561,7 +564,7 @@ export default function Dashboard({
   // estourou" (quotaExhausted, visionInternalSearchProvider.ts) é LOCAL
   // a cada requisição — o lote seguinte chega "sem saber" que o anterior,
   // 5 segundos atrás, já bateu na mesma parede, tenta de novo, espera o
-  // retry embutido lá (geminiVision.ts/groqVision.ts), desiste, e o
+  // retry embutido lá (geminiVision.ts/mistralVision.ts), desiste, e o
   // PRÓXIMO lote repete tudo de novo. Num catálogo de 68 produtos (~23
   // lotes) isso sozinho já explica boa parte dos 5+ minutos pra só 2
   // resultados reportados pelo usuário. Guardando o timestamp aqui NO
@@ -611,10 +614,10 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!userId) {
-      setGroqApiKey(null);
+      setMistralApiKey(null);
       return;
     }
-    getUserGroqApiKey(userId).then(setGroqApiKey);
+    getUserMistralApiKey(userId).then(setMistralApiKey);
   }, [userId]);
 
   useEffect(() => {
@@ -673,8 +676,8 @@ export default function Dashboard({
           ? searchApiKey
           : activeProvider.needsKey === "geminiApiKey"
             ? geminiApiKey
-            : activeProvider.needsKey === "groqApiKey"
-              ? groqApiKey
+            : activeProvider.needsKey === "mistralApiKey"
+              ? mistralApiKey
               : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
@@ -837,8 +840,8 @@ export default function Dashboard({
               ? "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
               : activeProvider.needsKey === "searchApiKey"
                 ? "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
-                : activeProvider.needsKey === "groqApiKey"
-                  ? "Cadastre sua chave Groq em Conta antes de buscar preço (card \"Groq (motor interno + IA)\")."
+                : activeProvider.needsKey === "mistralApiKey"
+                  ? "Cadastre sua chave Mistral em Conta antes de buscar preço (card \"Mistral (motor interno + IA)\")."
                   : "Cadastre sua chave Gemini em Conta antes de buscar preço (card \"Gemini (motor interno + IA)\")."
         );
         return;
@@ -964,7 +967,7 @@ export default function Dashboard({
         // mesma sessão, mesmo backend) já avisou que a cota esgotou há
         // pouco, esperar aqui o resto da janela evita mandar este lote pra
         // bater na MESMA parede: sem isso, o servidor ainda gastaria o
-        // retry embutido (geminiVision.ts/groqVision.ts) só pra descobrir
+        // retry embutido (geminiVision.ts/mistralVision.ts) só pra descobrir
         // de novo o que o client já sabia antes de sequer mandar a
         // requisição.
         if (SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) && lastVisionQuotaExhaustedAtRef.current !== null) {
@@ -1049,7 +1052,7 @@ export default function Dashboard({
             // renovar em vez de tentar às cegas e desperdiçar o retry
             // embutido no servidor. Marcador backend-agnóstico (ver
             // VISION_QUOTA_WARNING_MARKER) — pega tanto "Cota gratuita do
-            // Gemini esgotada..." quanto "...do Groq esgotada...".
+            // Gemini esgotada..." quanto "...do Mistral esgotada...".
             if (warning.includes(VISION_QUOTA_WARNING_MARKER)) {
               lastVisionQuotaExhaustedAtRef.current = Date.now();
             }
@@ -1706,8 +1709,8 @@ export default function Dashboard({
                           ? "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
                           : activeProvider.needsKey === "searchApiKey"
                             ? "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
-                            : activeProvider.needsKey === "groqApiKey"
-                              ? "Cadastre sua chave Groq em Conta (grátis, sem cartão) pra poder buscar preço."
+                            : activeProvider.needsKey === "mistralApiKey"
+                              ? "Cadastre sua chave Mistral em Conta (grátis, sem cartão) pra poder buscar preço."
                               : "Cadastre sua chave Gemini em Conta (grátis, sem cartão) pra poder buscar preço."}
                   </p>
                 )}
@@ -1813,8 +1816,8 @@ export default function Dashboard({
                         ? "Chave SearchApi.io própria"
                         : activeProvider.needsKey === "geminiApiKey"
                           ? "Chave Gemini própria"
-                          : activeProvider.needsKey === "groqApiKey"
-                            ? "Chave Groq própria"
+                          : activeProvider.needsKey === "mistralApiKey"
+                            ? "Chave Mistral própria"
                             : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>

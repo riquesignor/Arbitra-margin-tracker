@@ -21,21 +21,21 @@ vi.mock("../geminiVision.js", async (importOriginal) => {
   };
 });
 
-// Mock irmão do Gemini acima, pro backend Groq (ver GROQ_BACKEND em
-// visionInternalSearchProvider.ts) — usado só no describe "GROQ_BACKEND"
+// Mock irmão do Gemini acima, pro backend Mistral (ver MISTRAL_BACKEND em
+// visionInternalSearchProvider.ts) — usado só no describe "MISTRAL_BACKEND"
 // mais abaixo, que testa especificamente o caminho de comparação EM
-// LOTE (compareProductImagesBatch), o fix pro Groq zerando resultado por
-// estourar TPM do tier gratuito (ver groqVision.ts).
-const describeProductImageGroq = vi.fn();
-const compareProductImagesGroq = vi.fn();
-const compareProductImagesBatchGroq = vi.fn();
-vi.mock("../groqVision.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../groqVision")>();
+// LOTE (compareProductImagesBatch), a mesma técnica implementada primeiro
+// pro Groq (removido ago/2026 — ver mistralVision.ts pro porquê da troca).
+const describeProductImageMistral = vi.fn();
+const compareProductImagesMistral = vi.fn();
+const compareProductImagesBatchMistral = vi.fn();
+vi.mock("../mistralVision.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../mistralVision")>();
   return {
     ...actual,
-    describeProductImage: (...args: unknown[]) => describeProductImageGroq(...args),
-    compareProductImages: (...args: unknown[]) => compareProductImagesGroq(...args),
-    compareProductImagesBatch: (...args: unknown[]) => compareProductImagesBatchGroq(...args),
+    describeProductImage: (...args: unknown[]) => describeProductImageMistral(...args),
+    compareProductImages: (...args: unknown[]) => compareProductImagesMistral(...args),
+    compareProductImagesBatch: (...args: unknown[]) => compareProductImagesBatchMistral(...args),
   };
 });
 
@@ -65,15 +65,15 @@ vi.mock("./scraperApiSearchProvider.js", () => ({
 // target/module do tsconfig.api.json não suporta).
 let searchVisionInternalShared: typeof import("./visionInternalSearchProvider").searchVisionInternalShared;
 let GEMINI_BACKEND: typeof import("./visionInternalSearchProvider").GEMINI_BACKEND;
-let GROQ_BACKEND: typeof import("./visionInternalSearchProvider").GROQ_BACKEND;
+let MISTRAL_BACKEND: typeof import("./visionInternalSearchProvider").MISTRAL_BACKEND;
 let GeminiVisionError: typeof import("../geminiVision").GeminiVisionError;
 let GeminiQuotaExhaustedError: typeof import("../geminiVision").GeminiQuotaExhaustedError;
-let GroqQuotaExhaustedError: typeof import("../groqVision").GroqQuotaExhaustedError;
+let MistralQuotaExhaustedError: typeof import("../mistralVision").MistralQuotaExhaustedError;
 
 beforeAll(async () => {
-  ({ searchVisionInternalShared, GEMINI_BACKEND, GROQ_BACKEND } = await import("./visionInternalSearchProvider"));
+  ({ searchVisionInternalShared, GEMINI_BACKEND, MISTRAL_BACKEND } = await import("./visionInternalSearchProvider"));
   ({ GeminiVisionError, GeminiQuotaExhaustedError } = await import("../geminiVision"));
-  ({ GroqQuotaExhaustedError } = await import("../groqVision"));
+  ({ MistralQuotaExhaustedError } = await import("../mistralVision"));
 });
 
 const MATCHERS: MarketplaceMatcher[] = [
@@ -94,9 +94,9 @@ function offer(overrides: Partial<ScrapedOffer>): ScrapedOffer {
 beforeEach(() => {
   describeProductImage.mockReset();
   compareProductImages.mockReset();
-  describeProductImageGroq.mockReset();
-  compareProductImagesGroq.mockReset();
-  compareProductImagesBatchGroq.mockReset();
+  describeProductImageMistral.mockReset();
+  compareProductImagesMistral.mockReset();
+  compareProductImagesBatchMistral.mockReset();
   fetchStoreOffers.mockReset();
   fetchGoogleShoppingCandidatesForQuery.mockReset().mockResolvedValue([]);
 });
@@ -486,23 +486,22 @@ describe("searchVisionInternalShared", () => {
 });
 
 /**
- * Backend Groq (ver GROQ_BACKEND em visionInternalSearchProvider.ts) —
- * testa especificamente o caminho de comparação EM LOTE
- * (`compareProductImagesBatch`), o fix pro relato real "testei Groq, não
- * trouxe nenhum resultado" (ver comentário grande em groqVision.ts):
- * antes, cada candidato virava uma chamada separada reenviando a foto do
- * catálogo, estourando o TPM (8.000/min) do tier gratuito dentro do
- * PRIMEIRO produto do catálogo. Os testes do describe
- * "searchVisionInternalShared" acima cobrem GEMINI_BACKEND (sem
- * `compareProductImagesBatch`, laço 1-a-1 de sempre) — este describe
- * cobre só o que MUDA quando o backend tem lote.
+ * Backend Mistral (ver MISTRAL_BACKEND em visionInternalSearchProvider.ts)
+ * — testa especificamente o caminho de comparação EM LOTE
+ * (`compareProductImagesBatch`), a mesma técnica implementada primeiro pro
+ * Groq (removido ago/2026, ver comentário grande em mistralVision.ts pro
+ * porquê da troca): cada candidato NÃO vira uma chamada separada
+ * reenviando a foto do catálogo — vai tudo numa chamada por loja. Os
+ * testes do describe "searchVisionInternalShared" acima cobrem
+ * GEMINI_BACKEND (sem `compareProductImagesBatch`, laço 1-a-1 de sempre)
+ * — este describe cobre só o que MUDA quando o backend tem lote.
  */
-describe("searchVisionInternalShared — GROQ_BACKEND (comparação em lote)", () => {
+describe("searchVisionInternalShared — MISTRAL_BACKEND (comparação em lote)", () => {
   it(
     "usa compareProductImagesBatch (NÃO o laço 1-a-1) quando o backend suporta — 1 chamada por loja, " +
       "não 1 por candidato",
     async () => {
-      describeProductImageGroq.mockResolvedValue("fone bluetooth preto");
+      describeProductImageMistral.mockResolvedValue("fone bluetooth preto");
       fetchStoreOffers.mockResolvedValue([
         {
           marketplace: "amazon",
@@ -513,35 +512,35 @@ describe("searchVisionInternalShared — GROQ_BACKEND (comparação em lote)", (
           ],
         },
       ] satisfies StoreOffers[]);
-      compareProductImagesBatchGroq.mockResolvedValue([0.3, 0.95]); // candidato 2 (l2) vence
+      compareProductImagesBatchMistral.mockResolvedValue([0.3, 0.95]); // candidato 2 (l2) vence
 
-      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-groq-key", GROQ_BACKEND);
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-mistral-key", MISTRAL_BACKEND);
 
-      expect(compareProductImagesGroq).not.toHaveBeenCalled(); // laço 1-a-1 NÃO rodou
-      expect(compareProductImagesBatchGroq).toHaveBeenCalledTimes(1);
-      expect(compareProductImagesBatchGroq).toHaveBeenCalledWith(
+      expect(compareProductImagesMistral).not.toHaveBeenCalled(); // laço 1-a-1 NÃO rodou
+      expect(compareProductImagesBatchMistral).toHaveBeenCalledTimes(1);
+      expect(compareProductImagesBatchMistral).toHaveBeenCalledWith(
         ITEM_WITH_PHOTO.imageUrl,
         ["https://loja/c1.jpg", "https://loja/c2.jpg"],
-        "fake-groq-key"
+        "fake-mistral-key"
       );
       expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.95, link: "l2" });
     }
   );
 
   it("respeita o piso de aceite (MIN_APPROXIMATE_SCORE) e o piso de confiança alta (APPROXIMATE_BELOW_SCORE) igual ao laço 1-a-1", async () => {
-    describeProductImageGroq.mockResolvedValue("query");
+    describeProductImageMistral.mockResolvedValue("query");
     fetchStoreOffers.mockResolvedValue([
       { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/x.jpg", link: "lx" })] },
     ] satisfies StoreOffers[]);
-    compareProductImagesBatchGroq.mockResolvedValue([0.3]); // acima do piso mínimo (0.2), abaixo do de confiança alta (0.8)
+    compareProductImagesBatchMistral.mockResolvedValue([0.3]); // acima do piso mínimo (0.2), abaixo do de confiança alta (0.8)
 
-    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-groq-key", GROQ_BACKEND);
+    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-mistral-key", MISTRAL_BACKEND);
 
     expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.3, approximate: true });
   });
 
   it("trata nota `null` numa posição do lote como candidato NÃO comparável — não vira o vencedor por engano", async () => {
-    describeProductImageGroq.mockResolvedValue("query");
+    describeProductImageMistral.mockResolvedValue("query");
     fetchStoreOffers.mockResolvedValue([
       {
         marketplace: "amazon",
@@ -552,10 +551,10 @@ describe("searchVisionInternalShared — GROQ_BACKEND (comparação em lote)", (
         ],
       },
     ] satisfies StoreOffers[]);
-    // c1 veio null (ver "descarta o chunk inteiro" em groqVision.test.ts) — só c2 é candidato válido.
-    compareProductImagesBatchGroq.mockResolvedValue([null, 0.6]);
+    // c1 veio null (ver "descarta o chunk inteiro" em mistralVision.test.ts) — só c2 é candidato válido.
+    compareProductImagesBatchMistral.mockResolvedValue([null, 0.6]);
 
-    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-groq-key", GROQ_BACKEND);
+    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-mistral-key", MISTRAL_BACKEND);
 
     expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.6, link: "l2" });
   });
@@ -566,36 +565,38 @@ describe("searchVisionInternalShared — GROQ_BACKEND (comparação em lote)", (
     async () => {
       const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
 
-      describeProductImageGroq.mockResolvedValue("query");
+      describeProductImageMistral.mockResolvedValue("query");
       fetchStoreOffers.mockResolvedValue([
         { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/c1.jpg", link: "l1" })] },
       ] satisfies StoreOffers[]);
-      compareProductImagesBatchGroq.mockRejectedValue(new GroqQuotaExhaustedError("Groq sem cota disponível agora", null));
+      compareProductImagesBatchMistral.mockRejectedValue(
+        new MistralQuotaExhaustedError("Mistral sem cota disponível agora", null)
+      );
 
       const result = await searchVisionInternalShared(
         [ITEM_WITH_PHOTO, item2],
         MATCHERS,
-        "fake-groq-key",
-        GROQ_BACKEND
+        "fake-mistral-key",
+        MISTRAL_BACKEND
       );
 
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
-      expect(result.warning).toMatch(/cota.*groq/i);
+      expect(result.warning).toMatch(/cota.*mistral/i);
       // Item 2 nem chegou a tentar describeProductImage — a flag de cota
       // esgotada, setada já na comparação em lote do item 1, pulou ele.
-      expect(describeProductImageGroq).toHaveBeenCalledTimes(1);
+      expect(describeProductImageMistral).toHaveBeenCalledTimes(1);
     }
   );
 
   it("não avisa erro de cota (console.warn genérico) quando o lote falha por motivo QUALQUER outro que não cota", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    describeProductImageGroq.mockResolvedValue("query");
+    describeProductImageMistral.mockResolvedValue("query");
     fetchStoreOffers.mockResolvedValue([
       { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/c1.jpg", link: "l1" })] },
     ] satisfies StoreOffers[]);
-    compareProductImagesBatchGroq.mockRejectedValue(new Error("timeout"));
+    compareProductImagesBatchMistral.mockRejectedValue(new Error("timeout"));
 
-    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-groq-key", GROQ_BACKEND);
+    const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-mistral-key", MISTRAL_BACKEND);
 
     expect(result.results.amazon["SKU-1"]).toBeUndefined();
     expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/comparação visual em lote falhou/i), expect.anything());
