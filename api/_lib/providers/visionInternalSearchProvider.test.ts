@@ -414,14 +414,14 @@ describe("searchVisionInternalShared", () => {
     });
 
     it(
-      "sem nome confiável, NÃO tenta reforço nenhum mesmo quando a IA fica com confiança baixa — não há " +
-        "texto de catálogo pra reforçar com",
+      "sem nome confiável, NÃO tenta reforço nenhum mesmo quando a IA acha só um candidato aproximado — " +
+        "não há texto de catálogo pra reforçar com",
       async () => {
         describeProductImage.mockResolvedValue("descrição genérica demais");
         fetchStoreOffers.mockResolvedValue([
           { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/x.jpg", link: "l1" })] },
         ] satisfies StoreOffers[]);
-        compareProductImages.mockResolvedValue(0.3); // achou, mas não é confiança alta
+        compareProductImages.mockResolvedValue(0.3); // achou, aproximado
 
         const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
@@ -431,9 +431,34 @@ describe("searchVisionInternalShared", () => {
     );
 
     it(
-      "nome do catálogo entra como REFORÇO quando a IA não confirma com confiança alta em loja nenhuma " +
-        "(nem achou candidato, nem confirmou visualmente) — e o resultado final fica com a MAIOR nota entre " +
-        "os dois, é a comparação visual quem decide, nunca o texto sozinho",
+      "quando a IA já ACEITA um candidato como APROXIMADO (nota baixa, mas não rejeitado), o reforço de " +
+        "texto NÃO RODA — só dispara quando a IA não achou NADA aceitável, não quando só ficou incerta. " +
+        "Gatilho deliberadamente raro (ago/2026): a versão anterior disparava pra qualquer 'aproximado' " +
+        "(a faixa mais comum na prática) e isso dobrou a raspagem a ponto de Amazon E Mercado Livre " +
+        "bloquearem juntos num catálogo real (antes só o ML bloqueava)",
+      async () => {
+        const itemComNome: CatalogItemQuery = {
+          sku: "SKU-9",
+          name: "Prato bebê plástico redondo rosa",
+          imageUrl: "https://catalogo/sku-9.jpg",
+        };
+        describeProductImage.mockResolvedValue("prato de plástico redondo");
+        fetchStoreOffers.mockResolvedValue([
+          { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-generico.jpg", link: "l1" })] },
+        ] satisfies StoreOffers[]);
+        compareProductImages.mockResolvedValue(0.3); // aproximado — aceito, mas não confiante
+
+        const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+        expect(fetchStoreOffers).toHaveBeenCalledTimes(1); // reforço NÃO rodou
+        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.3, link: "l1", approximate: true });
+      }
+    );
+
+    it(
+      "nome do catálogo entra como REFORÇO quando a IA REJEITA tudo (nem aproximado) em loja nenhuma — " +
+        "e o resultado final usa o candidato achado pelo texto, é a comparação visual quem confirma, " +
+        "nunca o texto sozinho",
       async () => {
         const itemComNome: CatalogItemQuery = {
           sku: "SKU-9",
@@ -443,14 +468,14 @@ describe("searchVisionInternalShared", () => {
         describeProductImage.mockResolvedValue("prato de plástico redondo");
         fetchStoreOffers
           .mockResolvedValueOnce([
-            // 1ª rodada (IA): achou candidato, mas nota baixa — não confiável.
-            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-generico.jpg", link: "l1" })] },
+            // 1ª rodada (IA): achou candidato, mas a IA rejeitou como produto diferente.
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-errado.jpg", link: "l1" })] },
           ] satisfies StoreOffers[])
           .mockResolvedValueOnce([
-            // 2ª rodada (reforço por texto): candidato melhor.
+            // 2ª rodada (reforço por texto): candidato certo.
             { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-bebe.jpg", link: "l2" })] },
           ] satisfies StoreOffers[]);
-        compareProductImages.mockResolvedValueOnce(0.3).mockResolvedValueOnce(0.9);
+        compareProductImages.mockResolvedValueOnce(0.1).mockResolvedValueOnce(0.9); // 0.1 < MIN_APPROXIMATE_SCORE (0.2) = rejeitado
 
         const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
@@ -464,28 +489,28 @@ describe("searchVisionInternalShared", () => {
     );
 
     it(
-      "quando o reforço por texto roda mas encontra um candidato com nota MENOR que o da IA, o resultado " +
-        "final continua com o candidato da IA (nota maior vence, texto não sobrepõe um resultado melhor)",
+      "quando a IA rejeita tudo e o reforço por texto só acha algo fraco também, ainda assim usa o " +
+        "resultado do texto — a IA não tinha nada aceito pra competir com ele",
       async () => {
         const itemComNome: CatalogItemQuery = {
           sku: "SKU-9",
           name: "Prato bebê plástico redondo rosa",
           imageUrl: "https://catalogo/sku-9.jpg",
         };
-        describeProductImage.mockResolvedValue("prato de plástico redondo rosa infantil");
+        describeProductImage.mockResolvedValue("prato de plástico redondo");
         fetchStoreOffers
           .mockResolvedValueOnce([
-            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-bebe.jpg", link: "l-ia" })] },
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-errado.jpg", link: "l-ia" })] },
           ] satisfies StoreOffers[])
           .mockResolvedValueOnce([
-            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-qualquer.jpg", link: "l-texto" })] },
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-talvez.jpg", link: "l-texto" })] },
           ] satisfies StoreOffers[]);
-        compareProductImages.mockResolvedValueOnce(0.3).mockResolvedValueOnce(0.25);
+        compareProductImages.mockResolvedValueOnce(0.1).mockResolvedValueOnce(0.25); // IA rejeitada, texto só aproximado
 
         const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
 
-        expect(fetchStoreOffers).toHaveBeenCalledTimes(2); // reforço rodou (IA não teve confiança alta)
-        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.3, link: "l-ia" });
+        expect(fetchStoreOffers).toHaveBeenCalledTimes(2); // reforço rodou (IA rejeitou tudo)
+        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.25, link: "l-texto", approximate: true });
       }
     );
   });

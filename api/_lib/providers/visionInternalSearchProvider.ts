@@ -160,17 +160,22 @@ async function pickBestVisualMatch<T>(
  *      SEMPRE — é o sinal comprovado desde a criação deste motor. Quando
  *      o catálogo também tem um NOME de texto confiável (extraído do
  *      PDF, não um fallback tipo "nome = o próprio SKU") e a 1ª rodada
- *      (com a descrição da IA) não confirmou nada com confiança alta em
- *      loja nenhuma, tenta de novo com o nome do catálogo como REFORÇO —
- *      não troca a IA de lugar, só soma candidatos extras pro passo 3
- *      escolher entre eles (regressão real que motivou isto: catálogo
- *      Issam, "Prato bebê..." tinha foto genérica demais pra IA notar
- *      que é infantil; o texto do PDF já tinha a palavra que faltava).
- *      Quem decide o vencedor continua sendo só a comparação visual do
- *      passo 3 — texto é auxílio, não método principal (uma versão
- *      anterior usava o texto NO LUGAR da IA quando confiável; foi
- *      revertida — "achar algo por texto ainda pode ser qualquer coisa"
- *      sem a IA ter tido a chance de tentar primeiro).
+ *      (com a descrição da IA) não achou NENHUM candidato aceitável em
+ *      loja nenhuma (nem aproximado — zero candidatos ou tudo rejeitado
+ *      como "produto diferente"), tenta de novo com o nome do catálogo
+ *      como REFORÇO — não troca a IA de lugar, só soma candidatos extras
+ *      pro passo 3 escolher entre eles. Gatilho é DELIBERADAMENTE "achou
+ *      zero" e não "não ficou confiante": uma versão anterior disparava
+ *      o reforço pra qualquer match "aproximado" (a faixa mais comum na
+ *      prática) e isso dobrava a raspagem em boa parte do catálogo —
+ *      relato real: Amazon E Mercado Livre passaram a bloquear (antes só
+ *      o ML). Match "aproximado" já sai marcado como tal pro usuário, não
+ *      justifica pagar 2ª raspagem. Quem decide o vencedor continua
+ *      sendo só a comparação visual do passo 3 — texto é auxílio, não
+ *      método principal (uma versão ainda mais antiga usava o texto NO
+ *      LUGAR da IA quando confiável; foi revertida — "achar algo por
+ *      texto ainda pode ser qualquer coisa" sem a IA ter tido a chance de
+ *      tentar primeiro).
  *
  *   2. BUSCAR — a frase alimenta o MESMO motor de raspagem usado na
  *      busca por texto (`fetchStoreOffers`, internalSearchProvider.ts) —
@@ -208,14 +213,16 @@ async function pickBestVisualMatch<T>(
  * = 7 chamadas Gemini), mais uma 2ª RASPAGEM de loja (sem chamada de IA
  * nova pra descrever — reaproveita a mesma descrição já gerada, só troca
  * a query de busca) usando o nome do catálogo como reforço, só quando a
- * 1ª rodada não confirmou nada com confiança alta E o item tem nome de
- * texto confiável (ver Passo 1 acima — isto também limita quanto a
- * raspagem extra aumenta o volume de requisições pras lojas, relevante
- * pro risco de bloqueio de IP, ver StoreBlockedError em
- * internalSearchProvider.ts), mais até `CANDIDATES_PER_STORE` chamadas
- * extras SE o passo 4 disparar (só quando o passo 3 zerou pra este item
- * — não é incondicional, pra não agravar o teto de cota do free tier,
- * ver comentário mais abaixo). BYOK (chave própria do usuário, campo
+ * 1ª rodada não achou NENHUM candidato aceitável (zero ou tudo rejeitado
+ * — não dispara pra "achou aproximado", ver Passo 1 acima) E o item tem
+ * nome de texto confiável — isto é deliberadamente RARO, pra não dobrar
+ * o volume de requisições pras lojas (risco real de bloqueio de IP,
+ * ver StoreBlockedError em internalSearchProvider.ts — um gatilho mais
+ * frequente já causou bloqueio em Amazon E Mercado Livre num catálogo
+ * real), mais até `CANDIDATES_PER_STORE` chamadas extras SE o passo 4
+ * disparar (só quando o passo 3 zerou pra este item — não é
+ * incondicional, pra não agravar o teto de cota do free tier, ver
+ * comentário mais abaixo). BYOK (chave própria do usuário, campo
  * `geminiApiKey` em Conta) — sem fallback compartilhado, mesmo padrão de
  * SerpApi/RapidAPI/SearchApi.io.
  *
@@ -472,18 +479,26 @@ export async function searchVisionInternalShared(
       // porque "achar algo por texto ainda pode ser qualquer coisa" sem
       // a IA ter tido a chance de tentar primeiro). Design atual: a IA
       // sempre roda primeiro; o texto só entra numa 2ª rodada de busca —
-      // mais candidatos pro passo 3 comparar, nunca decide sozinho — e
-      // só quando a 1ª rodada (IA) ainda não confirmou nada com
-      // confiança alta (>= APPROXIMATE_BELOW_SCORE) em loja nenhuma.
-      // Isso também evita gastar uma 2ª raspagem de loja em TODO item —
-      // só paga esse custo extra quando genuinamente precisa, o que
-      // limita o volume de requisições adicional pras lojas (relevante
-      // pro risco de bloqueio de IP do Mercado Livre — ver
-      // StoreBlockedError em internalSearchProvider.ts: dobrar a
-      // raspagem incondicionalmente aumentaria a frequência de
-      // requisições de um jeito que este design evita).
-      const aiAlreadyConfident = aiAttempts.some((a) => a.best && a.best.score >= APPROXIMATE_BELOW_SCORE);
-      if (hasReliableName && !aiAlreadyConfident && !quotaExhausted) {
+      // mais candidatos pro passo 3 comparar, nunca decide sozinho.
+      //
+      // Gatilho é "a IA não achou NADA aceitável em loja nenhuma" (nem
+      // aproximado), NÃO "a IA não ficou confiante" — de propósito, e já
+      // é a 2ª versão deste gatilho (ago/2026): a 1ª usava "nota <
+      // APPROXIMATE_BELOW_SCORE (0.8)", que dispara pra praticamente todo
+      // match "aproximado" (a faixa mais comum na prática) — dobrando a
+      // raspagem em boa parte do catálogo. Relato real: Amazon E Mercado
+      // Livre passaram a bloquear (403/CAPTCHA, ver StoreBlockedError em
+      // internalSearchProvider.ts) num catálogo que antes só esbarrava no
+      // bloqueio de IP do ML — volume de requisição em rajada dobrando é a
+      // causa mais provável. "Achou aproximado, mas não tentou reforçar"
+      // é a troca aceita aqui: um match "aproximado" já sai marcado como
+      // tal pro usuário (não é apresentado como certeza), então não
+      // justifica pagar uma 2ª raspagem por loja — o reforço fica restrito
+      // a quando a IA teve zero candidatos OU todos os candidatos foram
+      // rejeitados como "provavelmente produto diferente" (nem aproximado
+      // saiu), que é bem mais raro.
+      const aiFoundAnyAcceptedMatch = aiAttempts.some((a) => a.best);
+      if (hasReliableName && !aiFoundAnyAcceptedMatch && !quotaExhausted) {
         try {
           const textAttempts = await attemptStores(catalogName!);
           for (const attempt of textAttempts) {
