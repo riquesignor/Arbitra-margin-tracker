@@ -83,7 +83,15 @@ const MATCHERS: MarketplaceMatcher[] = [
 
 const ITEM_WITH_PHOTO: CatalogItemQuery = {
   sku: "SKU-1",
-  name: "Item 42", // nome ruim de propósito — é justamente o caso que o pipeline existe pra cobrir
+  // nome = o próprio SKU de propósito — é o sinal que `hasReliableName`
+  // (visionInternalSearchProvider.ts) usa pra "sem nome de texto usável"
+  // (ver extractGridBlocks/extractProductBlocksWithoutPriceIndexed,
+  // parsePdfCatalog.ts: "cai pro SKU" é o mesmo fallback de lá). Mantém
+  // TODOS os testes existentes deste arquivo exercitando o caminho de
+  // sempre (IA descreve a foto) sem precisar mockar `describeProductImage`
+  // em cada um — os testes do texto-como-query-primária usam fixtures
+  // próprias (ver describe "usa o nome do catálogo como query" abaixo).
+  name: "SKU-1",
   imageUrl: "https://catalogo/sku-1.jpg",
 };
 
@@ -208,7 +216,7 @@ describe("searchVisionInternalShared", () => {
   });
 
   it("não derruba o lote inteiro quando só ALGUNS itens falham", async () => {
-    const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
+    const item2: CatalogItemQuery = { sku: "SKU-3", name: "SKU-3", imageUrl: "https://catalogo/sku-3.jpg" };
 
     describeProductImage.mockImplementation((url: string) =>
       url.includes("sku-1") ? Promise.reject(new GeminiVisionError("timeout")) : Promise.resolve("query ok")
@@ -307,7 +315,7 @@ describe("searchVisionInternalShared", () => {
     "corta o resto do lote assim que a cota do Gemini esgota — não insiste item por item " +
       "batendo na mesma parede (ver comentário de quotaExhausted em visionInternalSearchProvider.ts)",
     async () => {
-      const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
+      const item2: CatalogItemQuery = { sku: "SKU-3", name: "SKU-3", imageUrl: "https://catalogo/sku-3.jpg" };
 
       describeProductImage.mockRejectedValue(new GeminiQuotaExhaustedError("Gemini sem cota disponível agora"));
 
@@ -326,8 +334,8 @@ describe("searchVisionInternalShared", () => {
       "MAIS um warning explicando o corte — regressão do relato real 'catálogo de 48, só 2 com preço, " +
       "sem explicação' (ago/2026): antes o warning simplesmente não existia nesse provider",
     async () => {
-      const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
-      const item3: CatalogItemQuery = { sku: "SKU-4", name: "Item 100", imageUrl: "https://catalogo/sku-4.jpg" };
+      const item2: CatalogItemQuery = { sku: "SKU-3", name: "SKU-3", imageUrl: "https://catalogo/sku-3.jpg" };
+      const item3: CatalogItemQuery = { sku: "SKU-4", name: "SKU-4", imageUrl: "https://catalogo/sku-4.jpg" };
 
       // Item 1 (SKU-1) tem sucesso normal; item 2 (SKU-3) estoura cota;
       // item 3 (SKU-4) nem chega a tentar (flag já ligada antes da vez dele).
@@ -365,6 +373,122 @@ describe("searchVisionInternalShared", () => {
       expect(describeProductImage).toHaveBeenCalledTimes(2);
     }
   );
+
+  describe("Passo 1/2 — nome do catálogo como REFORÇO (auxílio), nunca no lugar da IA", () => {
+    it(
+      "a IA sempre roda primeiro, mesmo quando o catálogo tem nome de texto confiável — e quando ela já " +
+        "confirma com confiança alta, o reforço de texto NEM RODA (evita 2ª raspagem desnecessária)",
+      async () => {
+        const itemComNome: CatalogItemQuery = {
+          sku: "SKU-9",
+          name: "Prato bebê plástico redondo rosa",
+          imageUrl: "https://catalogo/sku-9.jpg",
+        };
+        describeProductImage.mockResolvedValue("prato de plástico redondo");
+        fetchStoreOffers.mockResolvedValue([
+          { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato.jpg", link: "l1" })] },
+        ] satisfies StoreOffers[]);
+        compareProductImages.mockResolvedValue(0.9); // confiança alta (>= APPROXIMATE_BELOW_SCORE)
+
+        const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+        expect(describeProductImage).toHaveBeenCalledTimes(1);
+        expect(fetchStoreOffers).toHaveBeenCalledTimes(1);
+        expect(fetchStoreOffers).toHaveBeenCalledWith("prato de plástico redondo", expect.anything());
+        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.9 });
+      }
+    );
+
+    it("item sem nome confiável (nome = sku) continua chamando describeProductImage como sempre — sem mudança de comportamento", async () => {
+      describeProductImage.mockResolvedValue("descrição gerada pela ia");
+      fetchStoreOffers.mockResolvedValue([
+        { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/x.jpg", link: "l1" })] },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.9);
+
+      await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+      expect(describeProductImage).toHaveBeenCalledTimes(1);
+      expect(fetchStoreOffers).toHaveBeenCalledTimes(1);
+      expect(fetchStoreOffers).toHaveBeenCalledWith("descrição gerada pela ia", expect.anything());
+    });
+
+    it(
+      "sem nome confiável, NÃO tenta reforço nenhum mesmo quando a IA fica com confiança baixa — não há " +
+        "texto de catálogo pra reforçar com",
+      async () => {
+        describeProductImage.mockResolvedValue("descrição genérica demais");
+        fetchStoreOffers.mockResolvedValue([
+          { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/x.jpg", link: "l1" })] },
+        ] satisfies StoreOffers[]);
+        compareProductImages.mockResolvedValue(0.3); // achou, mas não é confiança alta
+
+        const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+        expect(fetchStoreOffers).toHaveBeenCalledTimes(1);
+        expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.3, approximate: true });
+      }
+    );
+
+    it(
+      "nome do catálogo entra como REFORÇO quando a IA não confirma com confiança alta em loja nenhuma " +
+        "(nem achou candidato, nem confirmou visualmente) — e o resultado final fica com a MAIOR nota entre " +
+        "os dois, é a comparação visual quem decide, nunca o texto sozinho",
+      async () => {
+        const itemComNome: CatalogItemQuery = {
+          sku: "SKU-9",
+          name: "Prato bebê plástico redondo rosa",
+          imageUrl: "https://catalogo/sku-9.jpg",
+        };
+        describeProductImage.mockResolvedValue("prato de plástico redondo");
+        fetchStoreOffers
+          .mockResolvedValueOnce([
+            // 1ª rodada (IA): achou candidato, mas nota baixa — não confiável.
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-generico.jpg", link: "l1" })] },
+          ] satisfies StoreOffers[])
+          .mockResolvedValueOnce([
+            // 2ª rodada (reforço por texto): candidato melhor.
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-bebe.jpg", link: "l2" })] },
+          ] satisfies StoreOffers[]);
+        compareProductImages.mockResolvedValueOnce(0.3).mockResolvedValueOnce(0.9);
+
+        const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+        // IA roda 1x só (o reforço reaproveita a mesma descrição já gerada,
+        // só troca a query de busca — não descreve a foto de novo).
+        expect(describeProductImage).toHaveBeenCalledTimes(1);
+        expect(fetchStoreOffers).toHaveBeenNthCalledWith(1, "prato de plástico redondo", expect.anything());
+        expect(fetchStoreOffers).toHaveBeenNthCalledWith(2, "Prato bebê plástico redondo rosa", expect.anything());
+        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.9, link: "l2", approximate: false });
+      }
+    );
+
+    it(
+      "quando o reforço por texto roda mas encontra um candidato com nota MENOR que o da IA, o resultado " +
+        "final continua com o candidato da IA (nota maior vence, texto não sobrepõe um resultado melhor)",
+      async () => {
+        const itemComNome: CatalogItemQuery = {
+          sku: "SKU-9",
+          name: "Prato bebê plástico redondo rosa",
+          imageUrl: "https://catalogo/sku-9.jpg",
+        };
+        describeProductImage.mockResolvedValue("prato de plástico redondo rosa infantil");
+        fetchStoreOffers
+          .mockResolvedValueOnce([
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-bebe.jpg", link: "l-ia" })] },
+          ] satisfies StoreOffers[])
+          .mockResolvedValueOnce([
+            { marketplace: "amazon", label: "Amazon", offers: [offer({ thumbnail: "https://loja/prato-qualquer.jpg", link: "l-texto" })] },
+          ] satisfies StoreOffers[]);
+        compareProductImages.mockResolvedValueOnce(0.3).mockResolvedValueOnce(0.25);
+
+        const result = await searchVisionInternalShared([itemComNome], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+        expect(fetchStoreOffers).toHaveBeenCalledTimes(2); // reforço rodou (IA não teve confiança alta)
+        expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.3, link: "l-ia" });
+      }
+    );
+  });
 
   describe("busca geral (outras lojas, Passo 4 — opt-in via marketplace \"geral\")", () => {
     // Matchers realistas (não "sempre true" como MATCHERS acima) — o
@@ -563,7 +687,7 @@ describe("searchVisionInternalShared — MISTRAL_BACKEND (comparação em lote)"
     "corta o resto do lote quando a chamada em lote esgota a cota — mesmo comportamento do laço 1-a-1 " +
       "(ver teste equivalente em GEMINI_BACKEND acima)",
     async () => {
-      const item2: CatalogItemQuery = { sku: "SKU-3", name: "Item 99", imageUrl: "https://catalogo/sku-3.jpg" };
+      const item2: CatalogItemQuery = { sku: "SKU-3", name: "SKU-3", imageUrl: "https://catalogo/sku-3.jpg" };
 
       describeProductImageMistral.mockResolvedValue("query");
       fetchStoreOffers.mockResolvedValue([

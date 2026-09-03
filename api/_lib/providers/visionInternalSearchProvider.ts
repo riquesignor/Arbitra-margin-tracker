@@ -1,9 +1,10 @@
-import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import * as gemini from "../geminiVision.js";
 import * as mistral from "../mistralVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers } from "./internalSearchProvider.js";
+import type { ScrapedOffer } from "./internalSearchProvider.js";
 import { fetchGoogleShoppingCandidatesForQuery } from "./scraperApiSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
@@ -154,10 +155,22 @@ async function pickBestVisualMatch<T>(
  * até quatro passos, cada um resolvendo o que o passo anterior não
  * resolve sozinho:
  *
- *   1. DESCREVER — a foto do catálogo vira uma frase de busca curta
- *      (`describeProductImage`, geminiVision.ts). Sem isso não tem query
- *      de texto pra alimentar o passo 2 — é o substituto do nome do
- *      catálogo quando o nome é ruim (OCR torto, "Item 42").
+ *   1. DESCREVER — a IA descreve a foto (`describeProductImage`,
+ *      geminiVision.ts) e essa frase é a query PRINCIPAL do passo 2/3,
+ *      SEMPRE — é o sinal comprovado desde a criação deste motor. Quando
+ *      o catálogo também tem um NOME de texto confiável (extraído do
+ *      PDF, não um fallback tipo "nome = o próprio SKU") e a 1ª rodada
+ *      (com a descrição da IA) não confirmou nada com confiança alta em
+ *      loja nenhuma, tenta de novo com o nome do catálogo como REFORÇO —
+ *      não troca a IA de lugar, só soma candidatos extras pro passo 3
+ *      escolher entre eles (regressão real que motivou isto: catálogo
+ *      Issam, "Prato bebê..." tinha foto genérica demais pra IA notar
+ *      que é infantil; o texto do PDF já tinha a palavra que faltava).
+ *      Quem decide o vencedor continua sendo só a comparação visual do
+ *      passo 3 — texto é auxílio, não método principal (uma versão
+ *      anterior usava o texto NO LUGAR da IA quando confiável; foi
+ *      revertida — "achar algo por texto ainda pode ser qualquer coisa"
+ *      sem a IA ter tido a chance de tentar primeiro).
  *
  *   2. BUSCAR — a frase alimenta o MESMO motor de raspagem usado na
  *      busca por texto (`fetchStoreOffers`, internalSearchProvider.ts) —
@@ -189,14 +202,22 @@ async function pickBestVisualMatch<T>(
  *      preço nenhum quando Amazon/ML não têm o produto — mas só quando o
  *      usuário PEDIU essa cobertura extra, não automaticamente.
  *
- * Custo por produto: 1 chamada de descrição + até `CANDIDATES_PER_STORE`
- * chamadas de comparação POR loja pedida (ex.: 2 lojas × 3 candidatos = 6
- * comparações + 1 descrição = 7 chamadas Gemini), mais até
- * `CANDIDATES_PER_STORE` chamadas extras SE o passo 4 disparar (só quando
- * o passo 3 zerou pra este item — não é incondicional, pra não agravar o
- * teto de cota do free tier, ver comentário mais abaixo). BYOK (chave
- * própria do usuário, campo `geminiApiKey` em Conta) — sem fallback
- * compartilhado, mesmo padrão de SerpApi/RapidAPI/SearchApi.io.
+ * Custo por produto: 1 chamada de descrição (SEMPRE — é a query
+ * principal) + até `CANDIDATES_PER_STORE` chamadas de comparação POR
+ * loja pedida (ex.: 2 lojas × 3 candidatos = 6 comparações + 1 descrição
+ * = 7 chamadas Gemini), mais uma 2ª RASPAGEM de loja (sem chamada de IA
+ * nova pra descrever — reaproveita a mesma descrição já gerada, só troca
+ * a query de busca) usando o nome do catálogo como reforço, só quando a
+ * 1ª rodada não confirmou nada com confiança alta E o item tem nome de
+ * texto confiável (ver Passo 1 acima — isto também limita quanto a
+ * raspagem extra aumenta o volume de requisições pras lojas, relevante
+ * pro risco de bloqueio de IP, ver StoreBlockedError em
+ * internalSearchProvider.ts), mais até `CANDIDATES_PER_STORE` chamadas
+ * extras SE o passo 4 disparar (só quando o passo 3 zerou pra este item
+ * — não é incondicional, pra não agravar o teto de cota do free tier,
+ * ver comentário mais abaixo). BYOK (chave própria do usuário, campo
+ * `geminiApiKey` em Conta) — sem fallback compartilhado, mesmo padrão de
+ * SerpApi/RapidAPI/SearchApi.io.
  *
  * ── Por que a concorrência é 1 (não 2, como os outros providers) ──────
  * O free tier do Gemini tem teto de requisições por MINUTO relativamente
@@ -365,79 +386,143 @@ export async function searchVisionInternalShared(
     }
     processedCount++;
     try {
-      // Passo 1 — descrever.
-      const query = await backend.describeProductImage(item.imageUrl!, apiKey);
+      // Passo 1 — descrever. A IA SEMPRE descreve a foto — é a query
+      // PRINCIPAL, comportamento de sempre (ver "texto como auxílio" no
+      // comentário grande no topo do arquivo).
+      const aiQuery = await backend.describeProductImage(item.imageUrl!, apiKey);
+      const catalogName = item.name?.trim();
+      const hasReliableName = Boolean(catalogName) && catalogName !== item.sku;
+      // `query` alimenta o Passo 4 (busca geral) mais abaixo — sempre a
+      // descrição da IA, não muda com o reforço de texto do Passo 2/3
+      // (o reforço só amplia CANDIDATOS ali, não substitui a frase
+      // "oficial" de busca do item).
+      const query = aiQuery;
 
-      // Passo 2 — buscar (motor interno, mesma raspagem da busca por
-      // texto, sem custo por chamada). `focusedMatchers`, não `matchers`
-      // cru — "geral" não é uma loja de verdade pra `fetchStoreOffers`
-      // raspar (STORE_SCRAPERS não tem entrada pra ela; passar `matchers`
-      // aqui seria inofensivo mas sem sentido).
-      const storeOffers = await fetchStoreOffers(query, focusedMatchers);
+      // Passo 2/3 — buscar (motor interno, mesma raspagem da busca por
+      // texto) + confirmar visualmente, loja por loja. Extraído em
+      // função porque roda até 2x pro mesmo item: 1x com a descrição da
+      // IA (sempre), 1x com o nome do catálogo como REFORÇO (só quando a
+      // 1ª rodada não confirmou nada com confiança alta — ver abaixo).
+      // Devolve o resultado POR LOJA em vez de já escrever em `results`:
+      // a rodada de reforço precisa COMPARAR nota com nota e ficar só
+      // com a melhor por loja, não sobrescrever a 1ª rodada cegamente.
+      const attemptStores = async (
+        q: string
+      ): Promise<
+        { marketplace: MarketplaceId; label: string; offersCount: number; best: VisualMatch<ScrapedOffer> | null }[]
+      > => {
+        const storeOffers = await fetchStoreOffers(q, focusedMatchers);
+        const attempts: {
+          marketplace: MarketplaceId;
+          label: string;
+          offersCount: number;
+          best: VisualMatch<ScrapedOffer> | null;
+        }[] = [];
 
-      // Passo 3 — confirmar visualmente, loja por loja. Cada loja
-      // concorre pelo seu próprio marketplace no resultado final — o
-      // "Amazon" da vez não compete contra o "Mercado Livre" da vez,
-      // cada um vira uma linha independente (mesmo modelo dos outros
-      // providers multi-marketplace).
-      //
-      // `matchedAnyStore` alimenta o Passo 4 (busca geral) logo abaixo —
-      // só dispara a fonte extra quando NENHUMA das lojas focadas
-      // confirmou o produto pra este item.
-      let matchedAnyStore = false;
-      for (const store of storeOffers) {
-        if (quotaExhausted) break;
-        const candidates = getTopCandidates(
-          query,
-          store.offers,
-          (o) => o.title,
-          (o) => popularityScore(o.reviewCount, o.rating),
-          CANDIDATES_PER_STORE
-        );
-        if (candidates.length === 0) {
-          noCandidatesCount++;
-          continue;
-        }
+        for (const store of storeOffers) {
+          if (quotaExhausted) break;
+          const candidates = getTopCandidates(
+            q,
+            store.offers,
+            (o) => o.title,
+            (o) => popularityScore(o.reviewCount, o.rating),
+            CANDIDATES_PER_STORE
+          );
+          if (candidates.length === 0) {
+            noCandidatesCount++;
+            attempts.push({ marketplace: store.marketplace, label: store.label, offersCount: store.offers.length, best: null });
+            continue;
+          }
 
-        const best = await pickBestVisualMatch(
-          backend,
-          apiKey,
-          item.imageUrl!,
-          candidates.map((c) => c.candidate),
-          (candidate) => candidate.thumbnail,
-          {
-            isExhausted: () => quotaExhausted,
-            markExhausted: (err) => {
-              quotaExhausted = true;
-              quotaExhaustedAtItem ??= processedCount;
-              lastError = err instanceof Error ? err.message : String(err);
+          const best = await pickBestVisualMatch(
+            backend,
+            apiKey,
+            item.imageUrl!,
+            candidates.map((c) => c.candidate),
+            (candidate) => candidate.thumbnail,
+            {
+              isExhausted: () => quotaExhausted,
+              markExhausted: (err) => {
+                quotaExhausted = true;
+                quotaExhaustedAtItem ??= processedCount;
+                lastError = err instanceof Error ? err.message : String(err);
+              },
             },
-          },
-          `${store.label}, "${query}"`
-        );
+            `${store.label}, "${q}"`
+          );
 
-        if (!best || best.score < MIN_APPROXIMATE_SCORE) {
-          if (best) rejectedAsNoiseCount++;
-          continue;
+          if (!best || best.score < MIN_APPROXIMATE_SCORE) {
+            if (best) rejectedAsNoiseCount++;
+            attempts.push({ marketplace: store.marketplace, label: store.label, offersCount: store.offers.length, best: null });
+            continue;
+          }
+
+          attempts.push({ marketplace: store.marketplace, label: store.label, offersCount: store.offers.length, best });
         }
 
+        return attempts;
+      };
+
+      const aiAttempts = await attemptStores(aiQuery);
+      const bestByMarketplace = new Map(aiAttempts.map((a) => [a.marketplace, a]));
+
+      // "Texto do catálogo como auxílio, não como método principal"
+      // (correção explícita de projeto, ago/2026 — uma versão anterior
+      // usava o texto NO LUGAR da IA quando confiável; foi revertida
+      // porque "achar algo por texto ainda pode ser qualquer coisa" sem
+      // a IA ter tido a chance de tentar primeiro). Design atual: a IA
+      // sempre roda primeiro; o texto só entra numa 2ª rodada de busca —
+      // mais candidatos pro passo 3 comparar, nunca decide sozinho — e
+      // só quando a 1ª rodada (IA) ainda não confirmou nada com
+      // confiança alta (>= APPROXIMATE_BELOW_SCORE) em loja nenhuma.
+      // Isso também evita gastar uma 2ª raspagem de loja em TODO item —
+      // só paga esse custo extra quando genuinamente precisa, o que
+      // limita o volume de requisições adicional pras lojas (relevante
+      // pro risco de bloqueio de IP do Mercado Livre — ver
+      // StoreBlockedError em internalSearchProvider.ts: dobrar a
+      // raspagem incondicionalmente aumentaria a frequência de
+      // requisições de um jeito que este design evita).
+      const aiAlreadyConfident = aiAttempts.some((a) => a.best && a.best.score >= APPROXIMATE_BELOW_SCORE);
+      if (hasReliableName && !aiAlreadyConfident && !quotaExhausted) {
+        try {
+          const textAttempts = await attemptStores(catalogName!);
+          for (const attempt of textAttempts) {
+            const current = bestByMarketplace.get(attempt.marketplace);
+            if (attempt.best && (!current?.best || attempt.best.score > current.best.score)) {
+              bestByMarketplace.set(attempt.marketplace, attempt);
+            }
+          }
+        } catch (err) {
+          if (backend.isQuotaExhaustedError(err)) {
+            quotaExhausted = true;
+            quotaExhaustedAtItem ??= processedCount;
+            lastError = err instanceof Error ? err.message : String(err);
+          }
+          // Falha isolada na rodada de reforço (timeout, loja bloqueou)
+          // — segue com o resultado da IA, não propaga.
+        }
+      }
+
+      let matchedAnyStore = false;
+      for (const attempt of bestByMarketplace.values()) {
+        if (!attempt.best) continue;
         matchedAnyStore = true;
-        results[store.marketplace][item.sku] = {
-          marketplace: store.marketplace,
+        results[attempt.marketplace][item.sku] = {
+          marketplace: attempt.marketplace,
           sku: item.sku,
-          price: best.candidate.price,
-          competitorCount: Math.max(0, store.offers.length - 1),
+          price: attempt.best.candidate.price,
+          competitorCount: Math.max(0, attempt.offersCount - 1),
           buyBoxEligible: true,
           // Confiança = a própria nota de similaridade visual, na mesma
           // escala 0-1 usada no resto do projeto pra `confidence` — não
           // passa por `confidenceFromSimilarity` porque não há
           // similaridade de TEXTO nenhuma decidindo esse resultado.
-          confidence: best.score,
-          link: best.candidate.link,
-          matchedTitle: best.candidate.title,
-          imageUrl: best.candidate.thumbnail,
-          approximate: best.score < APPROXIMATE_BELOW_SCORE,
-          matchedSource: store.label,
+          confidence: attempt.best.score,
+          link: attempt.best.candidate.link,
+          matchedTitle: attempt.best.candidate.title,
+          imageUrl: attempt.best.candidate.thumbnail,
+          approximate: attempt.best.score < APPROXIMATE_BELOW_SCORE,
+          matchedSource: attempt.label,
         };
       }
 
@@ -547,8 +632,8 @@ export async function searchVisionInternalShared(
   }
   if (noCandidatesCount > 0) {
     console.warn(
-      `[motor-interno+IA] ${noCandidatesCount} busca(s) por texto (descrição gerada pela IA) não achou ` +
-        "candidato nenhum na loja pra comparar visualmente."
+      `[motor-interno+IA] ${noCandidatesCount} busca(s) por texto (nome do catálogo ou descrição gerada ` +
+        "pela IA) não achou candidato nenhum na loja pra comparar visualmente."
     );
   }
 
@@ -584,7 +669,7 @@ export async function searchVisionInternalShared(
     const parts: string[] = [];
     if (noCandidatesCount > 0) {
       parts.push(
-        `${noCandidatesCount} produto(s): a descrição gerada pela IA não achou candidato nenhum na loja`
+        `${noCandidatesCount} produto(s): a busca por texto (nome do catálogo ou descrição da IA) não achou candidato nenhum na loja`
       );
     }
     if (rejectedAsNoiseCount > 0) {
