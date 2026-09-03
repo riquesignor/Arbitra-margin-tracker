@@ -1505,8 +1505,26 @@ export async function parsePdfCatalogFile(
   const seenSyntheticSkus = new Set<string>();
   // true se QUALQUER página do intervalo precisou cair pro fallback de
   // OCR (ver ocrPageToPositionedText) — só usado pra customizar a
-  // mensagem de erro final, caso nenhuma página produza produto algum.
+  // mensagem de erro final ("tentamos OCR e mesmo assim..."), caso
+  // nenhuma página produza produto algum. NÃO é o que decide `usedOcr`
+  // no retorno — ver `ocrProducedUsableProduct` abaixo pro porquê dos
+  // dois serem flags separadas.
   let ocrAttempted = false;
+  // true só quando uma página SEM texto embutido (OCR precisou entrar)
+  // efetivamente CONTRIBUIU pelo menos um produto pro catálogo final —
+  // é isto, não `ocrAttempted`, que vira `usedOcr` no ExtractResult (o
+  // sinal que trava busca por NOME no seletor, ver Dashboard.tsx).
+  //
+  // Bug real corrigido aqui (ago/2026, catálogo BMAX real: 519 páginas,
+  // 517 com texto embutido de verdade, só 2 sem — divisores/banner sem
+  // produto nenhum): antes, `ocrAttempted` virava `usedOcr` direto — OCR
+  // rodar com sucesso em QUALQUER página (mesmo uma sem produto nenhum,
+  // tipo um banner "VOLTAR" ou divisor de seção) contaminava o catálogo
+  // INTEIRO, travando SerpApi/texto pra 517 páginas boas por causa de 2
+  // páginas irrelevantes. `usedOcr` precisa responder "algum NOME que vai
+  // pra busca veio de OCR (menos confiável)?", não "OCR rodou em algum
+  // lugar do documento, relevante ou não".
+  let ocrProducedUsableProduct = false;
   // Quantas páginas já TENTARAM OCR nesta chamada — ver MAX_OCR_PAGES_PER_CALL.
   let ocrPagesUsed = 0;
   // true se QUALQUER página precisou do fallback genérico de IA de visão
@@ -1572,6 +1590,15 @@ export async function parsePdfCatalogFile(
       // correção de preço via Gemini logo abaixo: catálogo com texto real
       // nunca passa por aqui, então nunca paga esse custo extra.
       let pageUsedOcr = false;
+
+      // Capturado ANTES do bloco de OCR reatribuir `items` — é o que
+      // alimenta `ocrProducedUsableProduct` mais abaixo (nos pontos onde
+      // a página termina de ser processada), pra saber se um produto
+      // eventualmente extraído desta página veio de uma página SEM texto
+      // real, não do resultado local de UMA estratégia específica (OCR
+      // vs. leitura genérica via Gemini — ambas menos confiáveis que
+      // texto embutido, então as duas contam pro mesmo sinal).
+      const pageHadNoEmbeddedText = items.length === 0;
 
       // Página sem NENHUM texto embutido (ver comentário de
       // ocrPageToPositionedText acima) — só entra aqui quando pdfjs não
@@ -1673,7 +1700,11 @@ export async function parsePdfCatalogFile(
             }
           });
         }
-        if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
+        if (rows.length === rowsBeforePage) {
+          pagesWithNoProducts.push(pageNum);
+        } else if (pageHadNoEmbeddedText) {
+          ocrProducedUsableProduct = true;
+        }
         continue;
       }
 
@@ -1737,7 +1768,11 @@ export async function parsePdfCatalogFile(
               }
             });
           }
-          if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
+          if (rows.length === rowsBeforePage) {
+            pagesWithNoProducts.push(pageNum);
+          } else if (pageHadNoEmbeddedText) {
+            ocrProducedUsableProduct = true;
+          }
           continue;
         }
 
@@ -1834,7 +1869,11 @@ export async function parsePdfCatalogFile(
         }
       }
 
-      if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
+      if (rows.length === rowsBeforePage) {
+        pagesWithNoProducts.push(pageNum);
+      } else if (pageHadNoEmbeddedText) {
+        ocrProducedUsableProduct = true;
+      }
     }
 
     if (rows.length === 0) {
@@ -1864,7 +1903,11 @@ export async function parsePdfCatalogFile(
       rows,
       skippedAmbiguous,
       imagesBySku: withImages ? imagesBySku : undefined,
-      usedOcr: ocrAttempted,
+      // `ocrProducedUsableProduct`, NÃO `ocrAttempted` — ver comentário na
+      // declaração das duas flags acima pro porquê (catálogo com 1-2
+      // páginas sem produto que caíram em OCR à toa não pode travar busca
+      // por nome pro catálogo inteiro).
+      usedOcr: ocrProducedUsableProduct,
       usedGeminiPageExtraction: geminiPageExtractionUsed,
       pagesWithNoProducts: pagesWithNoProducts.length > 0 ? pagesWithNoProducts : undefined,
     };
