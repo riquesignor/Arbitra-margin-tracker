@@ -246,6 +246,11 @@ const REAL_SHORT_TOKENS = new Set([
   "de", "da", "do", "das", "dos", "e", "em", "no", "na", "ao", "a", "o", "as", "os",
   "com", "sem", "por", "para", "pra", "kit", "cm", "mm", "ml", "kg", "un", "pc", "cx",
   "tv", "led", "usb", "abs", "pvc", "pet", "gg", "xl", "p", "m", "g", "l",
+  // "c" — normalização de "C/" (abreviação de "com", ex.: "MADEIRA C/ VIDRO",
+  // catálogo real TOPUTIL/DL Grupo). Sem isso, o "/" some no normalizeToken e
+  // sobra só "c" (1 char) — caía na regra de "token curto = ruído" e
+  // quebrava o nome no meio, perdendo tudo depois do "C/" (regressão real).
+  "c",
 ]);
 
 /** Conectores que nunca abrem um nome de produto — um nome que COMEÇA com eles é sinal de recorte no meio de uma frase. */
@@ -292,6 +297,18 @@ export function sanitizeProductName(raw: string): string {
   const segments: string[][] = [];
   let current: string[] = [];
   for (const token of tokens) {
+    // Token SÓ de pontuação (ex.: um "-" solto usado como separador
+    // estilístico dentro do próprio nome, "COMPUTADOR - COLOR") não é
+    // ruído que indica conteúdo ALHEIO ao nome — é só um caractere de
+    // ligação. Tratar como noise-que-quebra-segmento (comportamento
+    // antigo) fragmentava nomes reais em pedaços e podia escolher o
+    // pedaço ERRADO como "melhor" (regressão real: "MESA PARA
+    // COMPUTADOR - COLOR - 60x40x1.2CM..." perdia tudo antes do 2º "-").
+    // Descartado do resultado (não vira token do nome) mas SEM encerrar
+    // o segmento atual — diferente de ruído de verdade ("SE", "YE",
+    // sigla solta de OCR), que continua quebrando segmento normalmente.
+    if (normalizeToken(token) === "") continue;
+
     if (isNoiseToken(token)) {
       if (current.length > 0) segments.push(current);
       current = [];
@@ -601,25 +618,60 @@ export function extractRows(lines: string[]): ExtractResult {
 // regressão pra catálogo que já funciona — só entra em ação quando os
 // dois caminhos testados e estáveis já desistiram.
 //
-// ⚠️ Limitação conhecida: produtos lado a lado na MESMA linha Y (grade
-// de 2 colunas sem cabeçalho "MODELO:") viram uma linha só com os dois
-// códigos de SKU juntos (ex.: "TOP2977          TOP2978") — o marcador
-// abaixo exige a linha INTEIRA ser um código só, então essas linhas não
-// batem e os dois produtos ficam de fora. Produto empilhado numa coluna
-// só (a maioria, no catálogo real que motivou isso) é reconhecido
-// normalmente. Resolver o caso lado a lado exigiria detecção de coluna
-// por X como a grade — não implementado aqui de propósito (escopo
-// deliberadamente contido: melhor recuperar parte do catálogo agora do
-// que não recuperar nada esperando um parser perfeito).
+// Limitação conhecida DESTA função em particular (recebe só `lines:
+// string[]`, sem posição X): produtos lado a lado na MESMA linha Y
+// (grade de 2 colunas sem cabeçalho "MODELO:") viram uma linha só com
+// os dois códigos de SKU juntos (ex.: "TOP2977          TOP2978") — o
+// marcador abaixo exige a linha INTEIRA ser um código só, então essas
+// linhas não batem e os dois produtos ficam de fora. Produto empilhado
+// numa coluna só continua reconhecido normalmente.
+//
+// ago/2026 — resolvido no parser de verdade por `extractVitrineGridBlocks`
+// (mais abaixo, perto de `extractGridBlocks`): reaproveita a MESMA
+// detecção de coluna por X já usada na grade com preço, então
+// `parsePdfCatalogFile` tenta aquela função PRIMEIRO e só cai pra esta
+// aqui (baseada em string, sem coluna) quando a página não tem nenhuma
+// linha com 2+ marcadores lado a lado. Esta função continua existindo
+// como está — mais simples, testada, e correta pro caso empilhado — só
+// não é mais o único caminho.
 
 /** Linha que é SÓ um código de SKU (ex.: "TOP2905"), sem mais nada — marca o INÍCIO de um novo produto neste layout. Mais restrito que SKU_PATTERN (que casa um SKU embutido em qualquer lugar da linha): aqui a linha inteira precisa ser o código, senão qualquer medida/quantidade no meio de uma frase viraria marcador por engano. */
 const STANDALONE_SKU_LINE_PATTERN = /^[A-Z]{2,6}-?\d{3,6}$/;
 
 /** Linhas de metadado deste tipo de catálogo — nunca fazem parte do NOME do produto, mesmo dentro do bloco. */
-const BOILERPLATE_LINE_PATTERN = /^(CX\s*MASTER|NCM|CORES?)\s*:?/i;
+// "CX\.?\s*MASTER": alguns catálogos usam "CX MASTER:" (sem ponto), outros
+// "CX. MASTER:" com o ponto colado no próprio token "CX." (ex.: Catálogo
+// TOPUTIL/DL Grupo, página com grade de 2 colunas) — sem o `\.?` opcional
+// depois de "CX", a 2ª variante não batia e "CX. MASTER: 12" vazava pro
+// nome do produto (regressão real: "Conjunto 6 canecas de vidro 100ml CX.
+// MASTER: 12" em vez de só o nome).
+const BOILERPLATE_LINE_PATTERN = /^(CX\.?\s*MASTER|NCM|CORES?)\s*:?/i;
 
-/** Linha que é só dígitos (código de referência/barra solto, sem "R$" nem decimal) — não é preço utilizável (ver PRICE_PATTERN) nem parte do nome. */
-const STANDALONE_DIGITS_LINE_PATTERN = /^\d+$/;
+/**
+ * Fragmento de banner decorativo girado 90° (comum em catálogo real —
+ * Catálogo TOPUTIL/DL Grupo tem um selo "PROMOÇÃO!" rotacionado perto de
+ * item promocional). Texto rotacionado vira, no agrupamento por Y, uma
+ * "linha" própria por PALAVRA do banner ("PRO"/"MO"/"ÇÃO!"), cada uma
+ * curta demais e com vogal — não bate na regra genérica de ruído de
+ * `sanitizeProductName` (ver isNoiseToken) e vazava pro nome (regressão
+ * real: "Conjunto 6 copos de vidro 310ml PRO"). Lista pequena e
+ * deliberadamente literal (não um regex genérico de "linha curta") pra
+ * não arriscar cortar fragmento de nome de produto legítimo em outro
+ * catálogo.
+ */
+const PROMO_BANNER_FRAGMENT_PATTERN = /^(PROMO(Ç[AÃ]O)?!?|PRO|MO|Ç[AÃ]O!?)$/i;
+
+/**
+ * Linha que é só dígitos (código de referência/barra solto, sem "R$" nem
+ * decimal) — não é preço utilizável (ver PRICE_PATTERN) nem parte do
+ * nome. Asterisco final OPCIONAL (`\*?`) — catálogo real (Catálogo
+ * TOPUTIL/DL Grupo) marca item promocional com um "*" colado no código
+ * de referência (ex.: "001109*", ver legenda "*iTENS PROMOCIONAIS NÃO SE
+ * APLICAM DESCONTO" no rodapé da página); sem essa permissão o "*"
+ * quebrava o match e o código sobrava como lixo dentro do nome do
+ * produto (dígito não é filtrado por `isNoiseToken`, ver comentário lá).
+ */
+const STANDALONE_DIGITS_LINE_PATTERN = /^\d+\*?$/;
 
 /**
  * Extrai produtos de um layout em BLOCO MULTI-LINHA sem preço (ver
@@ -672,7 +724,12 @@ export function extractProductBlocksWithoutPriceIndexed(lines: string[]): (Catal
 
     const nameLines = bodyLines.filter((l) => {
       const t = l.trim();
-      return t && !BOILERPLATE_LINE_PATTERN.test(t) && !STANDALONE_DIGITS_LINE_PATTERN.test(t);
+      return (
+        t &&
+        !BOILERPLATE_LINE_PATTERN.test(t) &&
+        !STANDALONE_DIGITS_LINE_PATTERN.test(t) &&
+        !PROMO_BANNER_FRAGMENT_PATTERN.test(t)
+      );
     });
     let name = sanitizeProductName(nameLines.join(" ").trim());
     // Ver mesmo fallback em extractGridBlocks: sem nome de texto (comum
@@ -849,10 +906,48 @@ export function extractGridBlocks(
   const rowHeights = headerYs.slice(0, -1).map((y, i) => y - headerYs[i + 1]);
   const avgRowHeight = rowHeights.length > 0 ? rowHeights.reduce((a, b) => a + b, 0) / rowHeights.length : 250;
 
-  const rowBands: GridRowBand[] = headerYs.map((y, i) => ({
-    yTop: y + ROW_BAND_MARGIN,
-    yBottom: i === headerYs.length - 1 ? Math.max(PAGE_FOOTER_MARGIN, y - avgRowHeight) : headerYs[i + 1] + ROW_BAND_MARGIN,
-  }));
+  // Piso da ÚLTIMA linha da grade: catálogos diferentes têm rodapé de
+  // altura BEM diferente (nav bar grande vs. só 1 linha de URL/paginação)
+  // — um PAGE_FOOTER_MARGIN fixo funciona por sorte num catálogo e CORTA
+  // a última linha de outro. Regressão real (catálogo Issam Distribuidora,
+  // 393 páginas, 3 linhas x 4 colunas por página): o rodapé daquele PDF
+  // tem só ~29pt de altura, mas o preço da última linha da grade cai em
+  // y≈44pt — ABAIXO do piso fixo de 55pt — e a linha inteira (4 produtos)
+  // ficava silenciosamente sem preço em quase TODA página do catálogo
+  // (skippedAmbiguous=4 em 376 das 390 páginas em grade).
+  //
+  // Em vez de um valor fixo, MEDIMOS a profundidade de conteúdo
+  // realmente ocupada nas linhas ACIMA da última — essas já têm piso
+  // confiável (o cabeçalho da PRÓXIMA linha, não uma suposição de
+  // rodapé) — e aplicamos a MESMA profundidade na última linha: um
+  // catálogo em grade repete o mesmo layout de cartão em toda linha, "a
+  // profundidade de ontem" é uma estimativa muito melhor que uma
+  // constante universal. Só entra em ação quando há 2+ linhas de
+  // cabeçalho pra medir; página de 1 linha só cai no fallback antigo
+  // (avgRowHeight/PAGE_FOOTER_MARGIN) por falta de dado pra medir.
+  let measuredContentDepth = 0;
+  for (let i = 0; i < headerYs.length - 1; i++) {
+    const bandTop = headerYs[i] + ROW_BAND_MARGIN;
+    const bandBottom = headerYs[i + 1] + ROW_BAND_MARGIN;
+    const ysInBand = items.filter((it) => it.y <= bandTop && it.y >= bandBottom).map((it) => it.y);
+    if (ysInBand.length === 0) continue;
+    const depth = bandTop - Math.min(...ysInBand);
+    if (depth > measuredContentDepth) measuredContentDepth = depth;
+  }
+
+  const rowBands: GridRowBand[] = headerYs.map((y, i) => {
+    if (i !== headerYs.length - 1) {
+      return { yTop: y + ROW_BAND_MARGIN, yBottom: headerYs[i + 1] + ROW_BAND_MARGIN };
+    }
+    // Última linha: usa o MENOR (mais abrangente) entre o piso medido
+    // acima e o fallback antigo — nunca reduz cobertura em relação ao
+    // comportamento anterior, só amplia quando a medição indica que
+    // precisa ir mais fundo.
+    const fallbackYBottom = Math.max(PAGE_FOOTER_MARGIN, y - avgRowHeight);
+    const measuredYBottom = measuredContentDepth > 0 ? y - measuredContentDepth - ROW_BAND_MARGIN / 2 : null;
+    const yBottom = measuredYBottom != null ? Math.min(measuredYBottom, fallbackYBottom) : fallbackYBottom;
+    return { yTop: y + ROW_BAND_MARGIN, yBottom: Math.max(0, yBottom) };
+  });
 
   const blocks: GridBlock[] = [];
   const priceless: GridBlockPriceless[] = [];
@@ -913,6 +1008,172 @@ export function extractGridBlocks(
   }
 
   return { blocks, skippedAmbiguous, priceless };
+}
+
+// ── Catálogo "vitrine" sem preço EM GRADE (2+ colunas) ────────────────
+//
+// Mesma família de catálogo de `extractProductBlocksWithoutPriceIndexed`
+// acima (sem "R$" em lugar nenhum, marcador = linha que é SÓ um código
+// de SKU), mas com produtos lado a lado na MESMA linha Y — a limitação
+// que aquela função documenta e não resolve. Em vez de inventar uma
+// detecção de coluna nova, reaproveita EXATAMENTE a de `extractGridBlocks`
+// (`detectColumns`, `COLUMN_GAP_THRESHOLD`) — só troca o CRITÉRIO de
+// marcador: uma linha "de grade" aqui é uma linha cujos segmentos
+// (quebrados pelo mesmo gap de coluna que separa cartões) batem TODOS em
+// `STANDALONE_SKU_LINE_PATTERN`, em vez de exigir o rótulo "MODELO:"/
+// "CÓD." que a grade com preço usa.
+//
+// Confirmado com dado real de dois padrões distintos do mesmo catálogo
+// (Catálogo TOPUTIL/DL Grupo, ver parsePdfCatalog.test.ts): uma página
+// com 1 produto "hero" sozinho seguido de um par lado a lado (3 colunas
+// no total, cada uma com só 1 produto na página), e uma página com grade
+// de 2 colunas repetida por inteiro. Nos dois casos a fronteira de coluna
+// detectada bate com o layout visual real.
+
+/** Quebra os itens de UMA linha (já ordenados por X) em segmentos, usando o mesmo gap de fronteira de coluna que `detectColumns` usa entre cartões (ver COLUMN_GAP_THRESHOLD) — cada segmento é um candidato a "marcador" independente na mesma linha Y. */
+function splitLineByColumnGap(lineItems: PositionedText[]): PositionedText[][] {
+  const segments: PositionedText[][] = [];
+  let current: PositionedText[] = [];
+  let prevEndX: number | null = null;
+  for (const item of lineItems) {
+    if (prevEndX != null && item.x - prevEndX > COLUMN_GAP_THRESHOLD) {
+      segments.push(current);
+      current = [];
+    }
+    current.push(item);
+    prevEndX = item.x + item.width;
+  }
+  if (current.length > 0) segments.push(current);
+  return segments;
+}
+
+export interface VitrineGridBlock {
+  sku: string;
+  name: string;
+  supplierPrice?: number;
+  /** Bounding box do bloco em espaço PDF — mesmo formato de `GridBlock`, usado pro recorte de imagem (`cropGridBlock`, reaproveitado sem mudança nenhuma). */
+  yTop: number;
+  yBottom: number;
+  xMin: number;
+  xMax: number;
+}
+
+/**
+ * Extrai produtos do layout "vitrine sem preço" quando a página tem 2+
+ * produtos lado a lado (ver comentário acima). Devolve `null` quando a
+ * página não tem NENHUMA linha com 2+ marcadores lado a lado — nesse
+ * caso o chamador cai pro modo empilhado de sempre
+ * (`extractProductBlocksWithoutPriceIndexed`), sem NENHUMA mudança de
+ * comportamento pra catálogo de coluna única que já funcionava (essa
+ * checagem é o que garante isso).
+ *
+ * ⚠️ Heurística, não parser estruturado: a fronteira de Y de cada bloco
+ * usa o PRÓXIMO marcador NA MESMA COLUNA (ou a margem de rodapé da
+ * página, se for o último marcador daquela coluna) — uma linha de OUTRA
+ * coluna que cai no meio desse intervalo Y é excluída pelo filtro de X
+ * (`col.xMin`/`col.xMax`), não pelo Y, então texto da coluna vizinha
+ * nunca vaza pro nome deste produto mesmo quando as duas colunas
+ * interlaçam na ordem vertical da página (confirmado com dado real —
+ * ver teste). Exportado pra teste unitário direto com dados reais de
+ * x/y/width extraídos de PDF real — ver parsePdfCatalog.test.ts.
+ */
+export function extractVitrineGridBlocks(items: PositionedText[], pageWidth: number): VitrineGridBlock[] | null {
+  const lines = groupItemsIntoLines(items);
+
+  interface Marker {
+    sku: string;
+    x0: number;
+    y: number;
+    lineIndex: number;
+  }
+  const markers: Marker[] = [];
+  const markerLineItems: PositionedText[][] = [];
+  let hasMultiMarkerLine = false;
+
+  lines.forEach((lineItems, lineIndex) => {
+    const segments = splitLineByColumnGap(lineItems);
+    if (segments.length === 0) return;
+    const texts = segments.map((seg) => joinLineText(seg));
+    if (!texts.every((t) => STANDALONE_SKU_LINE_PATTERN.test(t))) return;
+
+    if (segments.length >= 2) hasMultiMarkerLine = true;
+    markerLineItems.push(lineItems);
+    segments.forEach((seg, i) => {
+      markers.push({ sku: texts[i], x0: seg[0].x, y: lineItems[0].y, lineIndex });
+    });
+  });
+
+  // Sem NENHUMA linha com 2+ marcadores lado a lado: não é o caso que
+  // esta função resolve — devolve null, ver comentário acima.
+  if (!hasMultiMarkerLine || markers.length === 0) return null;
+
+  const columns = detectColumns(markerLineItems, pageWidth);
+  if (!columns) return null;
+
+  const columnOf = (x: number) => columns.findIndex((c) => x >= c.xMin && x < c.xMax);
+
+  const markersByColumn: Marker[][] = columns.map(() => []);
+  for (const marker of markers) {
+    const ci = columnOf(marker.x0);
+    if (ci >= 0) markersByColumn[ci].push(marker);
+  }
+  markersByColumn.forEach((list) => list.sort((a, b) => a.lineIndex - b.lineIndex));
+
+  const blocks: VitrineGridBlock[] = [];
+
+  markersByColumn.forEach((colMarkers, ci) => {
+    const col = columns[ci];
+    for (let i = 0; i < colMarkers.length; i++) {
+      const marker = colMarkers[i];
+      const nextInColumn = colMarkers[i + 1];
+      const endLineIndex = nextInColumn ? nextInColumn.lineIndex : lines.length;
+
+      const bodyLines: string[] = [];
+      for (let li = marker.lineIndex + 1; li < endLineIndex; li++) {
+        const lineItemsInColumn = lines[li].filter((it) => it.x >= col.xMin && it.x < col.xMax);
+        if (lineItemsInColumn.length === 0) continue;
+        const text = joinLineText(lineItemsInColumn);
+        if (text) bodyLines.push(text);
+      }
+      const bodyText = bodyLines.join(" ");
+
+      const priceMatches = bodyText.match(PRICE_PATTERN_GLOBAL);
+      let supplierPrice: number | undefined;
+      if (priceMatches && priceMatches.length === 1) {
+        const priceMatch = bodyText.match(PRICE_PATTERN);
+        const price = priceMatch ? parseCurrency(extractPriceGroup(priceMatch)) : 0;
+        if (price > 0) supplierPrice = price;
+      }
+
+      const nameLines = bodyLines.filter((l) => {
+        const t = l.trim();
+        return (
+        t &&
+        !BOILERPLATE_LINE_PATTERN.test(t) &&
+        !STANDALONE_DIGITS_LINE_PATTERN.test(t) &&
+        !PROMO_BANNER_FRAGMENT_PATTERN.test(t)
+      );
+      });
+      let name = sanitizeProductName(nameLines.join(" ").trim());
+      // Ver mesmo fallback em extractGridBlocks/extractProductBlocksWithoutPriceIndexed.
+      if (!name) name = marker.sku;
+      if (name.length > MAX_PLAUSIBLE_NAME_LENGTH) name = name.slice(0, MAX_PLAUSIBLE_NAME_LENGTH).trim();
+
+      blocks.push({
+        ...(supplierPrice != null ? { sku: marker.sku, name, supplierPrice } : { sku: marker.sku, name }),
+        yTop: marker.y + ROW_BAND_MARGIN,
+        yBottom: nextInColumn ? nextInColumn.y + ROW_BAND_MARGIN : PAGE_FOOTER_MARGIN,
+        xMin: col.xMin,
+        xMax: col.xMax,
+      });
+    }
+  });
+
+  // Ordena por Y (topo->baixo) só pra devolver numa ordem previsível —
+  // as colunas foram processadas em sequência acima ("coluna inteira 1,
+  // depois coluna inteira 2"), sem isso a ordem sairia estranha.
+  blocks.sort((a, b) => b.yTop - a.yTop);
+  return blocks;
 }
 
 // Resolução de renderização pro modo imagem — alta o bastante pra o
@@ -1445,16 +1706,48 @@ export async function parsePdfCatalogFile(
           });
         }
       } else {
-        // Nem grade nem linha-única acharam produto nesta página —
-        // próximo recurso ANTES da IA: layout "vitrine" sem preço (ver
-        // extractProductBlocksWithoutPriceIndexed acima). Suporte a foto
-        // (ago/2026, confirmado com PDF real — Catálogo TOPUTIL/DL Grupo,
-        // o mesmo layout que motivou este heurístico): cada marcador de
-        // SKU já tem posição Y conhecida, então o recorte usa o mesmo
-        // `cropRowBand` do layout linha-única, com o marcador ANTERIOR/
-        // PRÓXIMO como limite (não a linha de texto adjacente — o bloco
-        // aqui tem várias linhas, precisa da posição do PRODUTO vizinho,
-        // não da linha vizinha).
+        // Nem grade (com rótulo "MODELO:"/"CÓD.") nem linha-única acharam
+        // produto nesta página — próximo recurso ANTES da IA: layout
+        // "vitrine" sem preço. Tenta primeiro a variante EM GRADE (2+
+        // produtos lado a lado na mesma linha Y, ver
+        // extractVitrineGridBlocks) — cai pro modo empilhado de sempre
+        // (extractProductBlocksWithoutPriceIndexed) só quando a página não
+        // tiver nenhuma linha de marcadores lado a lado (função devolve
+        // `null` nesse caso, ver comentário lá — zero mudança de
+        // comportamento pro catálogo de coluna única que já funcionava).
+        const vitrineGrid = extractVitrineGridBlocks(items, pageWidthPdf);
+
+        if (vitrineGrid && vitrineGrid.length > 0) {
+          rows.push(...vitrineGrid.map(({ yTop: _yTop, yBottom: _yBottom, xMin: _xMin, xMax: _xMax, ...row }) => row));
+
+          if (withImages) {
+            const { canvas: c, viewport: v } = await ensureCanvas();
+            // Mesmo recorte por bounding box da grade com preço
+            // (cropGridBlock) — o bloco já sabe onde começa/termina nos
+            // dois eixos, não precisa adivinhar altura fixa nem depender
+            // da linha de texto vizinha (ver cropRowBand, usado só pelo
+            // modo empilhado abaixo).
+            await mapWithConcurrency(vitrineGrid, IMAGE_UPLOAD_CONCURRENCY, async (block) => {
+              try {
+                const cropped = cropGridBlock(c!, v!, IMAGE_RENDER_SCALE, block);
+                const url = await uploadCatalogImage(options!.userId!, block.sku, cropped);
+                imagesBySku[block.sku] = url;
+              } catch (err) {
+                console.warn(`Falha ao extrair/subir imagem do produto "${block.sku}" (layout vitrine em grade):`, err);
+              }
+            });
+          }
+          if (rows.length === rowsBeforePage) pagesWithNoProducts.push(pageNum);
+          continue;
+        }
+
+        // Suporte a foto (ago/2026, confirmado com PDF real — Catálogo
+        // TOPUTIL/DL Grupo, o mesmo layout que motivou este heurístico):
+        // cada marcador de SKU já tem posição Y conhecida, então o
+        // recorte usa o mesmo `cropRowBand` do layout linha-única, com o
+        // marcador ANTERIOR/PRÓXIMO como limite (não a linha de texto
+        // adjacente — o bloco aqui tem várias linhas, precisa da posição
+        // do PRODUTO vizinho, não da linha vizinha).
         const noPriceRowsIndexed = extractProductBlocksWithoutPriceIndexed(pageLines.map((l) => l.text));
 
         if (noPriceRowsIndexed.length > 0) {

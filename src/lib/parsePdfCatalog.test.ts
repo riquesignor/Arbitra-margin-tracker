@@ -4,6 +4,7 @@ import {
   extractProductBlocksWithoutPrice,
   extractProductBlocksWithoutPriceIndexed,
   extractRows,
+  extractVitrineGridBlocks,
   sanitizeProductName,
 } from "./parsePdfCatalog";
 
@@ -553,5 +554,216 @@ describe("extractProductBlocksWithoutPriceIndexed", () => {
 
     expect(extractProductBlocksWithoutPrice(lines)).toEqual(extractProductBlocksWithoutPriceIndexed(lines).map(({ lineIndex: _l, ...row }) => row));
     expect(Object.keys(extractProductBlocksWithoutPrice(lines)[0])).not.toContain("lineIndex");
+  });
+});
+
+describe("extractVitrineGridBlocks", () => {
+  const PAGE_WIDTH = 595.5;
+
+  // Dados REAIS extraídos via PyMuPDF (mesmo espaço de coordenadas PDF
+  // que pdfjs) da página 2 do catálogo real que motivou este fix
+  // (Catálogo TOPUTIL/DL Grupo) — resolve exatamente o caso documentado
+  // como "LIMITAÇÃO CONHECIDA" em extractProductBlocksWithoutPrice acima:
+  // TOP2977 e TOP2978 lado a lado na mesma linha Y (diff de 0.69pt, bem
+  // dentro de Y_TOLERANCE), mais um "hero" (TOP2905) sozinho numa 3ª
+  // coluna própria — layout misto, não uma grade uniforme.
+  const TOPUTIL_PAGE_2_ITEMS = [
+    { text: "TOP2905", x: 348.401, y: 507.531, width: 94.664 },
+    { text: "MESA", x: 348.401, y: 485.760, width: 38.488 },
+    { text: "PARA", x: 390.425, y: 485.760, width: 37.873 },
+    { text: "COMPUTADOR", x: 348.401, y: 470.500, width: 99.825 },
+    { text: "-", x: 451.762, y: 470.500, width: 4.935 },
+    { text: "COLOR", x: 460.233, y: 470.500, width: 47.946 },
+    { text: "-", x: 348.401, y: 455.241, width: 4.935 },
+    { text: "60x40x1.2CM", x: 356.873, y: 455.241, width: 85.702 },
+    { text: "ALTURA", x: 446.110, y: 455.241, width: 54.072 },
+    { text: "AJUSTAVEL", x: 348.401, y: 439.981, width: 77.448 },
+    { text: "69-80CM", x: 429.385, y: 439.981, width: 59.545 },
+    { text: "NCM:94036000", x: 352.388, y: 401.717, width: 99.641 },
+    { text: "CORES:", x: 351.303, y: 378.089, width: 48.208 },
+    { text: "CX", x: 350.650, y: 419.286, width: 16.672 },
+    { text: "MASTER:", x: 370.563, y: 419.286, width: 53.775 },
+    { text: "6", x: 427.578, y: 419.286, width: 7.362 },
+    { text: "017208", x: 352.388, y: 305.691, width: 80.827 },
+    { text: "TOP2977", x: 181.802, y: 231.070, width: 60.454 },
+    { text: "MOLDURA", x: 181.802, y: 216.058, width: 51.771 },
+    { text: "P/", x: 236.175, y: 216.058, width: 10.343 },
+    { text: "FOTO", x: 249.120, y: 216.058, width: 27.560 },
+    { text: "DUOLA", x: 181.802, y: 204.832, width: 35.876 },
+    { text: "FACE", x: 220.279, y: 204.832, width: 26.240 },
+    { text: "BASE", x: 249.120, y: 204.832, width: 26.485 },
+    { text: "MADEIRA", x: 181.802, y: 193.606, width: 47.133 },
+    { text: "C/", x: 231.536, y: 193.606, width: 10.353 },
+    { text: "VIDRO", x: 244.490, y: 193.606, width: 32.500 },
+    { text: "10.2x15.2CM", x: 181.802, y: 182.380, width: 55.873 },
+    { text: "NCM:44149000", x: 182.533, y: 156.333, width: 62.943 },
+    { text: "CORES:", x: 182.740, y: 143.495, width: 31.011 },
+    { text: "CX", x: 182.533, y: 165.587, width: 10.725 },
+    { text: "MASTER:", x: 195.343, y: 165.587, width: 34.592 },
+    { text: "24", x: 232.020, y: 165.587, width: 9.524 },
+    { text: "002918", x: 182.533, y: 87.931, width: 52.271 },
+    { text: "TOP2978", x: 477.239, y: 231.759, width: 63.745 },
+    { text: "MOLDURA", x: 477.239, y: 212.825, width: 47.640 },
+    { text: "P/", x: 527.273, y: 212.825, width: 9.518 },
+    { text: "FOTO", x: 539.185, y: 212.825, width: 25.361 },
+    { text: "DUOLA", x: 477.239, y: 202.494, width: 33.013 },
+    { text: "FACE", x: 512.645, y: 202.494, width: 24.146 },
+    { text: "BASE", x: 539.185, y: 202.494, width: 24.371 },
+    { text: "MADEIRA", x: 477.239, y: 192.164, width: 43.372 },
+    { text: "C/", x: 523.004, y: 192.164, width: 9.527 },
+    { text: "VIDRO", x: 534.925, y: 192.164, width: 29.907 },
+    { text: "12.7x17.8CM", x: 477.239, y: 181.834, width: 51.666 },
+    { text: "NCM:44149000", x: 477.111, y: 151.371, width: 53.904 },
+    { text: "CORES:", x: 477.239, y: 137.505, width: 26.558 },
+    { text: "CX", x: 477.239, y: 163.192, width: 9.185 },
+    { text: "MASTER:", x: 488.209, y: 163.192, width: 29.624 },
+    { text: "18", x: 519.619, y: 163.192, width: 6.682 },
+    { text: "003430", x: 479.370, y: 90.908, width: 48.183 },
+  ];
+
+  it(
+    "recupera os 3 produtos da página 2 do Toputil, INCLUINDO o par lado a lado (TOP2977/TOP2978) que " +
+      "extractProductBlocksWithoutPrice descarta (ver teste 'LIMITAÇÃO CONHECIDA' acima) — layout misto: " +
+      "1 hero sozinho numa coluna + 2 produtos lado a lado em duas outras colunas",
+    () => {
+      const result = extractVitrineGridBlocks(TOPUTIL_PAGE_2_ITEMS, PAGE_WIDTH);
+
+      expect(result).not.toBeNull();
+      expect(result!.map((b) => b.sku).sort()).toEqual(["TOP2905", "TOP2977", "TOP2978"]);
+
+      const bySku = Object.fromEntries(result!.map((b) => [b.sku, b]));
+      expect(bySku["TOP2905"].name).toBe("MESA PARA COMPUTADOR COLOR 60x40x1.2CM ALTURA AJUSTAVEL 69-80CM");
+      expect(bySku["TOP2977"].name).toBe("MOLDURA P/ FOTO DUOLA FACE BASE MADEIRA C/ VIDRO 10.2x15.2CM");
+      expect(bySku["TOP2978"].name).toBe("MOLDURA P/ FOTO DUOLA FACE BASE MADEIRA C/ VIDRO 12.7x17.8CM");
+      // Sem "R$" em lugar nenhum do catálogo — nenhum dos 3 ganha preço.
+      expect(bySku["TOP2905"].supplierPrice).toBeUndefined();
+      expect(bySku["TOP2977"].supplierPrice).toBeUndefined();
+      expect(bySku["TOP2978"].supplierPrice).toBeUndefined();
+    }
+  );
+
+  it("cada bloco carrega bounding box (xMin/xMax/yTop/yBottom) coerente com a própria coluna — base do recorte de foto (cropGridBlock)", () => {
+    const result = extractVitrineGridBlocks(TOPUTIL_PAGE_2_ITEMS, PAGE_WIDTH);
+    const bySku = Object.fromEntries(result!.map((b) => [b.sku, b]));
+
+    // TOP2977 (coluna esquerda) e TOP2978 (coluna direita) não podem
+    // compartilhar faixa de X — é o que garante que o nome de um nunca
+    // vaza pro outro mesmo com as linhas de corpo interlaçando em Y.
+    expect(bySku["TOP2977"].xMax).toBeLessThanOrEqual(bySku["TOP2978"].xMin);
+  });
+
+  // Dados REAIS da página 5 do mesmo catálogo — grade de 2 colunas
+  // repetida a página INTEIRA (sem hero), incluindo o código de
+  // referência com asterisco de item promocional ("001109*"/"002583*")
+  // que STANDALONE_DIGITS_LINE_PATTERN precisou aprender a reconhecer
+  // (ver comentário daquele padrão) pra não vazar pro nome.
+  const TOPUTIL_PAGE_5_ITEMS = [
+    { text: "TOP2038", x: 455.717, y: 501.801, width: 50.617 },
+    { text: "TOP2036", x: 182.477, y: 519.012, width: 55.606 },
+    { text: "Conjunto", x: 457.127, y: 489.779, width: 40.140 },
+    { text: "6", x: 457.127, y: 479.795, width: 5.258 },
+    { text: "copos", x: 464.699, y: 479.795, width: 25.760 },
+    { text: "de", x: 492.772, y: 479.795, width: 10.977 },
+    { text: "vidro", x: 457.127, y: 469.811, width: 21.961 },
+    { text: "310ml", x: 481.402, y: 469.811, width: 24.971 },
+    { text: "CX.", x: 457.127, y: 454.124, width: 10.385 },
+    { text: "MASTER:", x: 469.233, y: 454.124, width: 28.581 },
+    { text: "8", x: 499.534, y: 454.124, width: 4.073 },
+    { text: "NCM:", x: 457.127, y: 447.774, width: 18.274 },
+    { text: "70133700", x: 477.243, y: 447.774, width: 31.927 },
+    { text: "Conjunto", x: 184.034, y: 505.740, width: 44.312 },
+    { text: "6", x: 184.034, y: 494.718, width: 5.805 },
+    { text: "canecas", x: 192.392, y: 494.718, width: 38.860 },
+    { text: "de", x: 233.806, y: 494.718, width: 12.118 },
+    { text: "vidro", x: 184.034, y: 483.697, width: 24.244 },
+    { text: "100ml", x: 210.831, y: 483.697, width: 28.409 },
+    { text: "CX.", x: 184.034, y: 466.379, width: 11.464 },
+    { text: "MASTER:", x: 197.398, y: 466.379, width: 31.551 },
+    { text: "12", x: 230.848, y: 466.379, width: 6.638 },
+    { text: "NCM:", x: 184.034, y: 459.370, width: 20.173 },
+    { text: "70134900", x: 206.241, y: 459.370, width: 36.101 },
+    { text: "CORES:", x: 459.263, y: 426.665, width: 25.668 },
+    { text: "CORES:", x: 186.392, y: 436.067, width: 28.335 },
+    { text: "001831*", x: 457.127, y: 383.911, width: 56.831 },
+    { text: "001109*", x: 180.807, y: 387.384, width: 63.840 },
+    { text: "TOP2039", x: 174.443, y: 310.203, width: 60.564 },
+    { text: "Conjunto", x: 176.138, y: 295.748, width: 48.263 },
+    { text: "6", x: 176.138, y: 283.743, width: 6.323 },
+    { text: "copos", x: 185.242, y: 283.743, width: 30.973 },
+    { text: "de", x: 218.996, y: 283.743, width: 13.198 },
+    { text: "vidro", x: 176.138, y: 271.739, width: 26.406 },
+    { text: "420ml", x: 205.325, y: 271.739, width: 33.029 },
+    { text: "CX.", x: 176.138, y: 252.877, width: 12.487 },
+    { text: "MASTER:", x: 190.694, y: 252.877, width: 34.365 },
+    { text: "8", x: 227.127, y: 252.877, width: 4.897 },
+    { text: "NCM:", x: 176.138, y: 245.243, width: 21.972 },
+    { text: "70133700", x: 200.326, y: 245.243, width: 38.389 },
+    { text: "CORES:", x: 176.431, y: 230.478, width: 30.862 },
+    { text: "002583*", x: 176.138, y: 174.693, width: 75.678 },
+    { text: "TOP2041", x: 451.903, y: 310.203, width: 58.652 },
+    { text: "Conjunto", x: 453.599, y: 295.748, width: 48.263 },
+    { text: "6", x: 453.599, y: 283.744, width: 6.323 },
+    { text: "taças", x: 462.703, y: 283.744, width: 27.565 },
+    { text: "de", x: 493.049, y: 283.744, width: 13.198 },
+    { text: "vidro", x: 453.599, y: 271.739, width: 26.406 },
+    { text: "340ml", x: 482.786, y: 271.739, width: 33.029 },
+    { text: "CX.", x: 453.599, y: 252.878, width: 12.487 },
+    { text: "MASTER:", x: 468.154, y: 252.878, width: 34.365 },
+    { text: "8", x: 504.588, y: 252.878, width: 4.897 },
+    { text: "NCM:", x: 453.599, y: 245.243, width: 21.972 },
+    { text: "70132800", x: 477.786, y: 245.243, width: 38.742 },
+    { text: "CORES:", x: 455.790, y: 230.478, width: 30.862 },
+    { text: "002866*", x: 455.682, y: 170.380, width: 77.278 },
+    // Banner "PROMOÇÃO!" rotacionado, 1 palavra por linha (decoração da
+    // página, não faz parte de nome nenhum) — presente 4x, perto de cada
+    // um dos 4 produtos, testando que não contamina o nome de nenhum.
+    { text: "PRO", x: 234.818, y: 217.742, width: 22.304 },
+    { text: "MO", x: 232.853, y: 210.153, width: 17.820 },
+    { text: "ÇÃO!", x: 230.888, y: 199.836, width: 25.287 },
+    { text: "PRO", x: 232.451, y: 437.876, width: 22.304 },
+    { text: "MO", x: 230.486, y: 430.286, width: 17.820 },
+    { text: "ÇÃO!", x: 228.521, y: 419.970, width: 25.287 },
+    { text: "PRO", x: 517.491, y: 423.614, width: 22.304 },
+    { text: "MO", x: 515.526, y: 416.024, width: 17.820 },
+    { text: "ÇÃO!", x: 513.561, y: 405.708, width: 25.287 },
+    { text: "PRO", x: 527.340, y: 218.588, width: 22.304 },
+    { text: "MO", x: 525.375, y: 210.998, width: 17.820 },
+    { text: "ÇÃO!", x: 523.410, y: 200.682, width: 25.287 },
+  ];
+
+  it("recupera os 4 produtos de uma grade de 2 colunas repetida a página inteira, sem contaminar nome entre colunas nem com o banner de promoção", () => {
+    const result = extractVitrineGridBlocks(TOPUTIL_PAGE_5_ITEMS, PAGE_WIDTH);
+
+    expect(result).not.toBeNull();
+    expect(result!.map((b) => b.sku).sort()).toEqual(["TOP2036", "TOP2038", "TOP2039", "TOP2041"]);
+
+    const bySku = Object.fromEntries(result!.map((b) => [b.sku, b]));
+    expect(bySku["TOP2036"].name).toBe("Conjunto 6 canecas de vidro 100ml");
+    expect(bySku["TOP2038"].name).toBe("Conjunto 6 copos de vidro 310ml");
+    expect(bySku["TOP2039"].name).toBe("Conjunto 6 copos de vidro 420ml");
+    expect(bySku["TOP2041"].name).toBe("Conjunto 6 taças de vidro 340ml");
+  });
+
+  it("é no-op (devolve null) quando a página não tem nenhuma linha com 2+ marcadores lado a lado — catálogo de coluna única cai pro modo empilhado de sempre, sem mudança de comportamento", () => {
+    const items = [
+      { text: "TOP2905", x: 30, y: 700, width: 60 },
+      { text: "Produto Empilhado Normal", x: 30, y: 650, width: 150 },
+      { text: "CX MASTER: 20", x: 30, y: 600, width: 80 },
+    ];
+
+    expect(extractVitrineGridBlocks(items, PAGE_WIDTH)).toBeNull();
+    expect(extractVitrineGridBlocks([], PAGE_WIDTH)).toBeNull();
+  });
+
+  it("é no-op quando a linha com 2+ segmentos NÃO são todos SKU standalone (evita falso positivo) — mesmo espírito do teste equivalente em extractProductBlocksWithoutPrice", () => {
+    // 2 segmentos na mesma linha Y, mas só 1 bate no padrão de SKU
+    // standalone (o outro é texto qualquer) — não é o caso de grade
+    // lado a lado, então não deve ativar o modo grade.
+    const items = [
+      { text: "TOP2905", x: 30, y: 700, width: 60 },
+      { text: "Alguma frase qualquer", x: 300, y: 700, width: 150 },
+    ];
+
+    expect(extractVitrineGridBlocks(items, PAGE_WIDTH)).toBeNull();
   });
 });
