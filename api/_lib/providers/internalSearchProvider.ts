@@ -628,12 +628,22 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
  * só fazem sentido indo direto na loja: o ScraperAPI monta os dele do
  * lado de lá, e sobrepor os nossos não ajuda.
  *
- * `render`/`premium` (JS rendering, bypass de anti-bot mais agressivo)
- * NÃO estão ligados aqui de propósito — Amazon/ML servem HTML pronto
- * pros parsers atuais (JSON-LD/cards), então ligar isso só aumentaria o
- * custo em crédito sem ganho hoje. Se o bloqueio persistir mesmo via
- * proxy, esse é o próximo botão a virar, sem tocar em parser nem em
- * `fetchStoreHtml`.
+ * `render` (JS rendering) continua DESLIGADO de propósito — Amazon/ML
+ * servem HTML pronto pros parsers atuais (JSON-LD/cards), então ligar
+ * isso só aumentaria o custo em crédito sem ganho.
+ *
+ * `premium` (pool de proxy residencial/mobile da ScraperAPI, em vez do
+ * datacenter padrão) LIGADO desde ago/2026 — relato real: com
+ * `SCRAPERAPI_KEY` configurada (proxy ativo) e AINDA ASSIM Amazon E
+ * Mercado Livre bloqueando (403/CAPTCHA, ver `StoreBlockedError`), sinal
+ * de que o pool datacenter padrão da ScraperAPI já está tão visado
+ * quanto o IP direto da Vercel — exatamente o cenário que este comentário
+ * já previa como "próximo botão a virar". Custa mais crédito por
+ * requisição no plano ScraperAPI (residencial/mobile é a categoria mais
+ * cara lá) — se isso pesar no plano contratado, o primeiro lugar pra
+ * cortar de volta é este parâmetro (remove a query string, sem tocar em
+ * parser nem no resto de `fetchStoreHtml`), não o volume de busca do
+ * motor interno + IA.
  */
 async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{ status: number; html: string }> {
   const controller = new AbortController();
@@ -641,7 +651,7 @@ async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{
 
   const useProxy = Boolean(SCRAPERAPI_KEY);
   const targetUrl = useProxy
-    ? `${SCRAPERAPI_ENDPOINT}?api_key=${SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}`
+    ? `${SCRAPERAPI_ENDPOINT}?api_key=${SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}&premium=true`
     : url;
 
   try {

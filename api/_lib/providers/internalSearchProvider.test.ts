@@ -396,6 +396,11 @@ describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
 
       expect(calledUrl).toContain("https://api.scraperapi.com/?api_key=chave-de-teste&url=");
       expect(calledUrl).toContain("mercadolivre.com.br"); // URL da loja vai como parâmetro, não como destino
+      // premium=true (pool residencial/mobile) — ago/2026, relato real: com
+      // proxy ativo e AINDA ASSIM Amazon+ML bloqueando, o pool datacenter
+      // padrão da ScraperAPI também já estava visado (ver comentário em
+      // fetchStoreHtmlOnce, internalSearchProvider.ts).
+      expect(calledUrl).toContain("premium=true");
       expect(calledHeaders).toBeUndefined(); // ScraperAPI monta os próprios headers do lado dele
 
       vi.resetModules(); // não deixa a versão "com chave" vazar pros describes seguintes deste arquivo
