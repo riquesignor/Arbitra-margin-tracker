@@ -20,7 +20,8 @@ export type ProviderKeyId =
   | "rapidApiKey"
   | "searchApiKey"
   | "geminiApiKey"
-  | "mistralApiKey";
+  | "mistralApiKey"
+  | "scraperApiKey";
 
 export interface ProviderKeyGuide {
   /** Nome do serviço como o usuário o conhece. */
@@ -63,6 +64,12 @@ export const PROVIDER_KEY_GUIDE: Record<ProviderKeyId, ProviderKeyGuide> = {
     card: "Mistral (motor interno + IA)",
     url: "https://console.mistral.ai",
     cost: "grátis, sem cartão",
+  },
+  scraperApiKey: {
+    name: "ScraperAPI",
+    card: "ScraperAPI",
+    url: "https://www.scraperapi.com/",
+    cost: "trial grátis (5.000 créditos), pago depois",
   },
 };
 

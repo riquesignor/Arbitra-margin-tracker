@@ -6,19 +6,58 @@ import { buildSearchQuery } from "../searchQuery.js";
 import { type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
- * Chave de servidor, NÃO é BYOK — mesmo padrão de `SCRAPERAPI_KEY` em
- * internalSearchProvider.ts (server-secret, `ML_CLIENT_ID`/`ML_CLIENT_SECRET`
- * é o precedente original). Lida direto do ambiente aqui também, em vez de
- * importar a constante do outro arquivo, porque os dois arquivos cobrem usos
- * DIFERENTES da mesma chave: lá é transporte (proxy de HTML cru pro motor
- * interno), aqui é os endpoints de DADO ESTRUTURADO (JSON pronto, sem
- * parser próprio) — acoplar os dois só pra não repetir uma linha de
- * `process.env` deixaria a intenção de cada arquivo menos clara.
+ * BYOK (set/2026 — antes era secret de servidor, ver git blame). Cada
+ * função abaixo recebe `scraperApiKey` já resolvida pelo chamador
+ * (fetch-prices.ts, a partir do uid autenticado — ver
+ * api/_lib/userSecrets.ts) em vez de ler `process.env` direto: mesma
+ * chave/campo (`scraperApiKey`, `users/{uid}/secrets/keys`) que
+ * internalSearchProvider.ts usa pro transporte (proxy de HTML cru), só
+ * que aqui é os endpoints de DADO ESTRUTURADO (JSON pronto, sem parser
+ * próprio) — arquivos diferentes, mesma chave do usuário, passada por
+ * parâmetro em vez de lida duas vezes do ambiente.
  */
-const SCRAPERAPI_KEY = process.env.SCRAPERAPI_KEY?.trim();
-
 const AMAZON_SEARCH_ENDPOINT = "https://api.scraperapi.com/structured/amazon/search";
 const GOOGLE_SHOPPING_ENDPOINT = "https://api.scraperapi.com/structured/google/shopping";
+
+/**
+ * TETO DE TEMPO NAS CHAMADAS DA SCRAPERAPI (set/2026)
+ * ══════════════════════════════════════════════════════════════════════
+ * Bug real corrigido: nenhuma das 4 chamadas `fetch` deste arquivo tinha
+ * `AbortController`/timeout — dependiam só do teto da function inteira
+ * (300s, vercel.json). Relato real: catálogo de 9 produtos levando ~10
+ * minutos no mecanismo "ScraperAPI" (contra ~1min no motor interno puro),
+ * consistente com o endpoint de Google Shopping sendo lento sem teto
+ * nenhum represando o lote inteiro atrás de UMA chamada.
+ *
+ * Mais crítico ainda depois de set/2026: essas mesmas funções também são
+ * o FALLBACK do motor interno + IA quando a raspagem direta falha (ver
+ * `fetchCandidateOffers` em visionInternalSearchProvider.ts) — sem teto,
+ * um fallback lento arrastava o motor rápido pro mesmo horário de
+ * espera do mecanismo "ScraperAPI" standalone, o oposto do que o
+ * fallback deveria fazer (ele é opcional, uma fonte a menos não pode
+ * pesar mais que a fonte principal).
+ *
+ * 8s — mesmo valor de REQUEST_TIMEOUT_MS em internalSearchProvider.ts
+ * (raspagem direta): se a raspagem direta já teria desistido em 8s, o
+ * fallback estruturado não tem motivo pra ter paciência maior.
+ */
+const SCRAPERAPI_TIMEOUT_MS = 8000;
+
+/** `fetch` com teto de tempo — usado nas 4 chamadas deste arquivo. AbortError vira erro comum (mensagem clara), pego pelo try/catch de quem chama, igual qualquer outra falha de rede. */
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SCRAPERAPI_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`ScraperAPI não respondeu em ${SCRAPERAPI_TIMEOUT_MS / 1000}s (timeout).`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // Mesma cautela de concorrência dos outros providers de terceiro
 // (googleShoppingProvider.ts, searchApiLensProvider.ts) — a ScraperAPI não
@@ -114,8 +153,11 @@ export interface GoogleShoppingCandidate {
  * clicável, mas não leva a lugar nenhum sem uma 2ª chamada paga) — por
  * isso nem a interface acima nem esta função carregam o campo.
  */
-export async function fetchGoogleShoppingCandidatesForQuery(query: string): Promise<GoogleShoppingCandidate[]> {
-  const apiKey = SCRAPERAPI_KEY;
+export async function fetchGoogleShoppingCandidatesForQuery(
+  query: string,
+  scraperApiKey: string | undefined
+): Promise<GoogleShoppingCandidate[]> {
+  const apiKey = scraperApiKey?.trim();
   if (!apiKey) return [];
 
   try {
@@ -127,7 +169,7 @@ export async function fetchGoogleShoppingCandidatesForQuery(query: string): Prom
     url.searchParams.set("gl", "br");
     url.searchParams.set("hl", "pt-br");
 
-    const response = await fetch(url.toString());
+    const response = await fetchWithTimeout(url.toString());
     if (!response.ok) {
       console.warn(`ScraperAPI (Google Shopping, busca geral) "${query}" retornou ${response.status}`);
       return [];
@@ -181,8 +223,11 @@ export interface AmazonStructuredCandidate {
  * Devolve `[]` (não lança) quando não há chave ou a chamada falha: quem
  * chama decide se cai pra raspagem.
  */
-export async function fetchAmazonCandidatesForQuery(query: string): Promise<AmazonStructuredCandidate[]> {
-  const apiKey = SCRAPERAPI_KEY;
+export async function fetchAmazonCandidatesForQuery(
+  query: string,
+  scraperApiKey: string | undefined
+): Promise<AmazonStructuredCandidate[]> {
+  const apiKey = scraperApiKey?.trim();
   if (!apiKey) return [];
 
   try {
@@ -192,7 +237,7 @@ export async function fetchAmazonCandidatesForQuery(query: string): Promise<Amaz
     url.searchParams.set("tld", "com.br");
     url.searchParams.set("country_code", "br");
 
-    const response = await fetch(url.toString());
+    const response = await fetchWithTimeout(url.toString());
     if (!response.ok) {
       console.warn(`ScraperAPI (Amazon Search, candidatos) "${query}" retornou ${response.status}`);
       return [];
@@ -269,12 +314,13 @@ export async function fetchAmazonCandidatesForQuery(query: string): Promise<Amaz
  */
 export async function searchScraperApiShared(
   items: CatalogItemQuery[],
-  matchers: MarketplaceMatcher[]
+  matchers: MarketplaceMatcher[],
+  scraperApiKey: string | undefined
 ): Promise<Record<MarketplaceId, Record<string, MarketplacePriceResult>>> {
-  const apiKey = SCRAPERAPI_KEY;
+  const apiKey = scraperApiKey?.trim();
   if (!apiKey) {
     throw new Error(
-      "SCRAPERAPI_KEY não configurada no servidor — variável de ambiente, não é BYOK (ver Account.tsx/.env.example)."
+      "Nenhuma chave ScraperAPI própria configurada. Cadastre a sua em Conta antes de buscar com este mecanismo."
     );
   }
 
@@ -323,7 +369,7 @@ export async function searchScraperApiShared(
             url.searchParams.set("tld", "com.br");
             url.searchParams.set("country_code", "br");
 
-            const response = await fetch(url.toString());
+            const response = await fetchWithTimeout(url.toString());
             if (!response.ok) {
               console.warn(`ScraperAPI (Amazon Search) "${name}" (${sku}) retornou ${response.status}`);
               return;
@@ -359,7 +405,7 @@ export async function searchScraperApiShared(
             url.searchParams.set("gl", "br");
             url.searchParams.set("hl", "pt-br");
 
-            const response = await fetch(url.toString());
+            const response = await fetchWithTimeout(url.toString());
             if (!response.ok) {
               console.warn(`ScraperAPI (Google Shopping) "${name}" (${sku}) retornou ${response.status}`);
               return;

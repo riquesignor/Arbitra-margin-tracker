@@ -14,19 +14,14 @@ import {
  * funcionar — comportamento coberto pelo último bloco.
  */
 const ORIGINAL_VERCEL_ENV = process.env.VERCEL_ENV;
-/** A 2ª tentativa por proxy só existe com chave configurada — o padrão dos testes é SEM, pra o caminho direto ficar isolado. */
-const ORIGINAL_SCRAPERAPI_KEY = process.env.SCRAPERAPI_KEY;
 
 beforeEach(() => {
   process.env.VERCEL_ENV = "production";
-  delete process.env.SCRAPERAPI_KEY;
 });
 
 afterEach(() => {
   if (ORIGINAL_VERCEL_ENV === undefined) delete process.env.VERCEL_ENV;
   else process.env.VERCEL_ENV = ORIGINAL_VERCEL_ENV;
-  if (ORIGINAL_SCRAPERAPI_KEY === undefined) delete process.env.SCRAPERAPI_KEY;
-  else process.env.SCRAPERAPI_KEY = ORIGINAL_SCRAPERAPI_KEY;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -213,7 +208,6 @@ describe("fetchImageWithLimit — 2ª tentativa via ScraperAPI quando a loja blo
   }
 
   it("repete pela ScraperAPI em 403 e devolve a imagem que o proxy trouxe", async () => {
-    process.env.SCRAPERAPI_KEY = "chave-de-teste";
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi
       .fn()
@@ -223,7 +217,8 @@ describe("fetchImageWithLimit — 2ª tentativa via ScraperAPI quando a loja blo
 
     const { buffer } = await fetchImageWithLimit(
       "https://m.media-amazon.com/images/I/abc.jpg",
-      new AbortController().signal
+      new AbortController().signal,
+      "chave-de-teste"
     );
 
     expect(buffer.byteLength).toBe(2);
@@ -235,30 +230,32 @@ describe("fetchImageWithLimit — 2ª tentativa via ScraperAPI quando a loja blo
   });
 
   it("não gasta crédito quando a imagem simplesmente não existe (404 não é bloqueio)", async () => {
-    process.env.SCRAPERAPI_KEY = "chave-de-teste";
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockResolvedValue(blockedResponse(404));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      fetchImageWithLimit("https://http2.mlstatic.com/sumiu.jpg", new AbortController().signal)
+      fetchImageWithLimit("https://http2.mlstatic.com/sumiu.jpg", new AbortController().signal, "chave-de-teste")
     ).rejects.toThrow(UnsafeImageUrlError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("não tenta proxy pra foto do próprio app (/api/catalog-image)", async () => {
-    process.env.SCRAPERAPI_KEY = "chave-de-teste";
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockResolvedValue(blockedResponse(403));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      fetchImageWithLimit("https://arbitra.vercel.app/api/catalog-image?id=x", new AbortController().signal)
+      fetchImageWithLimit(
+        "https://arbitra.vercel.app/api/catalog-image?id=x",
+        new AbortController().signal,
+        "chave-de-teste"
+      )
     ).rejects.toThrow(UnsafeImageUrlError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("sem SCRAPERAPI_KEY, falha igual ao comportamento antigo (sem 2ª tentativa)", async () => {
+  it("sem chave ScraperAPI, falha igual ao comportamento antigo (sem 2ª tentativa)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockResolvedValue(blockedResponse(429));
     vi.stubGlobal("fetch", fetchMock);
@@ -270,13 +267,16 @@ describe("fetchImageWithLimit — 2ª tentativa via ScraperAPI quando a loja blo
   });
 
   it("proxy também bloqueado: propaga erro genérico, sem 3ª tentativa", async () => {
-    process.env.SCRAPERAPI_KEY = "chave-de-teste";
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fetchMock = vi.fn().mockResolvedValue(blockedResponse(403));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      fetchImageWithLimit("https://m.media-amazon.com/images/I/abc.jpg", new AbortController().signal)
+      fetchImageWithLimit(
+        "https://m.media-amazon.com/images/I/abc.jpg",
+        new AbortController().signal,
+        "chave-de-teste"
+      )
     ).rejects.toThrow(/^Não consegui baixar a imagem\.$/);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

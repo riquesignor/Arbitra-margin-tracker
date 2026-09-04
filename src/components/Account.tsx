@@ -22,18 +22,21 @@ import {
   deleteUserUnwrangleApiKey,
   deleteUserGeminiApiKey,
   deleteUserMistralApiKey,
+  deleteUserScraperApiKey,
   getUserSerpApiKey,
   getUserRapidApiKey,
   getUserSearchApiKey,
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
   getUserMistralApiKey,
+  getUserScraperApiKey,
   saveUserSerpApiKey,
   saveUserRapidApiKey,
   saveUserSearchApiKey,
   saveUserUnwrangleApiKey,
   saveUserGeminiApiKey,
   saveUserMistralApiKey,
+  saveUserScraperApiKey,
 } from "../lib/userSecrets";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
@@ -213,6 +216,25 @@ const MISTRAL_INTRO = (
   </>
 );
 
+// Sua própria chave (set/2026, BYOK — antes era secret da plataforma,
+// paga por TODO mundo; virou por usuário pra escalar pra "qualquer
+// pessoa comercializar" sem empurrar custo de infra pro operador). Três
+// usos diferentes: mecanismo "ScraperAPI" (Structured Data Endpoints —
+// busca de verdade, não só transporte), fallback do motor interno + IA
+// quando a raspagem direta da loja é bloqueada (fetchCandidateOffers,
+// visionInternalSearchProvider.ts), e retry de download de foto de
+// anúncio bloqueada (safeImageUrl.ts).
+const SCRAPERAPI_INTRO = (
+  <>
+    Opcional — usada pelo mecanismo "ScraperAPI" e como reforço anti-bloqueio de outros mecanismos
+    (motor interno, download de foto de anúncio).{" "}
+    <a href="https://www.scraperapi.com/" target="_blank" rel="noreferrer">
+      crie em scraperapi.com
+    </a>{" "}
+    (trial grátis com 5.000 créditos; pago depois disso) e cole a API key abaixo.
+  </>
+);
+
 // 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
 // contador do dia atual, sem histórico por dia no back-end ainda. Só a
 // última barra (hoje) é dado real; o resto é só pra dar forma ao
@@ -291,6 +313,17 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [mistralKeyMsg, setMistralKeyMsg] = useState<string | null>(null);
   const [mistralKeyError, setMistralKeyError] = useState<string | null>(null);
 
+  // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
+  // secret de servidor da plataforma, ver src/lib/userSecrets.ts). Usada
+  // pelo mecanismo "ScraperAPI" em si E como fallback/proxy de outros
+  // (motor interno + IA quando a raspagem bloqueia, retry de imagem
+  // bloqueada) — mesmo padrão de estado das chaves acima.
+  const [hasScraperApiKey, setHasScraperApiKey] = useState(false);
+  const [scraperApiKeyInput, setScraperApiKeyInput] = useState("");
+  const [savingScraperApiKey, setSavingScraperApiKey] = useState(false);
+  const [scraperApiKeyMsg, setScraperApiKeyMsg] = useState<string | null>(null);
+  const [scraperApiKeyError, setScraperApiKeyError] = useState<string | null>(null);
+
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
@@ -303,6 +336,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
     getUserGeminiApiKey(user.uid).then((key) => setHasGeminiKey(Boolean(key)));
     getUserMistralApiKey(user.uid).then((key) => setHasMistralKey(Boolean(key)));
+    getUserScraperApiKey(user.uid).then((key) => setHasScraperApiKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
 
@@ -475,6 +509,42 @@ export default function Account({ user, profile, preferences, onUpdatePreference
       setMistralKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingMistralKey(false);
+    }
+  }
+
+  async function handleSaveScraperApiKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user || !scraperApiKeyInput.trim()) return;
+    setSavingScraperApiKey(true);
+    setScraperApiKeyError(null);
+    setScraperApiKeyMsg(null);
+    try {
+      await saveUserScraperApiKey(user.uid, scraperApiKeyInput);
+      setHasScraperApiKey(true);
+      setScraperApiKeyInput("");
+      setScraperApiKeyMsg(
+        "Chave salva — o mecanismo \"ScraperAPI\" e o fallback anti-bloqueio do motor interno + IA já podem usar."
+      );
+    } catch (err) {
+      setScraperApiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingScraperApiKey(false);
+    }
+  }
+
+  async function handleRemoveScraperApiKey() {
+    if (!user) return;
+    setSavingScraperApiKey(true);
+    setScraperApiKeyError(null);
+    setScraperApiKeyMsg(null);
+    try {
+      await deleteUserScraperApiKey(user.uid);
+      setHasScraperApiKey(false);
+      setScraperApiKeyMsg("Chave removida — o mecanismo \"ScraperAPI\" fica indisponível até cadastrar outra.");
+    } catch (err) {
+      setScraperApiKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingScraperApiKey(false);
     }
   }
 
@@ -926,6 +996,55 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
               {mistralKeyMsg && <p className={styles.successText}>{mistralKeyMsg}</p>}
               {mistralKeyError && <p className={styles.errorText}>{mistralKeyError}</p>}
+            </form>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <KeyRound size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>ScraperAPI</h2>
+              <span className={hasScraperApiKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasScraperApiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasScraperApiKey ? "configurada" : "não configurada"}
+              </span>
+            </div>
+
+            <form className={styles.compactKeyForm} onSubmit={handleSaveScraperApiKey}>
+              <p className={styles.cardIntro}>{SCRAPERAPI_INTRO}</p>
+
+              <div className={styles.compactKeyRow}>
+                <input
+                  className={styles.input}
+                  type="password"
+                  placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
+                  value={scraperApiKeyInput}
+                  onChange={(e) => setScraperApiKeyInput(e.target.value)}
+                  autoComplete="off"
+                />
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={savingScraperApiKey || !scraperApiKeyInput.trim()}
+                >
+                  {savingScraperApiKey ? "Salvando…" : "Salvar"}
+                </button>
+                {hasScraperApiKey && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    title="Remover chave"
+                    onClick={() => void handleRemoveScraperApiKey()}
+                    disabled={savingScraperApiKey}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {scraperApiKeyMsg && <p className={styles.successText}>{scraperApiKeyMsg}</p>}
+              {scraperApiKeyError && <p className={styles.errorText}>{scraperApiKeyError}</p>}
             </form>
           </section>
 

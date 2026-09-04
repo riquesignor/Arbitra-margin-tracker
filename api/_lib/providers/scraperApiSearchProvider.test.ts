@@ -2,13 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MarketplaceMatcher } from "./googleShoppingProvider";
 import { GOOGLE_SHOPPING_MATCHERS } from "./googleShoppingProvider";
 import type { CatalogItemQuery } from "../types";
+import { searchScraperApiShared } from "./scraperApiSearchProvider";
 
 /**
- * SCRAPERAPI_KEY é lida uma vez no module-load (mesmo padrão de
- * internalSearchProvider.ts) — cada teste que precisa da chave presente
- * usa `vi.stubEnv` + `vi.resetModules()` + reimport dinâmico, igual ao
- * describe "fetchStoreHtmlOnce — proxy ScraperAPI" em
- * internalSearchProvider.test.ts.
+ * `scraperApiKey` é BYOK (set/2026, ver comentário no topo de
+ * scraperApiSearchProvider.ts) — passada por PARÂMETRO em cada chamada,
+ * não lida de `process.env`. Isso simplifica os testes: sem
+ * `vi.stubEnv`/`vi.resetModules`/reimport dinâmico (padrão antigo, ainda
+ * usado no describe irmão "fetchStoreHtmlOnce — proxy ScraperAPI" em
+ * internalSearchProvider.test.ts pro cenário sem-chave, que não precisa
+ * reimportar nada).
  */
 
 const MATCHERS_BOTH: MarketplaceMatcher[] = GOOGLE_SHOPPING_MATCHERS;
@@ -21,27 +24,18 @@ function items(): CatalogItemQuery[] {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
-  vi.resetModules();
 });
 
-describe("searchScraperApiShared — sem SCRAPERAPI_KEY", () => {
-  it("lança erro claro (secret de servidor, não BYOK — nunca deve rodar sem a variável de ambiente)", async () => {
-    const { searchScraperApiShared } = await import("./scraperApiSearchProvider");
-    await expect(searchScraperApiShared(items(), MATCHERS_BOTH)).rejects.toThrow(/SCRAPERAPI_KEY/);
+describe("searchScraperApiShared — sem chave ScraperAPI", () => {
+  it("lança erro claro apontando pra BYOK (Conta) — não confunde com falha de infraestrutura", async () => {
+    await expect(searchScraperApiShared(items(), MATCHERS_BOTH, undefined)).rejects.toThrow(/ScraperAPI/);
   });
 });
 
-describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
-  async function importWithKey() {
-    vi.stubEnv("SCRAPERAPI_KEY", "chave-de-teste");
-    vi.resetModules();
-    return import("./scraperApiSearchProvider");
-  }
+describe("searchScraperApiShared — com chave ScraperAPI", () => {
+  const KEY = "chave-de-teste";
 
   it("marketplace amazon: combina candidato nativo (Amazon Search API) com o do Google Shopping, nativo ganha por popularidade (rating/reviews reais)", async () => {
-    const { searchScraperApiShared } = await importWithKey();
-
     vi.stubGlobal(
       "fetch",
       vi.fn(async (urlStr: string) => {
@@ -87,7 +81,7 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
       })
     );
 
-    const result = await searchScraperApiShared(items(), MATCHERS_BOTH);
+    const result = await searchScraperApiShared(items(), MATCHERS_BOTH, KEY);
 
     expect(result.amazon.SKU1).toBeDefined();
     expect(result.amazon.SKU1.price).toBe(199.9); // ganhou o candidato NATIVO (popularidade real > 0)
@@ -99,8 +93,6 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
       "nativa já cobre sozinha) — regressão do estouro real de créditos (20 produtos = ~400 créditos, " +
       "ScraperAPI cobra 5/req pra Amazon e 25/req pra Google/SERP)",
     async () => {
-      const { searchScraperApiShared } = await importWithKey();
-
       let calledGoogleShopping = false;
       vi.stubGlobal(
         "fetch",
@@ -127,7 +119,7 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
         })
       );
 
-      const result = await searchScraperApiShared(items(), MATCHERS_AMAZON_ONLY);
+      const result = await searchScraperApiShared(items(), MATCHERS_AMAZON_ONLY, KEY);
 
       expect(calledGoogleShopping).toBe(false);
       expect(result.amazon.SKU1).toBeDefined();
@@ -136,8 +128,6 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
   );
 
   it("marketplace mercadolivre: só usa candidato do Google Shopping (Amazon Search API não cobre ML)", async () => {
-    const { searchScraperApiShared } = await importWithKey();
-
     let calledAmazonNative = false;
     vi.stubGlobal(
       "fetch",
@@ -162,7 +152,7 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
       })
     );
 
-    const result = await searchScraperApiShared(items(), MATCHERS_ML_ONLY);
+    const result = await searchScraperApiShared(items(), MATCHERS_ML_ONLY, KEY);
 
     expect(calledAmazonNative).toBe(false); // não pediu amazon nos matchers, não chama o endpoint nativo — economiza crédito
     expect(result.mercadolivre.SKU1).toBeDefined();
@@ -170,8 +160,6 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
   });
 
   it("fallback aproximado: Google Shopping acha o produto fora das lojas pedidas, entra marcado approximate em vez de sumir", async () => {
-    const { searchScraperApiShared } = await importWithKey();
-
     vi.stubGlobal(
       "fetch",
       vi.fn(async (urlStr: string) => {
@@ -190,7 +178,7 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
       })
     );
 
-    const result = await searchScraperApiShared(items(), MATCHERS_BOTH);
+    const result = await searchScraperApiShared(items(), MATCHERS_BOTH, KEY);
 
     const [{ marketplace: firstMarketplace }] = MATCHERS_BOTH;
     expect(result[firstMarketplace].SKU1).toBeDefined();
@@ -200,19 +188,15 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
   });
 
   it("erro sistêmico: propaga exceção só quando NENHUM item achou candidato em NENHUMA das duas fontes", async () => {
-    const { searchScraperApiShared } = await importWithKey();
-
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({ results: [], shopping_results: [] }) }) as unknown as Response)
     );
 
-    await expect(searchScraperApiShared(items(), MATCHERS_BOTH)).rejects.toThrow();
+    await expect(searchScraperApiShared(items(), MATCHERS_BOTH, KEY)).rejects.toThrow();
   });
 
   it("não propaga exceção quando SÓ uma das duas fontes falha (a outra ainda pode achar match)", async () => {
-    const { searchScraperApiShared } = await importWithKey();
-
     vi.stubGlobal(
       "fetch",
       vi.fn(async (urlStr: string) => {
@@ -231,7 +215,7 @@ describe("searchScraperApiShared — com SCRAPERAPI_KEY", () => {
       })
     );
 
-    const result = await searchScraperApiShared(items(), MATCHERS_BOTH);
+    const result = await searchScraperApiShared(items(), MATCHERS_BOTH, KEY);
     expect(result.amazon.SKU1).toBeDefined();
     expect(result.amazon.SKU1.price).toBe(210.5);
   });

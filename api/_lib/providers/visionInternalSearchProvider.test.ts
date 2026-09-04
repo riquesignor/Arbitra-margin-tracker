@@ -61,6 +61,22 @@ vi.mock("./scraperApiSearchProvider.js", () => ({
   fetchAmazonCandidatesForQuery: (...args: unknown[]) => fetchAmazonCandidatesForQuery(...args),
 }));
 
+// Fontes OFICIAIS/grátis (set/2026, ver fetchCandidateOffers — agora
+// degrau 1 do fallback, antes das duas estruturadas de terceiro acima).
+// Padrão vazio nos dois: mockam "não configurado" (sem env vars/OAuth),
+// que é o estado padrão de um ambiente de teste — mantém todos os testes
+// existentes deste arquivo exercitando o caminho de sempre (raspagem →
+// estruturado de terceiro) sem precisar saber que os degraus oficiais
+// existem.
+const fetchAmazonPaApiCandidatesForQuery = vi.fn(async (..._args: unknown[]) => [] as unknown[]);
+vi.mock("./amazonPaApi.js", () => ({
+  fetchAmazonPaApiCandidatesForQuery: (...args: unknown[]) => fetchAmazonPaApiCandidatesForQuery(...args),
+}));
+const fetchMlOfficialCandidatesForQuery = vi.fn(async (..._args: unknown[]) => [] as unknown[]);
+vi.mock("./mercadoLivreSearchProvider.js", () => ({
+  fetchMlOfficialCandidatesForQuery: (...args: unknown[]) => fetchMlOfficialCandidatesForQuery(...args),
+}));
+
 // Import dinâmico (não estático) de propósito: import ES é hoisted acima de
 // qualquer outro código do arquivo, o que rodaria a resolução deste módulo
 // (e por tabela, a factory de vi.mock acima) ANTES de `describeProductImage`/
@@ -116,6 +132,8 @@ beforeEach(() => {
   fetchStoreOffers.mockReset();
   fetchGoogleShoppingCandidatesForQuery.mockReset().mockResolvedValue([]);
   fetchAmazonCandidatesForQuery.mockReset().mockResolvedValue([]);
+  fetchAmazonPaApiCandidatesForQuery.mockReset().mockResolvedValue([]);
+  fetchMlOfficialCandidatesForQuery.mockReset().mockResolvedValue([]);
   // Disjuntor de raspagem + memória do Google Shopping são estado de
   // MÓDULO (ver resetCandidateSourceState) — sem zerar, um caso que põe
   // a Amazon em cooldown contamina os seguintes.
@@ -203,6 +221,52 @@ describe("searchVisionInternalShared", () => {
       expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.3, approximate: true });
     }
   );
+
+  it(
+    "corte antecipado (set/2026): nota ≥ 0.95 no 1º candidato evita comparar os outros 2 — " +
+      "economiza chamada de Gemini sem trocar o vencedor (todos os 3 empatam em 0.97 aqui de propósito, " +
+      "então SÓ dá pra saber que parou cedo pelo nº de chamadas, não pelo resultado)",
+    async () => {
+      describeProductImage.mockResolvedValue("query");
+      fetchStoreOffers.mockResolvedValue([
+        {
+          marketplace: "amazon",
+          label: "Amazon",
+          offers: [
+            offer({ thumbnail: "https://loja/a.jpg", link: "la", reviewCount: 10 }),
+            offer({ thumbnail: "https://loja/b.jpg", link: "lb", reviewCount: 20 }),
+            offer({ thumbnail: "https://loja/c.jpg", link: "lc", reviewCount: 30 }),
+          ],
+        },
+      ] satisfies StoreOffers[]);
+      compareProductImages.mockResolvedValue(0.97);
+
+      const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+      expect(compareProductImages).toHaveBeenCalledTimes(1);
+      expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.97 });
+    }
+  );
+
+  it("SEM corte antecipado quando nenhuma nota chega em 0.95 — os 3 candidatos são comparados normalmente", async () => {
+    describeProductImage.mockResolvedValue("query");
+    fetchStoreOffers.mockResolvedValue([
+      {
+        marketplace: "amazon",
+        label: "Amazon",
+        offers: [
+          offer({ thumbnail: "https://loja/a.jpg", link: "la", reviewCount: 10 }),
+          offer({ thumbnail: "https://loja/b.jpg", link: "lb", reviewCount: 20 }),
+          offer({ thumbnail: "https://loja/c.jpg", link: "lc", reviewCount: 30 }),
+        ],
+      },
+    ] satisfies StoreOffers[]);
+    compareProductImages.mockResolvedValue(0.6); // aceito, mas abaixo do EARLY_EXIT_SCORE (0.95)
+
+    await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND);
+
+    expect(compareProductImages).toHaveBeenCalledTimes(3);
+  });
 
   it("marca como aproximado um match aceito mas com nota abaixo do piso de confiança alta", async () => {
     describeProductImage.mockResolvedValue("query");

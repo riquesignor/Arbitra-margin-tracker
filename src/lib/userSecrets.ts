@@ -335,3 +335,58 @@ export async function deleteUserMistralApiKey(userId: string): Promise<void> {
   batch.set(doc(db, "users", userId), { hasMistralApiKey: false }, { merge: true });
   await batch.commit();
 }
+
+/**
+ * Chave ScraperAPI própria do usuário (BYOK — set/2026, virou igual às
+ * demais). Antes era secret de SERVIDOR (`SCRAPERAPI_KEY`, variável de
+ * ambiente da Vercel, uma só pra toda a plataforma) — decisão revertida
+ * porque não escala pra "qualquer pessoa comercializar": cada cliente
+ * novo aumentaria o custo de infraestrutura do operador da Arbitra sem
+ * receita correspondente. Agora cada usuário cadastra a própria chave
+ * aqui, mesmo doc `users/{uid}/secrets/keys` das demais (campo
+ * `scraperApiKey`).
+ *
+ * Usada em TRÊS pontos do servidor (ver api/_lib/userSecrets.ts >
+ * getUserScraperApiKey, resolvida incondicionalmente, não só quando o
+ * provider selecionado é "scraperapi"): o mecanismo "ScraperAPI" em si,
+ * o fallback estruturado do motor interno + IA quando a raspagem direta
+ * bloqueia (fetchCandidateOffers, visionInternalSearchProvider.ts), e o
+ * retry de download de imagem bloqueada (safeImageUrl.ts).
+ */
+export async function getUserScraperApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().scraperApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave ScraperAPI do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserScraperApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { scraperApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasScraperApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserScraperApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { scraperApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasScraperApiKey: false }, { merge: true });
+  await batch.commit();
+}

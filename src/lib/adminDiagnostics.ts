@@ -2,7 +2,6 @@ import { getCurrentIdToken } from "./auth";
 
 export interface AdminDiagnostics {
   environment: string;
-  scraperApiConfigured: boolean;
   mercadoLivreOAuthConfigured: boolean;
   firebaseAdminConfigured: boolean;
   byokOnlyProviders: string[];

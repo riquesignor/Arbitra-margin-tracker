@@ -39,4 +39,11 @@ export function isGoogleShoppingMarketplace(id: MarketplaceId): boolean {
 //   - createMercadoLivreSearchProvider()             (./mercadoLivreSearchProvider.ts,
 //     autenticado via mlAuth.ts — funciona, mas exige concluir o setup
 //     OAuth em scripts/ml-oauth-setup.mjs, que esbarra em validação de
-//     titularidade no DevCenter do Mercado Livre)
+//     titularidade no DevCenter do Mercado Livre). Este mecanismo
+//     STANDALONE segue sem registro aqui — mas a mesma autenticação
+//     (mlAuth.ts) já é reaproveitada como FONTE DE CANDIDATO dentro do
+//     motor interno + IA via `fetchMlOfficialCandidatesForQuery` (mesmo
+//     arquivo, set/2026) — ver fetchCandidateOffers em
+//     visionInternalSearchProvider.ts. Mesmo gate de negócio nos dois
+//     usos: sem o setup OAuth concluído, um fica sem registro e o outro
+//     devolve `[]` e cai pro próximo degrau — nenhum dos dois quebra.

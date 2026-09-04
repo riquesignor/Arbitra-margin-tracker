@@ -21,7 +21,7 @@ import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDire
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
-import { getUserApiKeyForProvider } from "./_lib/userSecrets.js";
+import { getUserApiKeyForProvider, getUserScraperApiKey } from "./_lib/userSecrets.js";
 import { detectPackQuantity, unitPriceFromPack } from "./_lib/packQuantity.js";
 import { flagPriceSanity } from "./_lib/priceSanity.js";
 import { consumeSearchQuota, QuotaExceededError, type QuotaConsumption } from "./_lib/searchQuota.js";
@@ -33,7 +33,7 @@ import { collectMissReasons } from "./_lib/searchMissReasons.js";
  * em Dashboard.tsx) ou 3 (VISION_CHUNK_SIZE) — este teto existe pra quem
  * NÃO passa pelo cliente: sem ele, uma requisição podia pedir milhares de
  * produtos de uma vez e queimar crédito de API (inclusive o
- * SCRAPERAPI_KEY, que é secret do dono da plataforma, não BYOK) num
+ * ScraperAPI, BYOK desde set/2026 mas ainda assim do PRÓPRIO usuário) num
  * request só. 50 dá folga de 2,5x sobre o maior lote que o app manda.
  */
 const MAX_ITEMS_PER_REQUEST = 50;
@@ -311,6 +311,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // não é BYOK" ou "usuário não cadastrou" — cada provider já trata isso
   // com mensagem própria.
   const apiKey = await getUserApiKeyForProvider(uid, provider);
+  // Chave ScraperAPI (BYOK, set/2026 — ver api/_lib/userSecrets.ts):
+  // resolvida SEMPRE, independente do `provider` pedido — diferente de
+  // `apiKey` acima (que resolve só a chave do provider selecionado), esta
+  // é usada de forma cruzada (mecanismo "scraperapi" em si, fallback do
+  // motor interno + IA, retry de imagem bloqueada), então precisa estar
+  // disponível não importa qual provider o usuário escolheu.
+  const scraperApiKey = await getUserScraperApiKey(uid);
 
   let quota: QuotaConsumption;
   try {
@@ -458,15 +465,17 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // pelo motor interno puro — mesmo formato de saída, `_warning`
           // não distingue a origem porque a UI só precisa mostrar o
           // aviso, não a causa exata.
-          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, GEMINI_BACKEND);
+          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, GEMINI_BACKEND, scraperApiKey);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "vision_mistral") {
           // Mesma orquestração de "vision_internal" acima, backend Mistral
           // (ago/2026, substituiu o Groq — ver mistralVision.ts) — `apiKey`
           // aqui é a chave MISTRAL do usuário, campo separado do Gemini em
-          // Conta.
-          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, MISTRAL_BACKEND);
+          // Conta. `scraperApiKey` é o mesmo dos dois branches — fallback
+          // opcional quando a raspagem direta bloqueia (ver
+          // fetchCandidateOffers, visionInternalSearchProvider.ts).
+          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, MISTRAL_BACKEND, scraperApiKey);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "google_lens_products") {
@@ -474,9 +483,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         } else if (provider === "searchapi_lens") {
           fresh = await searchSearchApiLensShared(missItems, matchers, apiKey);
         } else if (provider === "scraperapi") {
-          // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
-          // propósito — é secret de servidor (SCRAPERAPI_KEY), não BYOK.
-          fresh = await searchScraperApiShared(missItems, matchers);
+          // ScraperAPI (Structured Data Endpoints): BYOK desde set/2026
+          // (ver api/_lib/userSecrets.ts > getUserScraperApiKey) — `apiKey`
+          // genérico (resolvido pelo mapa de provider) fica `undefined`
+          // pra "scraperapi" de propósito (ver comentário no mapa), então
+          // usa `scraperApiKey`, resolvido incondicionalmente acima.
+          fresh = await searchScraperApiShared(missItems, matchers, scraperApiKey);
         } else {
           fresh = await searchGoogleShoppingShared(missItems, matchers, apiKey);
         }

@@ -108,14 +108,15 @@ interface MistralResponse {
 }
 
 /** Mesma função de geminiVision.ts/groqVision.ts, duplicada de propósito (arquivos irmãos) — baixa a imagem e devolve como data URI base64, formato que o `image_url` da Mistral aceita pra imagem não hospedada publicamente. */
-async function fetchImageAsDataUri(imageUrl: string): Promise<string> {
+async function fetchImageAsDataUri(imageUrl: string, scraperApiKey: string | undefined): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     // Ver o comentário equivalente em geminiVision.ts > fetchImageAsBase64
     // (set/2026): guarda de SSRF + teto de bytes, no lugar do `fetch` cru
-    // que aceitava qualquer URL vinda do cliente.
-    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal);
+    // que aceitava qualquer URL vinda do cliente. `scraperApiKey` (BYOK)
+    // alimenta a 2ª tentativa via proxy quando a loja bloqueia.
+    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal, scraperApiKey);
     return `data:${mimeType};base64,${buffer.toString("base64")}`;
   } catch (err) {
     if (err instanceof MistralVisionError) throw err;
@@ -212,8 +213,12 @@ const DESCRIBE_PROMPT =
   "explicação, sem pontuação final.";
 
 /** Ver describeProductImage em geminiVision.ts — mesmo contrato. */
-export async function describeProductImage(imageUrl: string, apiKey: string): Promise<string> {
-  const dataUri = await fetchImageAsDataUri(imageUrl);
+export async function describeProductImage(
+  imageUrl: string,
+  apiKey: string,
+  scraperApiKey?: string
+): Promise<string> {
+  const dataUri = await fetchImageAsDataUri(imageUrl, scraperApiKey);
   const text = await callMistral(
     [
       { type: "text", text: DESCRIBE_PROMPT },
@@ -235,11 +240,12 @@ const COMPARE_PROMPT =
 export async function compareProductImages(
   catalogImageUrl: string,
   candidateImageUrl: string,
-  apiKey: string
+  apiKey: string,
+  scraperApiKey?: string
 ): Promise<number> {
   const [catalogUri, candidateUri] = await Promise.all([
-    fetchImageAsDataUri(catalogImageUrl),
-    fetchImageAsDataUri(candidateImageUrl),
+    fetchImageAsDataUri(catalogImageUrl, scraperApiKey),
+    fetchImageAsDataUri(candidateImageUrl, scraperApiKey),
   ]);
 
   const text = await callMistral(
@@ -296,16 +302,17 @@ function buildBatchComparePrompt(count: number): string {
 export async function compareProductImagesBatch(
   catalogImageUrl: string,
   candidateImageUrls: string[],
-  apiKey: string
+  apiKey: string,
+  scraperApiKey?: string
 ): Promise<(number | null)[]> {
   if (candidateImageUrls.length === 0) return [];
 
-  const catalogUri = await fetchImageAsDataUri(catalogImageUrl);
+  const catalogUri = await fetchImageAsDataUri(catalogImageUrl, scraperApiKey);
   const results: (number | null)[] = [];
 
   for (let i = 0; i < candidateImageUrls.length; i += MAX_CANDIDATES_PER_BATCH) {
     const chunk = candidateImageUrls.slice(i, i + MAX_CANDIDATES_PER_BATCH);
-    const candidateUris = await Promise.all(chunk.map((url) => fetchImageAsDataUri(url)));
+    const candidateUris = await Promise.all(chunk.map((url) => fetchImageAsDataUri(url, scraperApiKey)));
 
     const content: MistralContent[] = [
       { type: "text", text: buildBatchComparePrompt(chunk.length) },

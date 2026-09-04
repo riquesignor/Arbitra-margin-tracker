@@ -9,6 +9,8 @@ import {
   fetchAmazonCandidatesForQuery,
   fetchGoogleShoppingCandidatesForQuery,
 } from "./scraperApiSearchProvider.js";
+import { fetchAmazonPaApiCandidatesForQuery } from "./amazonPaApi.js";
+import { fetchMlOfficialCandidatesForQuery } from "./mercadoLivreSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -30,7 +32,7 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * (Conta → Gemini/Mistral) está em jogo.
  */
 /**
- * FONTE DE CANDIDATOS COM REDE DE SEGURANÇA (set/2026)
+ * FONTE DE CANDIDATOS COM REDE DE SEGURANÇA (set/2026, 3 degraus por loja)
  * ══════════════════════════════════════════════════════════════════════
  *
  * A raspagem de HTML (`fetchStoreOffers`) é a fonte preferida quando
@@ -39,17 +41,40 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * (403/CAPTCHA), mudança de layout (parser devolve 0 ofertas) e timeout —
  * e nos três o item voltava sem preço, sem alternativa.
  *
- * Duas fontes estruturadas cobrem essa falha, uma por loja:
+ * Quando ela falha (ou volta vazia), a ordem de fallback agora é
+ * "oficial/grátis antes de terceiro pago" pras duas lojas — ideia do
+ * usuário, validada: `Motor interno/IA → raspagem → API oficial da loja →
+ * endpoint estruturado de terceiro (pago)`.
  *
- *   - **Amazon** → `fetchAmazonCandidatesForQuery` (5 créditos). Dado
- *     nativo: título, preço, link, foto, estrelas e nº de avaliações.
- *     Equivalente completo da raspagem.
- *   - **Mercado Livre** → Google Shopping estruturado filtrado pela
- *     origem (25 créditos). Substituto PARCIAL, assumido de olhos
- *     abertos: vem sem link do anúncio e sem "vendidos" (ver
- *     `fetchGoogleShoppingCandidatesForQuery`). A conta mudou quando o
- *     bloqueio deixou de ser intermitente — a comparação deixou de ser
- *     "com link x sem link" e passou a ser "sem link x sem preço nenhum".
+ *   - **Amazon**:
+ *     1. `fetchAmazonPaApiCandidatesForQuery` (amazonPaApi.ts) — PA-API
+ *        5.0, OFICIAL, sem custo por chamada. Gate de NEGÓCIO (não de
+ *        código): exige conta Amazon Associates ativa, com manutenção
+ *        contínua (3 vendas qualificadas/180 dias) — sem as env vars
+ *        (`AMAZON_PAAPI_*`) configuradas, devolve `[]` e cai pro próximo
+ *        degrau, sem erro pro usuário.
+ *     2. `fetchAmazonCandidatesForQuery` (scraperApiSearchProvider.ts,
+ *        5 créditos) — Structured Data Endpoint de TERCEIRO (ScraperAPI
+ *        fazendo a raspagem do lado deles). Dado nativo: título, preço,
+ *        link, foto, estrelas e nº de avaliações.
+ *   - **Mercado Livre**:
+ *     1. `fetchMlOfficialCandidatesForQuery`
+ *        (mercadoLivreSearchProvider.ts) — API OFICIAL autenticada
+ *        (OAuth), sem custo por chamada. Gate de NEGÓCIO: setup OAuth
+ *        (`scripts/ml-oauth-setup.mjs`) esbarra em validação de
+ *        titularidade no DevCenter do Mercado Livre — sem token
+ *        configurado, devolve `[]` e cai pro próximo degrau. Mesmo com
+ *        token válido, há relatos reais de 403 intermitente nesse
+ *        endpoint desde fev/2026 (ver comentário na própria função) —
+ *        por isso qualquer erro aqui também vira `[]`, não propaga.
+ *     2. Google Shopping estruturado filtrado pela origem (ScraperAPI,
+ *        25 créditos). Substituto PARCIAL, assumido de olhos abertos: vem
+ *        sem link do anúncio e sem "vendidos" (ver
+ *        `fetchGoogleShoppingCandidatesForQuery`).
+ *
+ * Os dois degraus "oficiais" são OPCIONAIS por natureza (dependem de
+ * configuração que só o usuário pode completar) — por isso cada um tem
+ * fallback gracioso pro degrau seguinte, nunca derruba o item.
  *
  * DISJUNTOR (`scrapeBlockedUntil`): depois que uma loja bloqueia, as
  * tentativas seguintes de raspar ELA no mesmo processo são puladas por
@@ -81,18 +106,32 @@ const SHOPPING_MEMO_TTL_MS = 60_000;
 const SHOPPING_MEMO_MAX = 200;
 const shoppingMemo = new Map<string, { at: number; value: Awaited<ReturnType<typeof fetchGoogleShoppingCandidatesForQuery>> }>();
 
-async function fetchGoogleShoppingCandidatesMemo(query: string) {
-  const hit = shoppingMemo.get(query);
+/**
+ * ⚠️ Chave do cache inclui `scraperApiKey` (set/2026, desde que a chave
+ * virou BYOK — ver comentário grande no topo do arquivo). Antes o cache
+ * era só por `query` — inofensivo com chave de PLATAFORMA (uma só, igual
+ * pra todo mundo), mas viraria vazamento entre usuários com chave por
+ * pessoa: usuário A busca "furadeira" (gasta crédito DELE), usuário B
+ * busca a mesma string 30s depois e receberia de graça o resultado pago
+ * pelo A, sem sequer ter chave própria configurada. Incluir a chave na
+ * chave do Map faz cada usuário ter sua própria fatia do cache — a
+ * memoização ainda cumpre o papel original (não pagar duas vezes a MESMA
+ * busca dentro do processamento de um item), só não cruza mais entre
+ * contas.
+ */
+async function fetchGoogleShoppingCandidatesMemo(query: string, scraperApiKey: string | undefined) {
+  const cacheKey = `${scraperApiKey ?? ""}::${query}`;
+  const hit = shoppingMemo.get(cacheKey);
   if (hit && Date.now() - hit.at < SHOPPING_MEMO_TTL_MS) return hit.value;
 
-  const value = (await fetchGoogleShoppingCandidatesForQuery(query)) ?? [];
+  const value = (await fetchGoogleShoppingCandidatesForQuery(query, scraperApiKey)) ?? [];
   if (shoppingMemo.size >= SHOPPING_MEMO_MAX) {
     // Descarte simples do mais antigo inserido — Map preserva ordem de
     // inserção, e aqui não vale a complexidade de um LRU de verdade.
     const oldest = shoppingMemo.keys().next().value;
     if (oldest !== undefined) shoppingMemo.delete(oldest);
   }
-  shoppingMemo.set(query, { at: Date.now(), value });
+  shoppingMemo.set(cacheKey, { at: Date.now(), value });
   return value;
 }
 
@@ -110,7 +149,8 @@ export function resetCandidateSourceState(): void {
 
 export async function fetchCandidateOffers(
   query: string,
-  matchers: MarketplaceMatcher[]
+  matchers: MarketplaceMatcher[],
+  scraperApiKey?: string
 ): Promise<StoreOffers[]> {
   let stores: StoreOffers[] = [];
   let scrapeError: unknown = null;
@@ -118,7 +158,7 @@ export async function fetchCandidateOffers(
   const scrapable = matchers.filter((m) => !scrapeIsOnCooldown(m.marketplace));
   if (scrapable.length > 0) {
     try {
-      stores = await fetchStoreOffers(query, scrapable);
+      stores = await fetchStoreOffers(query, scrapable, scraperApiKey);
     } catch (err) {
       // `fetchStoreOffers` só lança quando TODAS as lojas tentadas
       // falharam — então todas elas entram em cooldown.
@@ -149,18 +189,33 @@ export async function fetchCandidateOffers(
   if (matchers.some((m) => m.marketplace === "amazon")) {
     const { empty } = needsStructured("amazon");
     if (empty) {
-      // Fonte OPCIONAL: falha dela não pode derrubar o item (a raspagem
-      // já falhou; propagar aqui só trocaria um erro por outro).
-      const structured = await fetchAmazonCandidatesForQuery(query).catch((err) => {
-        console.warn(`[motor-interno+IA] endpoint estruturado da Amazon falhou pra "${query}":`, err);
+      // Degrau 1 — oficial/grátis (PA-API). Fonte OPCIONAL: sem env vars
+      // configuradas ou qualquer falha, devolve `[]` e cai pro degrau 2.
+      const official = await fetchAmazonPaApiCandidatesForQuery(query).catch((err) => {
+        console.warn(`[motor-interno+IA] Amazon PA-API falhou pra "${query}":`, err);
         return [];
       });
-      if (structured.length > 0) {
+      if (official.length > 0) {
         console.warn(
           `[motor-interno+IA] Amazon sem oferta pela raspagem pra "${query}" — ` +
-            `usando o endpoint estruturado (${structured.length} candidato(s)).`
+            `usando PA-API oficial (${official.length} candidato(s)).`
         );
-        attach("amazon", "Amazon", structured);
+        attach("amazon", "Amazon", official);
+      } else {
+        // Degrau 2 — estruturado de terceiro (pago). Mesma cautela: falha
+        // dela não pode derrubar o item (a raspagem já falhou; propagar
+        // aqui só trocaria um erro por outro).
+        const structured = await fetchAmazonCandidatesForQuery(query, scraperApiKey).catch((err) => {
+          console.warn(`[motor-interno+IA] endpoint estruturado da Amazon falhou pra "${query}":`, err);
+          return [];
+        });
+        if (structured.length > 0) {
+          console.warn(
+            `[motor-interno+IA] Amazon sem oferta pela raspagem/PA-API pra "${query}" — ` +
+              `usando o endpoint estruturado de terceiro (${structured.length} candidato(s)).`
+          );
+          attach("amazon", "Amazon", structured);
+        }
       }
     }
   }
@@ -169,28 +224,47 @@ export async function fetchCandidateOffers(
   if (mlMatcher) {
     const { empty } = needsStructured("mercadolivre");
     if (empty) {
-      const broad = await fetchGoogleShoppingCandidatesMemo(query).catch((err) => {
-        console.warn(`[motor-interno+IA] Google Shopping estruturado falhou pra "${query}":`, err);
+      // Degrau 1 — oficial/grátis (OAuth). Fonte OPCIONAL: sem setup
+      // (`scripts/ml-oauth-setup.mjs`) ou qualquer falha (incl. o 403
+      // intermitente documentado desde fev/2026), devolve `[]` e cai pro
+      // degrau 2 — a função já engole os próprios erros, `.catch` aqui é
+      // só rede de segurança extra.
+      const official = await fetchMlOfficialCandidatesForQuery(query).catch((err) => {
+        console.warn(`[motor-interno+IA] Mercado Livre (API oficial) falhou pra "${query}":`, err);
         return [];
       });
-      const fromMl = broad.filter((c) => c.source && mlMatcher.matchesSource(c.source.toLowerCase()));
-      const offers: ScrapedOffer[] = fromMl
-        .filter((c): c is typeof c & { price: number } => c.price != null)
-        .map((c) => ({
-          title: c.title,
-          price: c.price,
-          thumbnail: c.thumbnail,
-          // Sem `link` e sem `reviewCount` de propósito: essa fonte não
-          // devolve nenhum dos dois (ver a doc citada em
-          // fetchGoogleShoppingCandidatesForQuery). A UI já sabe lidar
-          // com resultado sem link ("sem link" no lugar de "Ver anúncio").
-        }));
-      if (offers.length > 0) {
+      if (official.length > 0) {
         console.warn(
           `[motor-interno+IA] Mercado Livre sem oferta pela raspagem pra "${query}" — ` +
-            `usando Google Shopping estruturado (${offers.length} candidato(s), sem link de anúncio).`
+            `usando API oficial OAuth (${official.length} candidato(s)).`
         );
-        attach("mercadolivre", "Mercado Livre", offers);
+        attach("mercadolivre", "Mercado Livre", official);
+      } else {
+        // Degrau 2 — Google Shopping estruturado de terceiro (pago),
+        // filtrado pela origem.
+        const broad = await fetchGoogleShoppingCandidatesMemo(query, scraperApiKey).catch((err) => {
+          console.warn(`[motor-interno+IA] Google Shopping estruturado falhou pra "${query}":`, err);
+          return [];
+        });
+        const fromMl = broad.filter((c) => c.source && mlMatcher.matchesSource(c.source.toLowerCase()));
+        const offers: ScrapedOffer[] = fromMl
+          .filter((c): c is typeof c & { price: number } => c.price != null)
+          .map((c) => ({
+            title: c.title,
+            price: c.price,
+            thumbnail: c.thumbnail,
+            // Sem `link` e sem `reviewCount` de propósito: essa fonte não
+            // devolve nenhum dos dois (ver a doc citada em
+            // fetchGoogleShoppingCandidatesForQuery). A UI já sabe lidar
+            // com resultado sem link ("sem link" no lugar de "Ver anúncio").
+          }));
+        if (offers.length > 0) {
+          console.warn(
+            `[motor-interno+IA] Mercado Livre sem oferta pela raspagem/API oficial pra "${query}" — ` +
+              `usando Google Shopping estruturado de terceiro (${offers.length} candidato(s), sem link de anúncio).`
+          );
+          attach("mercadolivre", "Mercado Livre", offers);
+        }
       }
     }
   }
@@ -209,17 +283,18 @@ export async function fetchCandidateOffers(
     // recebia "a loja bloqueou, troque o mecanismo", conselho que não
     // resolve quando as duas lojas bloqueiam e o problema real é a chave
     // do proxy ausente ou sem crédito.
-    if (!process.env.SCRAPERAPI_KEY) {
+    if (!scraperApiKey) {
       throw new Error(
-        "As lojas bloquearam a busca direta e não há SCRAPERAPI_KEY configurada no servidor — " +
-          "sem ela não existe fonte alternativa de candidatos. Configure a chave nas variáveis de " +
-          "ambiente (Vercel) pra liberar os endpoints estruturados."
+        "As lojas bloquearam a busca direta e você não tem uma chave ScraperAPI própria cadastrada — " +
+          "sem ela não existe fonte alternativa de candidatos (além dos degraus oficiais/grátis, que " +
+          "também não trouxeram nada aqui). Cadastre sua chave em Conta pra liberar os endpoints " +
+          "estruturados como último recurso."
       );
     }
     if (scrapeError) throw scrapeError;
     throw new Error(
       "As lojas bloquearam a busca direta e os endpoints estruturados da ScraperAPI não " +
-        "devolveram candidato nenhum — verifique se a chave ainda tem crédito disponível."
+        "devolveram candidato nenhum — verifique se sua chave ainda tem crédito disponível."
     );
   }
   return stores;
@@ -227,8 +302,14 @@ export async function fetchCandidateOffers(
 
 export interface VisionBackend {
   label: string;
-  describeProductImage(imageUrl: string, apiKey: string): Promise<string>;
-  compareProductImages(catalogImageUrl: string, candidateImageUrl: string, apiKey: string): Promise<number>;
+  /** `scraperApiKey` (BYOK do usuário, set/2026) é opcional — alimenta a 2ª tentativa via proxy quando o download da imagem é bloqueado (ver fetchImageWithLimit, safeImageUrl.ts). */
+  describeProductImage(imageUrl: string, apiKey: string, scraperApiKey?: string): Promise<string>;
+  compareProductImages(
+    catalogImageUrl: string,
+    candidateImageUrl: string,
+    apiKey: string,
+    scraperApiKey?: string
+  ): Promise<number>;
   /**
    * Variante em LOTE, OPCIONAL (ago/2026, mesma ideia usada primeiro pro
    * Groq — ver mistralVision.ts > compareProductImagesBatch). Quando o
@@ -244,7 +325,8 @@ export interface VisionBackend {
   compareProductImagesBatch?(
     catalogImageUrl: string,
     candidateImageUrls: string[],
-    apiKey: string
+    apiKey: string,
+    scraperApiKey?: string
   ): Promise<(number | null)[]>;
   isQuotaExhaustedError(err: unknown): boolean;
   isVisionError(err: unknown): boolean;
@@ -299,7 +381,8 @@ async function pickBestVisualMatch<T>(
   candidates: T[],
   getThumbnail: (candidate: T) => string | undefined,
   quota: { isExhausted: () => boolean; markExhausted: (err: unknown) => void },
-  logContext: string
+  logContext: string,
+  scraperApiKey?: string
 ): Promise<VisualMatch<T> | null> {
   const withThumbnail = candidates.filter((c) => getThumbnail(c));
   if (withThumbnail.length === 0) return null;
@@ -311,7 +394,8 @@ async function pickBestVisualMatch<T>(
       const scores = await backend.compareProductImagesBatch(
         catalogImageUrl,
         withThumbnail.map((c) => getThumbnail(c)!),
-        apiKey
+        apiKey,
+        scraperApiKey
       );
       withThumbnail.forEach((candidate, i) => {
         const score = scores[i];
@@ -329,8 +413,14 @@ async function pickBestVisualMatch<T>(
 
   for (const candidate of withThumbnail) {
     if (quota.isExhausted()) break;
+    if (best && best.score >= EARLY_EXIT_SCORE) break;
     try {
-      const score = await backend.compareProductImages(catalogImageUrl, getThumbnail(candidate)!, apiKey);
+      const score = await backend.compareProductImages(
+        catalogImageUrl,
+        getThumbnail(candidate)!,
+        apiKey,
+        scraperApiKey
+      );
       if (!best || score > best.score) best = { candidate, score };
     } catch (err) {
       if (backend.isQuotaExhaustedError(err)) {
@@ -474,6 +564,25 @@ const CONCURRENCY = 1;
 const CANDIDATES_PER_STORE = 3;
 
 /**
+ * Corte antecipado na comparação SEQUENCIAL (set/2026, Gemini — Mistral
+ * já é atendido por `compareProductImagesBatch`, uma chamada só, nada a
+ * cortar). Antes, `pickBestVisualMatch` sempre testava os
+ * `CANDIDATES_PER_STORE` candidatos inteiros mesmo quando o 1º já batia
+ * com nota altíssima — o caso mais comum na prática (a IA descreve bem,
+ * o 1º candidato do ranking de texto já é o produto certo). Parar ao
+ * achar nota ≥ 0,95 corta até 2 chamadas de Gemini por loja no caso
+ * comum, sem trocar de vencedor (0,95 só é batido por um "certamente é o
+ * mesmo produto" — não há candidato melhor que isso pra procurar).
+ *
+ * Efeito que interessa mais que velocidade bruta: o free tier do Gemini
+ * gira em torno de ~15 requisições/MINUTO (ver comentário no topo do
+ * arquivo) — cada chamada evitada é orçamento que sobra pro PRÓXIMO
+ * item do lote antes da cota estourar, não só o item atual terminar
+ * mais rápido.
+ */
+const EARLY_EXIT_SCORE = 0.95;
+
+/**
  * Nota da comparação visual, escala do prompt (geminiVision.ts,
  * COMPARE_PROMPT): 1 = certamente o mesmo produto, 0.5 = mesma
  * categoria/modelo incerto, 0 = produtos diferentes.
@@ -524,7 +633,8 @@ export async function searchVisionInternalShared(
   items: CatalogItemQuery[],
   matchers: MarketplaceMatcher[],
   userApiKey: string | undefined,
-  backend: VisionBackend
+  backend: VisionBackend,
+  scraperApiKey?: string
 ): Promise<VisionInternalSearchOutcome> {
   const apiKey = userApiKey?.trim();
   if (!apiKey) {
@@ -595,7 +705,7 @@ export async function searchVisionInternalShared(
       // Passo 1 — descrever. A IA SEMPRE descreve a foto — é a query
       // PRINCIPAL, comportamento de sempre (ver "texto como auxílio" no
       // comentário grande no topo do arquivo).
-      const aiQuery = await backend.describeProductImage(item.imageUrl!, apiKey);
+      const aiQuery = await backend.describeProductImage(item.imageUrl!, apiKey, scraperApiKey);
       const catalogName = item.name?.trim();
       const hasReliableName = Boolean(catalogName) && catalogName !== item.sku;
       // `query` alimenta o Passo 4 (busca geral) mais abaixo — sempre a
@@ -617,7 +727,7 @@ export async function searchVisionInternalShared(
       ): Promise<
         { marketplace: MarketplaceId; label: string; offersCount: number; best: VisualMatch<ScrapedOffer> | null }[]
       > => {
-        const storeOffers = await fetchCandidateOffers(q, focusedMatchers);
+        const storeOffers = await fetchCandidateOffers(q, focusedMatchers, scraperApiKey);
         const attempts: {
           marketplace: MarketplaceId;
           label: string;
@@ -654,7 +764,8 @@ export async function searchVisionInternalShared(
                 lastError = err instanceof Error ? err.message : String(err);
               },
             },
-            `${store.label}, "${q}"`
+            `${store.label}, "${q}"`,
+            scraperApiKey
           );
 
           if (!best || best.score < MIN_APPROXIMATE_SCORE) {
@@ -767,7 +878,7 @@ export async function searchVisionInternalShared(
           // Memoizado (ver fetchGoogleShoppingCandidatesMemo): se o
           // substituto do ML já consultou esta mesma string neste item,
           // reaproveita em vez de pagar 25 créditos de novo.
-          const broadCandidates = await fetchGoogleShoppingCandidatesMemo(query);
+          const broadCandidates = await fetchGoogleShoppingCandidatesMemo(query, scraperApiKey);
           // Só interessa achar em lojas DE FORA das focadas — Amazon/ML
           // já foram tentadas (e falharam) no passo 3 acima. Exclui só
           // `focusedMatchers` daqui (não `matchers` cru): o matcher de
@@ -800,7 +911,8 @@ export async function searchVisionInternalShared(
                 lastError = err instanceof Error ? err.message : String(err);
               },
             },
-            `busca geral, "${query}"`
+            `busca geral, "${query}"`,
+            scraperApiKey
           );
 
           if (bestBroad && bestBroad.score >= MIN_APPROXIMATE_SCORE && bestBroad.candidate.price != null) {

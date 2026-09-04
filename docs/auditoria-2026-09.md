@@ -30,7 +30,8 @@
 >   Amazon volta vazia ou bloqueada, cai pro endpoint estruturado
 >   (`fetchAmazonCandidatesForQuery`, 5 créditos/consulta). Mercado Livre segue
 >   só na raspagem de propósito — a alternativa via Google Shopping custaria o
->   link do anúncio e o nº de vendas.
+>   link do anúncio e o nº de vendas. **Substituído pela cadeia de 3 degraus da
+>   3ª rodada, ver abaixo.**
 > - **Popularidade do anúncio na tela**: `reviewCount`/`rating` já eram
 >   extraídos e já pesavam no desempate, mas morriam no servidor. Agora viajam
 >   até a UI (badge com 🔥 vendas no ML / ⭐ avaliações na Amazon) e o CSV.
@@ -38,12 +39,51 @@
 >   a mesma imagem que a IA usou pra decidir. É a verificação manual que sobra
 >   quando a fonte não devolve link.
 >
-> `tsc` client+api limpos e **271 testes passando** (17 novos nesta rodada).
+> **3ª rodada (set/2026) — motor interno em primeiro lugar + fontes oficiais
+> antes de terceiro pago.** Relato real: "9 produtos, 10 minutos no mecanismo
+> ScraperAPI contra 1 minuto no motor interno puro" + pedido explícito de
+> priorizar o motor interno (sem custo) e não depender só de raspagem/terceiro:
 >
-> **Em aberto, pendente de evidência real:** a API pública do Mercado Livre
-> (`api.mercadolibre.com/sites/MLB/search`) como substituta da raspagem do ML —
-> o teste feito daqui foi inconclusivo (resposta vazia), precisa de uma chamada
-> a partir do servidor, com log de status, antes de virar plano.
+> - **Bug real corrigido — nenhuma chamada da ScraperAPI tinha timeout**
+>   (`SCRAPERAPI_TIMEOUT_MS = 8000` + `fetchWithTimeout`, scraperApiSearchProvider.ts):
+>   as 4 chamadas dependiam só do teto de 300s da function inteira — uma
+>   chamada lenta represava o lote inteiro atrás dela, inclusive quando essas
+>   mesmas funções são o FALLBACK do motor interno.
+> - **Corte antecipado na comparação visual sequencial** (`EARLY_EXIT_SCORE =
+>   0.95`, visionInternalSearchProvider.ts): para de comparar candidatos assim
+>   que um bate nota ≥ 0,95 — economiza até 2 chamadas Gemini por loja no caso
+>   comum, sem trocar de vencedor, sobrando cota do free tier pro PRÓXIMO item.
+> - **Cadeia de fallback reordenada: oficial/grátis antes de terceiro pago**,
+>   ideia do usuário, validada — `Motor interno/IA → raspagem → API oficial da
+>   loja → endpoint estruturado de terceiro`:
+>   - **Amazon**: `fetchAmazonPaApiCandidatesForQuery` (`amazonPaApi.ts`, NOVO)
+>     — cliente PA-API 5.0 do zero, assinatura AWS SigV4 na mão (`node:crypto`,
+>     sem SDK novo). Gate de NEGÓCIO, não de código: exige conta Amazon
+>     Associates ativa com manutenção contínua (3 vendas/180 dias) — sem as env
+>     vars `AMAZON_PAAPI_*`, devolve `[]` e cai pro degrau de sempre
+>     (ScraperAPI, 5 créditos).
+>   - **Mercado Livre**: `fetchMlOfficialCandidatesForQuery`
+>     (mercadoLivreSearchProvider.ts, NOVO) — reaproveita a chamada OAuth que
+>     já existia (`createMercadoLivreSearchProvider`, antes "parked"/não
+>     registrada). Gate de NEGÓCIO: setup (`scripts/ml-oauth-setup.mjs`) esbarra
+>     em validação de titularidade no DevCenter do Mercado Livre, passo que só
+>     o dono da conta ML pode concluir — sem token configurado, devolve `[]` e
+>     cai pro Google Shopping estruturado de sempre. Mesmo com token válido, há
+>     relatos reais de 403 intermitente nesse endpoint desde fev/2026, sem
+>     explicação oficial do ML — por isso qualquer erro nesse degrau também
+>     vira `[]`, nunca propaga.
+>
+> `tsc` client+api limpos e **286 testes passando** (19 novos nesta rodada,
+> incluindo teste dedicado da assinatura SigV4 do cliente PA-API).
+>
+> **Correção sobre a rodada anterior:** a nota "teste inconclusivo da API
+> pública do ML" (linha removida) estava enganosa — o teste tinha sido feito a
+> partir do sandbox local, cujo proxy de rede bloqueia QUALQUER domínio externo
+> (confirmado testando `example.com` também), não é evidência sobre o
+> Mercado Livre. A investigação real (ver mercadoLivreSearchProvider.ts) já
+> mostra por que a via pública sem OAuth está morta — doc oficial confirma que
+> `/sites/$SITE_ID/search` exige `Authorization: Bearer` hoje, era pública
+> antes.
 >
 > ⚠️ **Ação manual pendente:** `firestore.rules` não sobe no deploy da Vercel —
 > precisa de `firebase deploy --only firestore:rules`. Sem isso, os itens P0-1

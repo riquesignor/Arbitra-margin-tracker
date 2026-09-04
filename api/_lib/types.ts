@@ -85,10 +85,12 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
  *   - "scraperapi" → Structured Data Endpoints da ScraperAPI (Amazon
  *     Search API nativa + Google Shopping API), a própria ScraperAPI faz
  *     o parsing e devolve JSON pronto — papel equivalente ao de "serpapi"
- *     — ver scraperApiSearchProvider.ts. Chave é secret de servidor
- *     (`SCRAPERAPI_KEY`), não BYOK — sem `apiKey` no corpo da requisição.
- *     Default do seletor (sem chave, sem custo por busca) depois da
- *     remoção de "internal_search" acima.
+ *     — ver scraperApiSearchProvider.ts. Chave é BYOK (set/2026 — antes
+ *     era secret de servidor): o servidor resolve `scraperApiKey` pelo
+ *     uid autenticado (`getUserScraperApiKey`, userSecrets.ts), nunca do
+ *     corpo da requisição. Continua o default do seletor depois da
+ *     remoção de "internal_search" acima, mesmo agora exigindo chave
+ *     própria.
  */
 export type SearchProviderId =
   | "serpapi"

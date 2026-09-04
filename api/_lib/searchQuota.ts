@@ -12,19 +12,16 @@ import type { SearchProviderId } from "./types.js";
  * do usuário — que ainda por cima podia zerá-lo, já que a security rule
  * dá `write` do doc pro dono. Ou seja: nenhum teto real.
  *
- * Isso importa porque nem todo provider é BYOK. `scraperapi`,
- * `vision_internal` e `vision_mistral` consomem `SCRAPERAPI_KEY` —
- * crédito do DONO da plataforma (busca estruturada e/ou proxy anti-bloqueio
- * do motor interno, ver internalSearchProvider.ts e
- * scraperApiSearchProvider.ts). Sem teto no servidor, qualquer conta
- * criada gastava esse crédito sem limite.
- *
- * Dois tetos, por isso:
- *   - Provider que gasta crédito da PLATAFORMA → teto do plano do usuário
- *     (os mesmos números que a barra de cota já mostra na tela, pra não
- *     criar duas verdades diferentes).
- *   - Provider BYOK (usuário paga a própria chave) → teto alto, só como
- *     freio de abuso/loop infinito, não como regra de negócio.
+ * Isso importava (P0-3, set/2026) porque nem todo provider era BYOK:
+ * `scraperapi`, `vision_internal` e `vision_mistral` consumiam
+ * `SCRAPERAPI_KEY` — crédito do DONO da plataforma (busca estruturada
+ * e/ou proxy anti-bloqueio do motor interno). Sem teto no servidor,
+ * qualquer conta criada gastava esse crédito sem limite. Por isso o
+ * desenho de DOIS tetos abaixo (`PLATFORM_COST_PROVIDERS` vs.
+ * `BYOK_DAILY_LIMIT`) — estrutura MANTIDA mesmo após a chave ScraperAPI
+ * virar BYOK (mesma sessão, ver comentário em `PLATFORM_COST_PROVIDERS`)
+ * porque não custa nada continuar existindo e volta a valer no dia em
+ * que algum provider voltar a consumir crédito da plataforma.
  *
  * O contador é o MESMO doc que o cliente já lia
  * (`users/{uid}/usage_daily/{yyyymmdd}`, campo `searchCount`) — a barra de
@@ -44,18 +41,19 @@ export class QuotaExceededError extends Error {
 }
 
 /**
- * Providers cuja busca é paga pela PLATAFORMA (via `SCRAPERAPI_KEY`), não
- * pela chave do usuário:
- *   - "scraperapi"      → Structured Data Endpoints da ScraperAPI.
- *   - "vision_internal" / "vision_mistral" → a IA é BYOK, mas a raspagem
- *     Amazon/ML passa pelo proxy ScraperAPI (premium) e a busca geral usa
- *     o Google Shopping da ScraperAPI — os dois no crédito da plataforma.
+ * Providers cuja busca é paga pela PLATAFORMA, não pela chave do usuário —
+ * VAZIO desde a conversão da chave ScraperAPI pra BYOK (mesma sessão desta
+ * doc, ver comentário no topo de src/lib/userSecrets.ts). Até então tinha
+ * `"scraperapi"`, `"vision_internal"` e `"vision_mistral"` (os três
+ * consumiam `SCRAPERAPI_KEY`, secret de servidor, pro Structured Data
+ * Endpoint e/ou pro proxy anti-bloqueio do motor interno) — hoje a chave
+ * ScraperAPI é lida por parâmetro (`getUserScraperApiKey`, resolvida pelo
+ * uid autenticado), então nenhum provider gasta mais crédito da
+ * plataforma. Conjunto mantido (em vez de removido) pra não precisar
+ * reconstruir o teto duplo (ver comentário no topo do arquivo) se algum
+ * provider voltar a ser financiado pela plataforma no futuro.
  */
-const PLATFORM_COST_PROVIDERS = new Set<SearchProviderId>([
-  "scraperapi",
-  "vision_internal",
-  "vision_mistral",
-]);
+const PLATFORM_COST_PROVIDERS = new Set<SearchProviderId>([]);
 
 /** Espelha `dailySearchLimit` de src/config/plans.ts — MANTER EM SINCRONIA (arquivos duplicados de propósito: client e api têm tsconfigs separados, ver api/_lib/types.ts). */
 const PLAN_DAILY_LIMIT: Record<string, number> = {

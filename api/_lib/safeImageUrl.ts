@@ -70,10 +70,12 @@ const BLOCKED_STATUSES = new Set([401, 403, 405, 429, 503]);
  * tinha sido o download da imagem, não o modelo.
  *
  * Só entra como SEGUNDA tentativa: o caminho direto é gratuito e resolve
- * a maioria dos casos; cada passagem por aqui custa um crédito.
+ * a maioria dos casos; cada passagem por aqui custa um crédito da chave
+ * ScraperAPI do PRÓPRIO usuário (BYOK, set/2026 — ver
+ * api/_lib/userSecrets.ts).
  */
-function scraperApiImageUrl(target: string): string | null {
-  const key = process.env.SCRAPERAPI_KEY;
+function scraperApiImageUrl(target: string, scraperApiKey: string | undefined): string | null {
+  const key = scraperApiKey?.trim();
   if (!key) return null;
   const proxied = new URL("https://api.scraperapi.com/");
   proxied.searchParams.set("api_key", key);
@@ -193,7 +195,8 @@ export function isSafeCatalogImageUrl(rawUrl: unknown): boolean {
  */
 export async function fetchImageWithLimit(
   rawUrl: string,
-  signal: AbortSignal
+  signal: AbortSignal,
+  scraperApiKey?: string
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   const url = assertFetchableImageUrl(rawUrl);
 
@@ -207,10 +210,10 @@ export async function fetchImageWithLimit(
     // nosso storage pra um terceiro não resolveria nada.
     if (url.pathname === CATALOG_IMAGE_PATH) throw err;
 
-    const proxied = scraperApiImageUrl(rawUrl);
+    const proxied = scraperApiImageUrl(rawUrl, scraperApiKey);
     if (!proxied) {
       console.warn(
-        `[imagem] ${url.hostname} recusou o download (HTTP ${err.status}) e não há SCRAPERAPI_KEY pra repetir por proxy.`
+        `[imagem] ${url.hostname} recusou o download (HTTP ${err.status}) e o usuário não tem chave ScraperAPI própria pra repetir por proxy.`
       );
       throw err;
     }

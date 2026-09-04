@@ -357,15 +357,14 @@ describe("fetchStoreHtml — retry em 503", () => {
   });
 });
 
-describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
+describe("fetchStoreHtmlOnce — proxy ScraperAPI (BYOK, set/2026)", () => {
   const MATCHERS: MarketplaceMatcher[] = [{ marketplace: "mercadolivre", matchesSource: () => true }];
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   });
 
-  it("sem SCRAPERAPI_KEY, continua indo direto na loja com os headers de navegador — comportamento antigo intacto", async () => {
+  it("sem scraperApiKey, continua indo direto na loja com os headers de navegador — comportamento antigo intacto", async () => {
     let calledUrl = "";
     let calledHeaders: RequestInit["headers"];
     vi.stubGlobal(
@@ -385,14 +384,10 @@ describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
   });
 
   it(
-    "com SCRAPERAPI_KEY setada, chama o endpoint do ScraperAPI (api_key + url da loja como parâmetro) " +
-      "em vez de ir direto na loja, sem sobrepor header próprio — é a troca central da estratégia paga " +
-      "decidida com o usuário (ago/2026): mesmos parsers, só o transporte HTTP muda",
+    "com scraperApiKey (BYOK do usuário, passada por parâmetro), chama o endpoint do ScraperAPI " +
+      "(api_key + url da loja como parâmetro) em vez de ir direto na loja, sem sobrepor header próprio " +
+      "— mesmos parsers, só o transporte HTTP muda",
     async () => {
-      vi.stubEnv("SCRAPERAPI_KEY", "chave-de-teste");
-      vi.resetModules(); // SCRAPERAPI_KEY é lida uma vez no module-load — precisa reimportar pra pegar o novo valor
-      const { fetchStoreOffers: fetchStoreOffersComProxy } = await import("./internalSearchProvider");
-
       let calledUrl = "";
       let calledHeaders: RequestInit["headers"];
       vi.stubGlobal(
@@ -404,7 +399,7 @@ describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
         })
       );
 
-      await fetchStoreOffersComProxy("produto qualquer", MATCHERS);
+      await fetchStoreOffers("produto qualquer", MATCHERS, "chave-de-teste");
 
       expect(calledUrl).toContain("https://api.scraperapi.com/?api_key=chave-de-teste&url=");
       expect(calledUrl).toContain("mercadolivre.com.br"); // URL da loja vai como parâmetro, não como destino
@@ -414,8 +409,6 @@ describe("fetchStoreHtmlOnce — proxy ScraperAPI (SCRAPERAPI_KEY)", () => {
       // fetchStoreHtmlOnce, internalSearchProvider.ts).
       expect(calledUrl).toContain("premium=true");
       expect(calledHeaders).toBeUndefined(); // ScraperAPI monta os próprios headers do lado dele
-
-      vi.resetModules(); // não deixa a versão "com chave" vazar pros describes seguintes deste arquivo
     }
   );
 });

@@ -122,25 +122,26 @@ const BROWSER_HEADERS: Record<string, string> = {
 };
 
 /**
- * Chave do ScraperAPI (ago/2026) — proxy pago que bypassa o anti-bot que
+ * Chave do ScraperAPI (ago/2026) — proxy que bypassa o anti-bot que
  * bloqueava Amazon/Mercado Livre direto do IP de datacenter da Vercel
  * (ver "risco real" no topo do arquivo, que já previa exatamente essa
- * troca). Server-side, `process.env`, MESMO padrão de `ML_CLIENT_ID`/
- * `ML_CLIENT_SECRET` (mlAuth.ts) — NÃO segue o padrão BYOK de
- * Gemini/SerpApi/RapidAPI/SearchApi.io (chave própria do usuário,
- * cadastrada em Conta, guardada em user_secrets/{uid}).
+ * troca).
  *
- * É intencional ser diferente: essa chave é da PLATAFORMA, não do
- * usuário final — o custo dela entra na precificação da assinatura da
- * Arbitra, decisão tomada junto com o dono do produto precisamente pra
- * não empurrar mais uma assinatura de terceiro pro consumidor comum.
- * Nunca deve virar campo em Account.tsx nem trafegar pro cliente.
+ * BYOK (set/2026, virou igual a Gemini/SerpApi/RapidAPI/SearchApi.io —
+ * antes era secret de servidor, uma chave só da plataforma pagando por
+ * TODO mundo). Motivo da virada: com a Arbitra pensada pra comercializar
+ * pra qualquer pessoa acessar, uma chave compartilhada não escala — cada
+ * usuário passa a cadastrar a própria em Conta
+ * (`users/{uid}/secrets/keys.scraperApiKey`, ver userSecrets.ts nos dois
+ * lados) e o parâmetro `scraperApiKey` abaixo chega já resolvido pelo
+ * servidor a partir do uid autenticado, nunca de `process.env` nem do
+ * corpo da requisição.
  *
- * Sem a variável setada (dev local sem `.env.local`, ou enquanto o plano
- * pago não for confirmado), cai pro `fetch` direto de sempre — zero
- * mudança de comportamento pra quem não configurou.
+ * Sem chave cadastrada pelo usuário, `fetchStoreHtmlOnce` cai pro `fetch`
+ * direto de sempre — mesmo comportamento de antes de existir proxy
+ * nenhum, só que agora por FALTA de BYOK, não por falta de variável de
+ * ambiente.
  */
-const SCRAPERAPI_KEY = process.env.SCRAPERAPI_KEY;
 const SCRAPERAPI_ENDPOINT = "https://api.scraperapi.com/";
 
 /**
@@ -626,7 +627,7 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
  * Uma tentativa HTTP crua — sem retry, sem classificar bloqueio. Devolve
  * status + corpo pra quem chama decidir (`fetchStoreHtml` abaixo).
  *
- * Com `SCRAPERAPI_KEY` setada, a requisição vai pro endpoint do
+ * Com `scraperApiKey` (BYOK do usuário) presente, a requisição vai pro endpoint do
  * ScraperAPI (`url` da loja vira parâmetro, não o destino direto) — ele
  * repassa por padrão o status HTTP de origem da loja, então `detectBlock`
  * continua funcionando sem mudança (403/429/503/CAPTCHA/página curta
@@ -640,7 +641,7 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
  *
  * `premium` (pool de proxy residencial/mobile da ScraperAPI, em vez do
  * datacenter padrão) LIGADO desde ago/2026 — relato real: com
- * `SCRAPERAPI_KEY` configurada (proxy ativo) e AINDA ASSIM Amazon E
+ * chave ScraperAPI cadastrada (proxy ativo) e AINDA ASSIM Amazon E
  * Mercado Livre bloqueando (403/CAPTCHA, ver `StoreBlockedError`), sinal
  * de que o pool datacenter padrão da ScraperAPI já está tão visado
  * quanto o IP direto da Vercel — exatamente o cenário que este comentário
@@ -651,13 +652,17 @@ export function detectBlock(status: number, html: string, storeLabel: string): s
  * parser nem no resto de `fetchStoreHtml`), não o volume de busca do
  * motor interno + IA.
  */
-async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{ status: number; html: string }> {
+async function fetchStoreHtmlOnce(
+  url: string,
+  scraper: StoreScraper,
+  scraperApiKey: string | undefined
+): Promise<{ status: number; html: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const useProxy = Boolean(SCRAPERAPI_KEY);
+  const useProxy = Boolean(scraperApiKey);
   const targetUrl = useProxy
-    ? `${SCRAPERAPI_ENDPOINT}?api_key=${SCRAPERAPI_KEY}&url=${encodeURIComponent(url)}&premium=true`
+    ? `${SCRAPERAPI_ENDPOINT}?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&premium=true`
     : url;
 
   try {
@@ -690,7 +695,11 @@ async function fetchStoreHtmlOnce(url: string, scraper: StoreScraper): Promise<{
  * RETRY_ON_503_ATTEMPTS acima) — as outras classes de bloqueio
  * (403/CAPTCHA/timeout/página curta) continuam falhando na 1ª tentativa.
  */
-async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<string> {
+async function fetchStoreHtml(
+  url: string,
+  scraper: StoreScraper,
+  scraperApiKey: string | undefined
+): Promise<string> {
   let lastBlockReason: string | null = null;
 
   for (let attempt = 0; attempt <= RETRY_ON_503_ATTEMPTS; attempt++) {
@@ -698,7 +707,7 @@ async function fetchStoreHtml(url: string, scraper: StoreScraper): Promise<strin
       await sleep(RETRY_ON_503_BASE_DELAY_MS * attempt);
     }
 
-    const { status, html } = await fetchStoreHtmlOnce(url, scraper);
+    const { status, html } = await fetchStoreHtmlOnce(url, scraper, scraperApiKey);
     const blockReason = detectBlock(status, html, scraper.label);
     if (!blockReason) return html;
 
@@ -735,7 +744,11 @@ export interface StoreOffers {
  * Erro por loja é isolado (uma bloqueada não derruba a outra) — só propaga
  * se TODAS as lojas tentadas falharem.
  */
-export async function fetchStoreOffers(query: string, matchers: MarketplaceMatcher[]): Promise<StoreOffers[]> {
+export async function fetchStoreOffers(
+  query: string,
+  matchers: MarketplaceMatcher[],
+  scraperApiKey?: string
+): Promise<StoreOffers[]> {
   const scrapers = STORE_SCRAPERS.filter((s) => matchers.some((m) => m.marketplace === s.marketplace));
   if (scrapers.length === 0) return [];
 
@@ -745,7 +758,7 @@ export async function fetchStoreOffers(query: string, matchers: MarketplaceMatch
 
   await mapWithConcurrency(scrapers, CONCURRENCY, async (scraper) => {
     try {
-      const html = await fetchStoreHtml(scraper.buildUrl(query), scraper);
+      const html = await fetchStoreHtml(scraper.buildUrl(query), scraper, scraperApiKey);
       const offers = scraper.parse(html);
       if (offers.length === 0) {
         // Sem isso, HTML que passa por `detectBlock` (sem

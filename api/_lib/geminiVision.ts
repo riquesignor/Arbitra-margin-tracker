@@ -108,7 +108,10 @@ interface GeminiResponse {
  * fora do Google Cloud Storage, que é exatamente o nosso caso (foto vive
  * no Firestore, servida por `/api/catalog-image`).
  */
-async function fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mimeType: string }> {
+async function fetchImageAsBase64(
+  imageUrl: string,
+  scraperApiKey: string | undefined
+): Promise<{ data: string; mimeType: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -119,7 +122,10 @@ async function fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mim
     // antiga ecoava a URL e o status HTTP recebido, o que transformava
     // esta função num scanner de rede interna pra quem controlasse
     // `item.imageUrl` (ver docs/auditoria-2026-09.md > P0-2).
-    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal);
+    // `scraperApiKey` (BYOK do usuário, set/2026) alimenta a 2ª tentativa
+    // via proxy quando a loja bloqueia o download direto — ver
+    // fetchImageWithLimit.
+    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal, scraperApiKey);
     // Node/Vercel runtime: Buffer está disponível globalmente, sem import.
     return { data: buffer.toString("base64"), mimeType };
   } catch (err) {
@@ -217,8 +223,12 @@ const DESCRIBE_PROMPT =
  * que não achar nada, faz a busca convergir pro produto errado com
  * confiança falsa).
  */
-export async function describeProductImage(imageUrl: string, apiKey: string): Promise<string> {
-  const { data, mimeType } = await fetchImageAsBase64(imageUrl);
+export async function describeProductImage(
+  imageUrl: string,
+  apiKey: string,
+  scraperApiKey?: string
+): Promise<string> {
+  const { data, mimeType } = await fetchImageAsBase64(imageUrl, scraperApiKey);
   const text = await callGemini(
     [{ text: DESCRIBE_PROMPT }, { inline_data: { mime_type: mimeType, data } }],
     apiKey
@@ -248,11 +258,12 @@ const COMPARE_PROMPT =
 export async function compareProductImages(
   catalogImageUrl: string,
   candidateImageUrl: string,
-  apiKey: string
+  apiKey: string,
+  scraperApiKey?: string
 ): Promise<number> {
   const [catalogImage, candidateImage] = await Promise.all([
-    fetchImageAsBase64(catalogImageUrl),
-    fetchImageAsBase64(candidateImageUrl),
+    fetchImageAsBase64(catalogImageUrl, scraperApiKey),
+    fetchImageAsBase64(candidateImageUrl, scraperApiKey),
   ]);
 
   const text = await callGemini(

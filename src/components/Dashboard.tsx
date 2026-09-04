@@ -45,6 +45,7 @@ import {
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
   getUserMistralApiKey,
+  getUserScraperApiKey,
 } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -125,7 +126,14 @@ const SEARCH_PROVIDERS: {
   note: string;
   marketplaces: MarketplaceId[];
   icon: typeof Store;
-  needsKey: "serpApiKey" | "rapidApiKey" | "searchApiKey" | "geminiApiKey" | "mistralApiKey" | null;
+  needsKey:
+    | "serpApiKey"
+    | "rapidApiKey"
+    | "searchApiKey"
+    | "geminiApiKey"
+    | "mistralApiKey"
+    | "scraperApiKey"
+    | null;
 }[] = [
   {
     id: "serpapi",
@@ -201,17 +209,24 @@ const SEARCH_PROVIDERS: {
   },
   // ScraperAPI como busca de verdade (Structured Data Endpoints: Amazon
   // Search API + Google Shopping API), não só transporte — ver
-  // scraperApiSearchProvider.ts. `needsKey: null` porque a chave
-  // (`SCRAPERAPI_KEY`) é secret de servidor, não BYOK — não pede
-  // cadastro em Conta. Virou o DEFAULT do seletor (ver DEFAULT_PROVIDER
-  // abaixo) depois da remoção de "internal_search" (ago/2026).
+  // scraperApiSearchProvider.ts. Virou o DEFAULT do seletor (ver
+  // DEFAULT_PROVIDER abaixo) depois da remoção de "internal_search"
+  // (ago/2026), quando a chave ainda era secret de servidor.
+  //
+  // `needsKey: "scraperApiKey"` (set/2026 — ANTES era `null`): a chave
+  // virou BYOK, mesmo padrão das outras (ver comentário grande em
+  // internalSearchProvider.ts > SCRAPERAPI_ENDPOINT). Continua sendo o
+  // DEFAULT mesmo precisando de chave agora — é consistente com o resto
+  // do app (todo mecanismo de API pede a própria chave) e o onboarding de
+  // BYOK abaixo (`byokHint`) já mostra onde criar e quanto custa assim
+  // que o usuário escolhe o mecanismo, sem esperar a busca falhar.
   {
     id: "scraperapi",
     label: "ScraperAPI (Amazon + Google Shopping)",
-    note: "Amazon + Mercado Livre · endpoints estruturados, sem chave própria",
+    note: "Amazon + Mercado Livre · endpoints estruturados",
     marketplaces: ["mercadolivre", "amazon"],
     icon: Zap,
-    needsKey: null,
+    needsKey: "scraperApiKey",
   },
 ];
 
@@ -253,7 +268,16 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "scraperapi",
 ]);
 
-/** Default da tela: ScraperAPI — único sem chave e sem custo por busca desde a remoção de "internal_search" (ago/2026), então é onde o usuário novo consegue rodar uma busca sem configurar nada. */
+/**
+ * Default da tela: ScraperAPI, herdado de quando virou o substituto de
+ * "internal_search" (ago/2026). Continua default mesmo após a chave virar
+ * BYOK (set/2026) — sem chave cadastrada, o usuário só vê o mesmo
+ * onboarding (`byokHint`) que qualquer outro mecanismo de API mostraria;
+ * não há mais um mecanismo "genuinamente sem chave" pra ocupar esse lugar
+ * (o único `needsKey: null` que sobrou, "mercadolivre_direct", cobre só
+ * 1 marketplace e é avisadamente instável — pior default pra quem chega
+ * sem saber nada do app).
+ */
 const DEFAULT_PROVIDER: SearchProviderId = "scraperapi";
 
 /**
@@ -561,6 +585,14 @@ export default function Dashboard({
   // Mesma lógica das chaves acima, campo separado (ver userSecrets.ts).
   const [mistralApiKey, setMistralApiKey] = useState<string | null>(null);
 
+  // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
+  // secret de servidor da plataforma). Mesma lógica das chaves acima;
+  // usada pelo provider "scraperapi" E como fallback cross-cutting de
+  // outros (motor interno + IA, download de imagem bloqueada — ver
+  // api/_lib/userSecrets.ts > getUserScraperApiKey, resolvida no servidor
+  // independente de qual provider foi selecionado).
+  const [scraperApiKey, setScraperApiKey] = useState<string | null>(null);
+
   // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
   // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
   // E o usuário já tem `unwrangleApiKey` cadastrada (ver finishWithRows).
@@ -695,6 +727,14 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!userId) {
+      setScraperApiKey(null);
+      return;
+    }
+    getUserScraperApiKey(userId).then(setScraperApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
       setUploadHistory([]);
       return;
     }
@@ -751,7 +791,9 @@ export default function Dashboard({
             ? geminiApiKey
             : activeProvider.needsKey === "mistralApiKey"
               ? mistralApiKey
-              : null;
+              : activeProvider.needsKey === "scraperApiKey"
+                ? scraperApiKey
+                : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
@@ -1492,13 +1534,27 @@ export default function Dashboard({
    * não ter conseguido extrair/subir foto nenhuma.
    *
    * "scraperapi" (não "internal_search", que foi removido — ver
-   * AB_TEST_PROVIDER_IDS) porque é o único provider por TEXTO sem chave
-   * própria (`needsKey: null`) no grid atual — zero fricção, mesmo motivo
-   * de ser o DEFAULT_PROVIDER da tela.
+   * AB_TEST_PROVIDER_IDS) por ser o provider por TEXTO de referência do
+   * app (DEFAULT_PROVIDER).
+   *
+   * ⚠️ Usa `providerOverride` (ver finishWithRows), que PULA a checagem
+   * normal de `hasRequiredKey` — antes tudo bem, porque "scraperapi" não
+   * pedia chave nenhuma. Desde que a chave virou BYOK (set/2026), esse
+   * pulo deixou de ser inofensivo: sem checar aqui, o clique chegaria até
+   * o servidor pra só então falhar com "cadastre sua chave" — funciona,
+   * mas não é o UX rápido que o resto do app dá. Checagem explícita
+   * abaixo replica o mesmo `hasRequiredKey`/`missingKeyMessage` do fluxo
+   * normal, só que fixo em "scraperApiKey" (a chave de QUEM ESTE botão
+   * de fato usa, independente de `activeProvider` no momento do clique).
    */
   async function handleRetryAsText() {
     if (!imageUploadFailedOffer) return;
     const { rows, meta } = imageUploadFailedOffer;
+    if (!scraperApiKey) {
+      setState("error");
+      setError(missingKeyMessage("scraperApiKey"));
+      return;
+    }
     setImageUploadFailedOffer(null);
     await finishWithRows(rows, meta, undefined, "scraperapi");
   }
@@ -2083,14 +2139,18 @@ export default function Dashboard({
                           ? "Chave Gemini própria"
                           : activeProvider.needsKey === "mistralApiKey"
                             ? "Chave Mistral própria"
-                            : "Chave de API"}
+                            : activeProvider.needsKey === "scraperApiKey"
+                              ? "Chave ScraperAPI própria"
+                              : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>
                   {activeProvider.needsKey === null
                     ? "não precisa — endpoint público"
                     : hasRequiredKey
                       ? "cadastrada"
-                      : "grátis — cadastre em Conta"}
+                      : /* Custo real por mecanismo (set/2026) — antes dizia sempre
+                           "grátis", errado pro ScraperAPI (trial, depois pago). */
+                        `${PROVIDER_KEY_GUIDE[activeProvider.needsKey].cost} — cadastre em Conta`}
                 </span>
               </span>
             </div>

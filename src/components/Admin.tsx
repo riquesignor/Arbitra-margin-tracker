@@ -369,18 +369,13 @@ export default function Admin({ profile }: Props) {
             </p>
           ) : (
             <>
-              <div className={styles.diagRow}>
-                <span className={diagnostics.scraperApiConfigured ? styles.diagOk : styles.diagMissing}>
-                  {diagnostics.scraperApiConfigured ? <Check size={14} /> : <X size={14} />}
-                </span>
-                <span className={styles.diagLabel}>
-                  <strong>ScraperAPI (SCRAPERAPI_KEY)</strong>
-                  <span>
-                    Proxy anti-bloqueio do motor interno — paga a plataforma, não o usuário. Sem
-                    isso, buscas via motor interno ficam sujeitas a bloqueio de IP da Vercel.
-                  </span>
-                </span>
-              </div>
+              {/*
+                Linha "ScraperAPI (SCRAPERAPI_KEY)" REMOVIDA (set/2026, mesma
+                sessão da conversão BYOK — ver comentário no topo de
+                src/lib/userSecrets.ts e de api/admin-diagnostics.ts): não
+                existe mais env var de servidor pra checar, a chave é por
+                usuário. "ScraperAPI" entrou na lista BYOK logo abaixo.
+              */}
               <div className={styles.diagRow}>
                 <span
                   className={diagnostics.mercadoLivreOAuthConfigured ? styles.diagOk : styles.diagMissing}
