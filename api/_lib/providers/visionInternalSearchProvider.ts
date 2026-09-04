@@ -33,25 +33,81 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * FONTE DE CANDIDATOS COM REDE DE SEGURANÇA (set/2026)
  * ══════════════════════════════════════════════════════════════════════
  *
- * A raspagem de HTML (`fetchStoreOffers`) continua sendo a fonte
- * PRIMÁRIA: é gratuita, traz link, foto no tamanho do card e o sinal de
- * popularidade da loja. Mas ela tem dois modos de falha silenciosa —
- * bloqueio anti-bot (403) e mudança de layout (parser devolve 0 ofertas,
- * ver o warning "0 ofertas" em internalSearchProvider.ts) — e nos dois o
- * item voltava sem preço nenhum.
+ * A raspagem de HTML (`fetchStoreOffers`) é a fonte preferida quando
+ * funciona: é gratuita, traz link, foto no tamanho do card e o sinal de
+ * popularidade da loja. Mas ela falha de três jeitos — bloqueio anti-bot
+ * (403/CAPTCHA), mudança de layout (parser devolve 0 ofertas) e timeout —
+ * e nos três o item voltava sem preço, sem alternativa.
  *
- * Quando isso acontece COM A AMAZON, existe agora uma segunda fonte com
- * os mesmos campos: o endpoint estruturado da ScraperAPI
- * (`fetchAmazonCandidatesForQuery`). Ela custa 5 créditos por consulta,
- * por isso é FALLBACK e não substituição — só dispara quando a raspagem
- * não trouxe nada, ou seja, exatamente quando a alternativa seria não
- * ter resultado.
+ * Duas fontes estruturadas cobrem essa falha, uma por loja:
  *
- * Mercado Livre não tem equivalente: não existe endpoint estruturado
- * nativo pra ele na ScraperAPI, e usar Google Shopping filtrado por
- * origem custaria o link do anúncio e o número de vendas — caro demais
- * pra pagar sempre (ver a análise em docs/auditoria-2026-09.md).
+ *   - **Amazon** → `fetchAmazonCandidatesForQuery` (5 créditos). Dado
+ *     nativo: título, preço, link, foto, estrelas e nº de avaliações.
+ *     Equivalente completo da raspagem.
+ *   - **Mercado Livre** → Google Shopping estruturado filtrado pela
+ *     origem (25 créditos). Substituto PARCIAL, assumido de olhos
+ *     abertos: vem sem link do anúncio e sem "vendidos" (ver
+ *     `fetchGoogleShoppingCandidatesForQuery`). A conta mudou quando o
+ *     bloqueio deixou de ser intermitente — a comparação deixou de ser
+ *     "com link x sem link" e passou a ser "sem link x sem preço nenhum".
+ *
+ * DISJUNTOR (`scrapeBlockedUntil`): depois que uma loja bloqueia, as
+ * tentativas seguintes de raspar ELA no mesmo processo são puladas por
+ * alguns minutos. Sem isso, cada produto do catálogo pagava de novo o
+ * timeout/retry da loja bloqueada — num catálogo de 9 produtos isso é
+ * minuto de orçamento da function (teto de 300s na Vercel) gasto pra
+ * chegar no mesmo 403. Estado de módulo, então vive só enquanto a
+ * instância serverless vive: some sozinho, sem cache pra invalidar.
  */
+const SCRAPE_COOLDOWN_MS = 5 * 60_000;
+const scrapeBlockedUntil = new Map<MarketplaceId, number>();
+
+function scrapeIsOnCooldown(marketplace: MarketplaceId): boolean {
+  return (scrapeBlockedUntil.get(marketplace) ?? 0) > Date.now();
+}
+
+/**
+ * O Google Shopping estruturado custa 25 créditos por consulta e agora
+ * tem DOIS consumidores no mesmo fluxo: o substituto do Mercado Livre
+ * (abaixo) e o Passo 4 (busca "geral", opt-in). Sem esta memória de
+ * curtíssimo prazo, um item cujo ML caiu no substituto E que depois cai
+ * no Passo 4 pagaria 50 créditos pela MESMA string de busca.
+ *
+ * TTL curto e teto de entradas porque o objetivo não é cache de verdade
+ * (isso é papel do `cache.ts`, por usuário e por marketplace) — é só
+ * evitar a chamada duplicada dentro do processamento de um item.
+ */
+const SHOPPING_MEMO_TTL_MS = 60_000;
+const SHOPPING_MEMO_MAX = 200;
+const shoppingMemo = new Map<string, { at: number; value: Awaited<ReturnType<typeof fetchGoogleShoppingCandidatesForQuery>> }>();
+
+async function fetchGoogleShoppingCandidatesMemo(query: string) {
+  const hit = shoppingMemo.get(query);
+  if (hit && Date.now() - hit.at < SHOPPING_MEMO_TTL_MS) return hit.value;
+
+  const value = (await fetchGoogleShoppingCandidatesForQuery(query)) ?? [];
+  if (shoppingMemo.size >= SHOPPING_MEMO_MAX) {
+    // Descarte simples do mais antigo inserido — Map preserva ordem de
+    // inserção, e aqui não vale a complexidade de um LRU de verdade.
+    const oldest = shoppingMemo.keys().next().value;
+    if (oldest !== undefined) shoppingMemo.delete(oldest);
+  }
+  shoppingMemo.set(query, { at: Date.now(), value });
+  return value;
+}
+
+/**
+ * Zera o disjuntor e a memória do Google Shopping. Existe pra TESTE: os
+ * dois são estado de módulo (o que é correto em produção — vivem junto
+ * com a instância serverless), e sem isto um caso que bota a Amazon em
+ * cooldown contaminaria silenciosamente os casos seguintes do mesmo
+ * arquivo.
+ */
+export function resetCandidateSourceState(): void {
+  scrapeBlockedUntil.clear();
+  shoppingMemo.clear();
+}
+
 export async function fetchCandidateOffers(
   query: string,
   matchers: MarketplaceMatcher[]
@@ -59,33 +115,113 @@ export async function fetchCandidateOffers(
   let stores: StoreOffers[] = [];
   let scrapeError: unknown = null;
 
-  try {
-    stores = await fetchStoreOffers(query, matchers);
-  } catch (err) {
-    // Todas as lojas falharam (fetchStoreOffers só lança nesse caso) —
-    // guarda o erro e ainda tenta a fonte estruturada antes de desistir.
-    scrapeError = err;
+  const scrapable = matchers.filter((m) => !scrapeIsOnCooldown(m.marketplace));
+  if (scrapable.length > 0) {
+    try {
+      stores = await fetchStoreOffers(query, scrapable);
+    } catch (err) {
+      // `fetchStoreOffers` só lança quando TODAS as lojas tentadas
+      // falharam — então todas elas entram em cooldown.
+      scrapeError = err;
+      for (const m of scrapable) scrapeBlockedUntil.set(m.marketplace, Date.now() + SCRAPE_COOLDOWN_MS);
+    }
+    // Loja pedida que não voltou no resultado falhou isoladamente (o erro
+    // dela foi engolido lá dentro pra não derrubar a outra) — mesmo
+    // tratamento.
+    for (const m of scrapable) {
+      if (!stores.some((s) => s.marketplace === m.marketplace)) {
+        scrapeBlockedUntil.set(m.marketplace, Date.now() + SCRAPE_COOLDOWN_MS);
+      }
+    }
   }
 
+  const needsStructured = (marketplace: MarketplaceId) => {
+    const scraped = stores.find((s) => s.marketplace === marketplace);
+    return { scraped, empty: !scraped || scraped.offers.length === 0 };
+  };
+
+  const attach = (marketplace: MarketplaceId, label: string, offers: ScrapedOffer[]) => {
+    const existing = stores.find((s) => s.marketplace === marketplace);
+    if (existing) existing.offers = offers;
+    else stores.push({ marketplace, label, offers });
+  };
+
   if (matchers.some((m) => m.marketplace === "amazon")) {
-    const scraped = stores.find((s) => s.marketplace === "amazon");
-    if (!scraped || scraped.offers.length === 0) {
-      const structured = await fetchAmazonCandidatesForQuery(query);
+    const { empty } = needsStructured("amazon");
+    if (empty) {
+      // Fonte OPCIONAL: falha dela não pode derrubar o item (a raspagem
+      // já falhou; propagar aqui só trocaria um erro por outro).
+      const structured = await fetchAmazonCandidatesForQuery(query).catch((err) => {
+        console.warn(`[motor-interno+IA] endpoint estruturado da Amazon falhou pra "${query}":`, err);
+        return [];
+      });
       if (structured.length > 0) {
         console.warn(
           `[motor-interno+IA] Amazon sem oferta pela raspagem pra "${query}" — ` +
             `usando o endpoint estruturado (${structured.length} candidato(s)).`
         );
-        // `AmazonStructuredCandidate` tem exatamente os campos de
-        // `ScrapedOffer` — é o que permite trocar a fonte sem tocar em
-        // ranqueamento nem em comparação visual.
-        if (scraped) scraped.offers = structured;
-        else stores.push({ marketplace: "amazon", label: "Amazon", offers: structured });
+        attach("amazon", "Amazon", structured);
       }
     }
   }
 
-  if (stores.length === 0 && scrapeError) throw scrapeError;
+  const mlMatcher = matchers.find((m) => m.marketplace === "mercadolivre");
+  if (mlMatcher) {
+    const { empty } = needsStructured("mercadolivre");
+    if (empty) {
+      const broad = await fetchGoogleShoppingCandidatesMemo(query).catch((err) => {
+        console.warn(`[motor-interno+IA] Google Shopping estruturado falhou pra "${query}":`, err);
+        return [];
+      });
+      const fromMl = broad.filter((c) => c.source && mlMatcher.matchesSource(c.source.toLowerCase()));
+      const offers: ScrapedOffer[] = fromMl
+        .filter((c): c is typeof c & { price: number } => c.price != null)
+        .map((c) => ({
+          title: c.title,
+          price: c.price,
+          thumbnail: c.thumbnail,
+          // Sem `link` e sem `reviewCount` de propósito: essa fonte não
+          // devolve nenhum dos dois (ver a doc citada em
+          // fetchGoogleShoppingCandidatesForQuery). A UI já sabe lidar
+          // com resultado sem link ("sem link" no lugar de "Ver anúncio").
+        }));
+      if (offers.length > 0) {
+        console.warn(
+          `[motor-interno+IA] Mercado Livre sem oferta pela raspagem pra "${query}" — ` +
+            `usando Google Shopping estruturado (${offers.length} candidato(s), sem link de anúncio).`
+        );
+        attach("mercadolivre", "Mercado Livre", offers);
+      }
+    }
+  }
+
+  // Só faz sentido falar em "loja bloqueada" quando alguma loja RASPÁVEL
+  // foi pedida. Com apenas "geral" marcado (Passo 4), não há loja focada
+  // pra raspar e `[]` é a resposta certa — lançar aqui quebraria o
+  // caminho de busca geral, que nem chega a passar pela raspagem.
+  const askedScrapableStore = matchers.some(
+    (m) => m.marketplace === "amazon" || m.marketplace === "mercadolivre"
+  );
+
+  if (stores.length === 0 && askedScrapableStore) {
+    // Nada de nada: nem raspagem, nem fonte estruturada. A mensagem
+    // precisa dizer QUAL das duas coisas checar — antes disso o usuário
+    // recebia "a loja bloqueou, troque o mecanismo", conselho que não
+    // resolve quando as duas lojas bloqueiam e o problema real é a chave
+    // do proxy ausente ou sem crédito.
+    if (!process.env.SCRAPERAPI_KEY) {
+      throw new Error(
+        "As lojas bloquearam a busca direta e não há SCRAPERAPI_KEY configurada no servidor — " +
+          "sem ela não existe fonte alternativa de candidatos. Configure a chave nas variáveis de " +
+          "ambiente (Vercel) pra liberar os endpoints estruturados."
+      );
+    }
+    if (scrapeError) throw scrapeError;
+    throw new Error(
+      "As lojas bloquearam a busca direta e os endpoints estruturados da ScraperAPI não " +
+        "devolveram candidato nenhum — verifique se a chave ainda tem crédito disponível."
+    );
+  }
   return stores;
 }
 
@@ -628,7 +764,10 @@ export async function searchVisionInternalShared(
       // no topo do arquivo).
       if (geralRequested && !matchedAnyStore && !quotaExhausted) {
         try {
-          const broadCandidates = await fetchGoogleShoppingCandidatesForQuery(query);
+          // Memoizado (ver fetchGoogleShoppingCandidatesMemo): se o
+          // substituto do ML já consultou esta mesma string neste item,
+          // reaproveita em vez de pagar 25 créditos de novo.
+          const broadCandidates = await fetchGoogleShoppingCandidatesMemo(query);
           // Só interessa achar em lojas DE FORA das focadas — Amazon/ML
           // já foram tentadas (e falharam) no passo 3 acima. Exclui só
           // `focusedMatchers` daqui (não `matchers` cru): o matcher de

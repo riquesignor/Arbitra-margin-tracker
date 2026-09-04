@@ -74,9 +74,12 @@ let MISTRAL_BACKEND: typeof import("./visionInternalSearchProvider").MISTRAL_BAC
 let GeminiVisionError: typeof import("../geminiVision").GeminiVisionError;
 let GeminiQuotaExhaustedError: typeof import("../geminiVision").GeminiQuotaExhaustedError;
 let MistralQuotaExhaustedError: typeof import("../mistralVision").MistralQuotaExhaustedError;
+let resetCandidateSourceState: typeof import("./visionInternalSearchProvider").resetCandidateSourceState;
 
 beforeAll(async () => {
-  ({ searchVisionInternalShared, GEMINI_BACKEND, MISTRAL_BACKEND } = await import("./visionInternalSearchProvider"));
+  ({ searchVisionInternalShared, GEMINI_BACKEND, MISTRAL_BACKEND, resetCandidateSourceState } = await import(
+    "./visionInternalSearchProvider"
+  ));
   ({ GeminiVisionError, GeminiQuotaExhaustedError } = await import("../geminiVision"));
   ({ MistralQuotaExhaustedError } = await import("../mistralVision"));
 });
@@ -112,6 +115,11 @@ beforeEach(() => {
   compareProductImagesBatchMistral.mockReset();
   fetchStoreOffers.mockReset();
   fetchGoogleShoppingCandidatesForQuery.mockReset().mockResolvedValue([]);
+  fetchAmazonCandidatesForQuery.mockReset().mockResolvedValue([]);
+  // Disjuntor de raspagem + memória do Google Shopping são estado de
+  // MÓDULO (ver resetCandidateSourceState) — sem zerar, um caso que põe
+  // a Amazon em cooldown contamina os seguintes.
+  resetCandidateSourceState();
 });
 
 afterEach(() => {
@@ -548,7 +556,12 @@ describe("searchVisionInternalShared", () => {
 
         const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_SEM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
-        expect(fetchGoogleShoppingCandidatesForQuery).not.toHaveBeenCalled();
+        // A asserção NÃO é mais "o Google Shopping não foi chamado":
+        // desde set/2026 essa mesma fonte também é o substituto do
+        // Mercado Livre quando a raspagem dele volta vazia (ver
+        // fetchCandidateOffers). O que o opt-in controla é o RESULTADO
+        // "geral" — é isso que continua tendo que ficar de fora.
+        expect(result.results.geral?.["SKU-1"]).toBeUndefined();
         expect(result.results.amazon?.["SKU-1"]).toBeUndefined();
       }
     );
@@ -560,9 +573,18 @@ describe("searchVisionInternalShared", () => {
       ] satisfies StoreOffers[]);
       compareProductImages.mockResolvedValue(0.95);
 
-      await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
+      const result = await searchVisionInternalShared(
+        [ITEM_WITH_PHOTO],
+        MATCHERS_COM_GERAL,
+        "fake-gemini-key",
+        GEMINI_BACKEND
+      );
 
-      expect(fetchGoogleShoppingCandidatesForQuery).not.toHaveBeenCalled();
+      // Ver comentário do teste anterior: a fonte pode ser consultada
+      // como substituta do ML, mas o Passo 4 (resultado "geral") não roda
+      // quando uma loja focada já confirmou o item.
+      expect(result.results.geral?.["SKU-1"]).toBeUndefined();
+      expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.95 });
     });
 
     it(
