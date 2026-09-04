@@ -16,6 +16,54 @@ const CANDIDATES: Fixture[] = [
 const getTitle = (c: Fixture) => c.title;
 const getPopularity = (c: Fixture) => c.popularity;
 
+describe("penalidade de acessório (set/2026)", () => {
+  // Cenário real que motivou o fix: o acessório é MUITO mais vendido que o
+  // produto (mais barato, compra por impulso), e compartilha quase todos
+  // os tokens do nome — antes disso ele vencia o desempate por
+  // popularidade e trazia um preço de R$ 19 como se fosse o do fone.
+  const COM_ACESSORIO: Fixture[] = [
+    { title: "Fone de Ouvido Bluetooth JBL Tune 510BT Preto", popularity: 30 },
+    { title: "Capa Case Protetora para Fone JBL Tune 510BT", popularity: 5000 },
+    { title: "Película Protetora para Fone JBL Tune 510BT", popularity: 4000 },
+  ];
+
+  it("o produto vence o acessório mesmo o acessório sendo muito mais popular", () => {
+    const best = pickBestCandidate(
+      "Fone de Ouvido Bluetooth JBL Tune 510BT",
+      COM_ACESSORIO,
+      getTitle,
+      getPopularity
+    );
+
+    expect(best?.candidate.title).toBe("Fone de Ouvido Bluetooth JBL Tune 510BT Preto");
+  });
+
+  it("catálogo que VENDE o acessório não é penalizado — o termo está nos dois lados", () => {
+    const best = pickBestCandidate(
+      "Capa Case Protetora para Fone JBL Tune 510BT",
+      COM_ACESSORIO,
+      getTitle,
+      getPopularity
+    );
+
+    expect(best?.candidate.title).toBe("Capa Case Protetora para Fone JBL Tune 510BT");
+  });
+
+  it("acessório sozinho não é descartado em silêncio — volta com nota baixa pra UI marcar como aproximado", () => {
+    const best = pickBestCandidate(
+      "Fone de Ouvido Bluetooth JBL Tune 510BT",
+      [COM_ACESSORIO[1]],
+      getTitle,
+      getPopularity
+    );
+
+    // Ou volta com similaridade rebaixada, ou é rejeitado por ficar abaixo
+    // do piso — os dois são aceitáveis; o que NÃO pode é voltar com nota
+    // alta como se fosse o produto certo.
+    if (best) expect(best.similarity).toBeLessThan(0.5);
+  });
+});
+
 describe("getTopCandidates", () => {
   it("devolve lista vazia sem quebrar quando não há candidatos", () => {
     expect(getTopCandidates("qualquer coisa", [], getTitle, getPopularity, 3)).toEqual([]);

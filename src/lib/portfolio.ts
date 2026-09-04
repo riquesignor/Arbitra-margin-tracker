@@ -1,5 +1,6 @@
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import type { CatalogUploadRecord } from "./catalogHistory";
+import { safeExternalUrl } from "./safeExternalUrl";
 
 /**
  * "Meus produtos" — visão persistente por SKU, agregando TODAS as
@@ -101,7 +102,11 @@ export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] 
       recommendation: r.recommendation,
       competitorCount: r.competitorCount,
       buyBoxEligible: r.buyBoxEligible,
-      link: r.link,
+      // Saneado de novo aqui (além de calculateMargin) porque a carteira é
+      // montada a partir de buscas SALVAS — registro gravado antes do
+      // saneamento existir ainda pode ter link com esquema estranho no
+      // Firestore. Ver safeExternalUrl.ts.
+      link: safeExternalUrl(r.link),
       searchCount: occurrences.length,
       lastSearchedAt: latest.uploadedAt,
       trend,

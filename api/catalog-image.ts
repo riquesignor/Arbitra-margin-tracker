@@ -2,6 +2,8 @@ import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 
 const SUBCOLLECTION = "catalog_images";
+/** Ver IMAGE_INDEX_COLLECTION em src/lib/catalogImages.ts — `imageId -> { uid, expiresAt }`. */
+const IMAGE_INDEX_COLLECTION = "catalog_image_index";
 
 /**
  * GET /api/catalog-image?uid=xxx&id=yyy
@@ -27,14 +29,31 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   const idParam = req.query?.id;
   const id = Array.isArray(idParam) ? idParam[0] : idParam;
   const uidParam = req.query?.uid;
-  const uid = Array.isArray(uidParam) ? uidParam[0] : uidParam;
-  if (!id || !uid) {
-    res.status(400).json({ error: "Parâmetro uid ou id ausente" });
+  const legacyUid = Array.isArray(uidParam) ? uidParam[0] : uidParam;
+  if (!id) {
+    res.status(400).json({ error: "Parâmetro id ausente" });
     return;
   }
 
   try {
     const db = getAdminDb();
+
+    // `?uid=` só existe pra URL ANTIGA (set/2026 — ver
+    // docs/auditoria-2026-09.md > P1-6): a URL nova manda só o `id`, e o
+    // dono é resolvido pelo índice `catalog_image_index/{id}`, pra não
+    // entregar o identificador do usuário à SerpApi/SearchApi.io junto
+    // com a foto. URLs antigas seguem funcionando até expirarem (30 dias).
+    let uid = legacyUid;
+    if (!uid) {
+      const indexSnap = await db.collection(IMAGE_INDEX_COLLECTION).doc(id).get();
+      const indexData = indexSnap.data();
+      if (!indexData || typeof indexData.expiresAt !== "number" || indexData.expiresAt <= Date.now()) {
+        res.status(404).json({ error: "Imagem não encontrada ou expirada" });
+        return;
+      }
+      uid = indexData.uid as string;
+    }
+
     const snap = await db.collection("users").doc(uid).collection(SUBCOLLECTION).doc(id).get();
     const data = snap.data();
 

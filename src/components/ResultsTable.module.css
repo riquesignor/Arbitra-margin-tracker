@@ -562,6 +562,31 @@
   color: var(--color-text-muted);
 }
 
+/*
+ * Nota de lote (set/2026, ver packQuantity.ts) — segunda linha discreta
+ * abaixo do preço, no mesmo peso visual de `.marginValue`: o valor grande
+ * é o preço POR UNIDADE (o comparável com o custo do catálogo, e o que
+ * entra na margem), e esta linha explica que o anúncio em si vende um
+ * lote por outro valor. Sem ela o usuário abriria o link e veria um preço
+ * diferente do que a tabela mostra.
+ */
+/* Sufixo "foto"/"nome" na coluna de Confiança — ver ConfidenceCell. */
+.confidenceSource {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  margin-top: 2px;
+}
+
+.packNote {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+}
+
 .badge {
   font-family: var(--font-body);
   font-size: 0.75rem;

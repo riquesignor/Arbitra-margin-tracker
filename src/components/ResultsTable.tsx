@@ -123,19 +123,104 @@ export function CompetitionBadge({
  * voltava com duas linhas, sem explicação. Mostrar o resultado com um
  * aviso explícito é mais útil (e mais honesto) do que esconder.
  */
-export function ApproximateBadge({ matchedSource }: { matchedSource?: string }) {
+/**
+ * Motivo específico quando o preço não fecha com o custo do catálogo
+ * (set/2026, ver api/_lib/priceSanity.ts). Tem prioridade sobre o texto
+ * genérico da tag: "esse preço não bate com o seu custo" é acionável;
+ * "match aproximado" sozinho não diz o que conferir.
+ */
+const PRICE_SANITY_TITLE: Record<NonNullable<MarginResult["priceSanityFlag"]>, string> = {
+  abaixo_do_custo:
+    "Preço bem ABAIXO do seu custo de fornecedor — normalmente o anúncio é de um acessório, peça avulsa " +
+    "ou produto parecido, não do produto do catálogo. Abra o anúncio antes de considerar esse preço.",
+  muito_acima_do_custo:
+    "Preço muitas vezes ACIMA do seu custo — pode ser lote/atacado que o título não declarou, ou um " +
+    "produto diferente com nome parecido. Abra o anúncio antes de considerar esse preço.",
+};
+
+export function ApproximateBadge({
+  matchedSource,
+  priceSanityFlag,
+}: {
+  matchedSource?: string;
+  priceSanityFlag?: MarginResult["priceSanityFlag"];
+}) {
   return (
     <span
       className={styles.approxBadge}
       title={
-        matchedSource
-          ? `Match aproximado — preço encontrado em "${matchedSource}", não no marketplace selecionado. ` +
-            "Confira o anúncio antes de usar como referência."
-          : "Match aproximado — o produto encontrado pode não ser exatamente o do seu catálogo. Confira o anúncio."
+        priceSanityFlag
+          ? PRICE_SANITY_TITLE[priceSanityFlag]
+          : matchedSource
+            ? `Match aproximado — preço encontrado em "${matchedSource}", não no marketplace selecionado. ` +
+              "Confira o anúncio antes de usar como referência."
+            : "Match aproximado — o produto encontrado pode não ser exatamente o do seu catálogo. Confira o anúncio."
       }
     >
-      <AlertTriangle size={10} /> Aproximado
+      <AlertTriangle size={10} /> {priceSanityFlag ? "Preço suspeito" : "Aproximado"}
     </span>
+  );
+}
+
+/**
+ * Preço de mercado + nota de lote (set/2026, ver packQuantity.ts e
+ * docs/auditoria-2026-09.md > item 10).
+ *
+ * O número em destaque é sempre o preço POR UNIDADE — é ele que é
+ * comparável com o custo unitário do catálogo e o que entra na margem.
+ * Quando o anúncio encontrado vende lote ("kit com 12"), a segunda linha
+ * mostra o preço cheio do anúncio e a quantidade: sem isso o usuário
+ * abriria o link, veria R$ 120 onde a tabela diz R$ 10, e perderia a
+ * confiança no número (com razão).
+ */
+export function MarketPrice({ result }: { result: Pick<MarginResult, "marketplacePrice" | "packQuantity" | "listingPrice"> }) {
+  return (
+    <>
+      R$ {result.marketplacePrice.toFixed(2)}
+      {result.packQuantity != null && result.listingPrice != null && (
+        <span
+          className={styles.packNote}
+          title={
+            `O anúncio vende um lote de ${result.packQuantity} unidades por ` +
+            `R$ ${result.listingPrice.toFixed(2)}. O valor em destaque é o preço por unidade — ` +
+            "é o único comparável com o custo unitário do seu catálogo, e é o que entra no cálculo de margem."
+          }
+        >
+          lote de {result.packQuantity} · R$ {result.listingPrice.toFixed(2)} no anúncio
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * Coluna de confiança + de ONDE ela veio (set/2026, ver `confidenceSource`
+ * em types/index.ts). O número sozinho era ambíguo: 62% por semelhança de
+ * NOME e 62% por confirmação da FOTO são coisas muito diferentes na hora
+ * de decidir compra — a primeira pode ser um produto homônimo, a segunda
+ * teve a imagem comparada. O sufixo é discreto (a coluna é estreita) e o
+ * tooltip explica.
+ */
+function ConfidenceCell({
+  confidence,
+  source,
+}: {
+  confidence: number;
+  source?: MarginResult["confidenceSource"];
+}) {
+  return (
+    <td
+      title={
+        source === "visual"
+          ? "Match confirmado comparando a FOTO do catálogo com a foto do anúncio."
+          : source === "texto"
+            ? "Match decidido por semelhança entre o NOME do catálogo e o título do anúncio — a foto não entrou na decisão."
+            : undefined
+      }
+    >
+      {(confidence * 100).toFixed(0)}%
+      {source && <span className={styles.confidenceSource}>{source === "visual" ? "foto" : "nome"}</span>}
+    </td>
   );
 }
 
@@ -362,9 +447,15 @@ export default function ResultsTable({
       Produto: r.name,
       Marketplace: MARKETPLACE_LABEL[r.marketplace],
       "Custo (R$)": r.supplierPrice != null ? r.supplierPrice.toFixed(2) : "",
+      // Preço POR UNIDADE (ver MarketPrice acima) — as duas colunas
+      // seguintes só vêm preenchidas quando o anúncio é lote, pra quem
+      // analisa a planilha fora do app conseguir refazer a conta.
       "Preço (R$)": r.marketplacePrice.toFixed(2),
+      "Lote (un.)": r.packQuantity ?? "",
+      "Preço do anúncio (R$)": r.listingPrice != null ? r.listingPrice.toFixed(2) : "",
       "Margem (%)": r.marginPct != null ? (r.marginPct * 100).toFixed(1) : "",
       "Confiança (%)": (r.confidence * 100).toFixed(0),
+      "Confiança veio de": r.confidenceSource === "visual" ? "foto" : r.confidenceSource === "texto" ? "nome" : "",
       Recomendação: BADGE_LABEL[r.recommendation],
       Concorrentes: r.competitorCount,
       "Elegível Buy Box": r.buyBoxEligible ? "Sim" : "Não",
@@ -589,7 +680,12 @@ export default function ResultsTable({
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
                         {r.name}
-                        {r.approximate && <ApproximateBadge matchedSource={r.matchedSource} />}
+                        {r.approximate && (
+                          <ApproximateBadge
+                            matchedSource={r.matchedSource}
+                            priceSanityFlag={r.priceSanityFlag}
+                          />
+                        )}
                       </div>
                       {r.link ? (
                         <a
@@ -609,13 +705,15 @@ export default function ResultsTable({
                     </td>
                     <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
                     <CostCell value={r.supplierPrice} />
-                    <td>R$ {r.marketplacePrice.toFixed(2)}</td>
+                    <td>
+                      <MarketPrice result={r} />
+                    </td>
                     <MarginCell
                       marginPct={r.marginPct}
                       targetMarginPct={targetMarginPct}
                       recommendation={r.recommendation}
                     />
-                    <td>{(r.confidence * 100).toFixed(0)}%</td>
+                    <ConfidenceCell confidence={r.confidence} source={r.confidenceSource} />
                     <td>
                       <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
                         {BADGE_LABEL[r.recommendation]}
@@ -678,7 +776,7 @@ export default function ResultsTable({
                           <td key={m}>
                             {offer ? (
                               <>
-                                R$ {offer.marketplacePrice.toFixed(2)}
+                                <MarketPrice result={offer} />
                                 <span className={styles.marginValue}>
                                   {offer.marginPct != null
                                     ? `${(offer.marginPct * 100).toFixed(1)}% margem`
@@ -765,7 +863,10 @@ export default function ResultsTable({
                           <div className={styles.productName} title={best.name}>
                             {best.name}
                             {best.approximate && (
-                              <ApproximateBadge matchedSource={best.matchedSource} />
+                              <ApproximateBadge
+                                matchedSource={best.matchedSource}
+                                priceSanityFlag={best.priceSanityFlag}
+                              />
                             )}
                           </div>
                           {best.link ? (
@@ -794,7 +895,9 @@ export default function ResultsTable({
                         </td>
                         <td className={styles.marketCell}>{MARKETPLACE_LABEL[best.marketplace]}</td>
                         <CostCell value={best.supplierPrice} />
-                        <td>R$ {best.marketplacePrice.toFixed(2)}</td>
+                        <td>
+                          <MarketPrice result={best} />
+                        </td>
                         <MarginCell
                           marginPct={best.marginPct}
                           targetMarginPct={targetMarginPct}
@@ -833,7 +936,9 @@ export default function ResultsTable({
                             </td>
                             <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
                             <CostCell value={r.supplierPrice} />
-                            <td>R$ {r.marketplacePrice.toFixed(2)}</td>
+                            <td>
+                              <MarketPrice result={r} />
+                            </td>
                             <td>
                               <span className={styles.marginValue}>
                                 {r.marginPct != null ? `${(r.marginPct * 100).toFixed(1)}%` : "sem custo"}

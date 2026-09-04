@@ -14,6 +14,15 @@ export interface FetchPricesResult {
   results: Record<string, MarketplacePriceResult>;
   source: PriceSource;
   /**
+   * Contador de cota do dia devolvido pelo SERVIDOR (`_usage`, ver
+   * api/_lib/searchQuota.ts, set/2026) — `used` já inclui o custo desta
+   * requisição. Substituiu o incremento client-side (que era a única
+   * contagem existente e, por isso, não valia como cota de verdade).
+   * `undefined` quando o servidor não conseguiu reservar (falha de
+   * infraestrutura no contador — a busca segue, só sem número novo).
+   */
+  usage?: { used: number; limit: number };
+  /**
    * Aviso de cota/qualidade do motor interno + IA (ver
    * api/_lib/providers/visionInternalSearchProvider.ts) — só vem
    * preenchido quando `provider === "vision_internal"` E a cota do Gemini
@@ -72,16 +81,29 @@ async function fallbackToLocalMock(
  *   se fosse real justamente quando a causa é a própria chave BYOK do
  *   usuário — o pior momento possível pra mascarar o problema.
  *
- * `provider` (default "serpapi" no servidor se omitido) escolhe qual API
- * resolve o preço — ver SearchProviderId em ../types e o comentário no
- * topo de api/fetch-prices.ts. `apiKey` é sempre a chave DO PROVIDER
- * escolhido (SerpApi ou RapidAPI) — Mercado Livre direto não usa chave.
+ * `provider` (default "scraperapi" no servidor se omitido) escolhe qual
+ * API resolve o preço — ver SearchProviderId em ../types e o comentário
+ * no topo de api/fetch-prices.ts.
+ *
+ * ⚠️ A chave BYOK NÃO trafega mais por aqui (set/2026, ver
+ * api/_lib/userSecrets.ts e docs/auditoria-2026-09.md > P0-4): o servidor
+ * lê a chave do usuário direto do Firestore, usando o uid do próprio
+ * token. Antes o navegador lia as chaves em texto puro e as reenviava em
+ * toda requisição — um XSS no app levava as seis de uma vez. Se você está
+ * lendo isto pensando em "só passar a chave aqui", não passe: quebra
+ * justamente a correção.
  */
 export async function fetchMultipleMarketplacePrices(
   marketplaces: MarketplaceId[],
   items: CatalogItemQuery[],
-  apiKey?: string | null,
-  provider?: SearchProviderId
+  provider?: SearchProviderId,
+  /**
+   * Cancelamento da busca em andamento (set/2026, ver
+   * docs/auditoria-2026-09.md > item 19). Catálogo grande roda por
+   * minutos; até aqui a única saída era recarregar a página — e perder
+   * tudo que já tinha sido encontrado.
+   */
+  signal?: AbortSignal
 ): Promise<Record<MarketplaceId, FetchPricesResult>> {
   if (items.length === 0 || marketplaces.length === 0) {
     return emptyResult(marketplaces);
@@ -97,9 +119,13 @@ export async function fetchMultipleMarketplacePrices(
         "Content-Type": "application/json",
         ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       },
-      body: JSON.stringify({ marketplaces, items, apiKey: apiKey || undefined, provider }),
+      body: JSON.stringify({ marketplaces, items, provider }),
+      signal,
     });
-  } catch {
+  } catch (err) {
+    // Cancelamento NÃO é "endpoint inalcançável": cair no mock local aqui
+    // devolveria preço fabricado justamente quando o usuário mandou parar.
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
     return fallbackToLocalMock(marketplaces, items);
   }
 
@@ -116,10 +142,16 @@ export async function fetchMultipleMarketplacePrices(
 
   const body = (await response.json()) as Record<string, Record<string, MarketplacePriceResult>> & {
     _warning?: string;
+    _usage?: { used: number; limit: number };
   };
   const out = {} as Record<MarketplaceId, FetchPricesResult>;
   for (const marketplace of marketplaces) {
-    out[marketplace] = { results: body[marketplace] ?? {}, source: "server", warning: body._warning };
+    out[marketplace] = {
+      results: body[marketplace] ?? {},
+      source: "server",
+      warning: body._warning,
+      usage: body._usage,
+    };
   }
   return out;
 }

@@ -49,6 +49,8 @@
  * é `mistral-small-2506` (mesma família "Recommended", mais robusto).
  */
 
+import { fetchImageWithLimit, UnsafeImageUrlError } from "./safeImageUrl.js";
+
 const MODEL = "ministral-8b-2512";
 const ENDPOINT = "https://api.mistral.ai/v1/chat/completions";
 
@@ -110,16 +112,16 @@ async function fetchImageAsDataUri(imageUrl: string): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(imageUrl, { signal: controller.signal });
-    if (!response.ok) {
-      throw new MistralVisionError(`Não consegui baixar a imagem (${imageUrl}): HTTP ${response.status}`);
-    }
-    const mimeType = response.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-    const buffer = await response.arrayBuffer();
-    const data = Buffer.from(buffer).toString("base64");
-    return `data:${mimeType};base64,${data}`;
+    // Ver o comentário equivalente em geminiVision.ts > fetchImageAsBase64
+    // (set/2026): guarda de SSRF + teto de bytes, no lugar do `fetch` cru
+    // que aceitava qualquer URL vinda do cliente.
+    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal);
+    return `data:${mimeType};base64,${buffer.toString("base64")}`;
   } catch (err) {
     if (err instanceof MistralVisionError) throw err;
+    if (err instanceof UnsafeImageUrlError) {
+      throw new MistralVisionError(err.message);
+    }
     if (err instanceof Error && err.name === "AbortError") {
       throw new MistralVisionError(`Baixar a imagem demorou mais que ${REQUEST_TIMEOUT_MS / 1000}s.`);
     }

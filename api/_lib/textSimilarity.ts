@@ -102,6 +102,49 @@ export function textSimilarity(a: string, b: string, ignoreGenericTerms = true):
 }
 
 /**
+ * Termos que denunciam ACESSÓRIO/complemento de um produto, não o produto
+ * em si (set/2026, ver docs/auditoria-2026-09.md > item 11).
+ *
+ * Problema real: "Capa para Fone XM4" compartilha quase todos os tokens
+ * com "Fone XM4" — a similaridade fica alta, e como o acessório costuma
+ * ser MUITO mais vendido (mais barato, compra por impulso), ele vencia o
+ * desempate por popularidade dentro da tolerância de 0,1 do
+ * `pickBestCandidate`. Resultado: preço de mercado de R$ 19 pra um produto
+ * de R$ 400, e uma margem que não existe.
+ *
+ * A penalidade só dispara quando o termo está no TÍTULO DO ANÚNCIO e NÃO
+ * no nome do catálogo — é isso que torna a lista segura: catálogo que
+ * vende capa ("Capa de Silicone 6 cores") tem "capa" nos dois lados e não
+ * é penalizado; e o mesmo vale pra cabo, carregador, bateria etc., que são
+ * produtos legítimos quando é isso que o fornecedor vende.
+ */
+const ACCESSORY_TOKENS = new Set([
+  "capa", "capinha", "case", "pelicula", "protetor", "adesivo", "skin",
+  "suporte", "estojo", "bolsa", "bag", "cabo", "carregador", "fonte",
+  "bateria", "refil", "refis", "reposicao", "cartucho", "filtro",
+  "acessorio", "acessorios", "compativel", "compatível", "reparo", "peca",
+]);
+
+/** Quanto a similaridade cai quando o candidato parece ser acessório do produto do catálogo (e não o produto). Calibrado pra derrubar o acessório ABAIXO do piso de aceite (MIN_ACCEPTABLE_SIMILARITY = 0.2, ver rankCandidates.ts) na maioria dos casos, sem zerar de vez — se ele for o ÚNICO candidato, ainda pode voltar como "aproximado" em vez de sumir sem explicação. */
+export const ACCESSORY_PENALTY = 0.25;
+
+/**
+ * Penalidade a subtrair da similaridade quando o título do anúncio traz
+ * termo de acessório que o nome do catálogo não tem. Pura e exportada pra
+ * teste — ver textSimilarity.test.ts.
+ */
+export function accessoryPenalty(catalogName: string, candidateTitle: string): number {
+  const catalogTokens = new Set(normalize(catalogName, false));
+  const candidateTokens = normalize(candidateTitle, false);
+
+  const hasUnmatchedAccessoryTerm = candidateTokens.some(
+    (token) => ACCESSORY_TOKENS.has(token) && !catalogTokens.has(token)
+  );
+
+  return hasUnmatchedAccessoryTerm ? ACCESSORY_PENALTY : 0;
+}
+
+/**
  * O nome serve como termo de busca de verdade? Usado pelos providers de
  * busca por FOTO (googleLensProvider.ts, searchApiLensProvider.ts), que
  * mandam o nome do catálogo em `q` junto com a imagem: um nome

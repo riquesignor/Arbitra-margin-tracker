@@ -26,9 +26,50 @@ service cloud.firestore {
     // `userId`, agora aninhado aqui dentro pra ficar "tudo na pasta do
     // usuário" no Console do Firebase, com o UID (nunca o nome de
     // exibição) como chave real de isolamento):
+    // ⚠️ ESCALONAMENTO DE PRIVILÉGIO CORRIGIDO (set/2026) — antes esta
+    // regra era `allow read, write: if isOwner(userId)`, ou seja, o dono
+    // podia escrever QUALQUER campo do próprio perfil, inclusive
+    // `isAdmin: true` e `plan: "pro"`. E são exatamente esses dois campos
+    // que sustentam (a) o helper isAdmin() aqui em cima, (b) o gate de
+    // admin do servidor (api/_lib/adminAuth.ts > requireAdmin) e (c) a
+    // liberação da biblioteca por plano (shared_catalogs, mais abaixo).
+    // Bastava um setDoc no console do navegador pra qualquer conta virar
+    // admin e ler o perfil de todos os usuários. Ver
+    // docs/auditoria-2026-09.md, item P0-1.
+    //
+    // Agora os privilégios são write-only pra admin: o dono cria o
+    // próprio perfil com valores travados e depois só consegue mexer nas
+    // flags denormalizadas de "tem chave cadastrada" (userSecrets.ts).
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
-      allow read, update: if isAdmin();
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Primeiro login (ver ensureUserProfile em src/lib/userProfile.ts):
+      // o próprio client cria o doc, mas com `isAdmin` e `plan` FIXOS no
+      // valor inicial — não dá pra "nascer" admin nem com plano pago.
+      // `hasOnly` nas chaves impede também injetar campo desconhecido.
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['email', 'plan', 'isAdmin', 'createdAt'])
+        && request.resource.data.isAdmin == false
+        && request.resource.data.plan == 'free';
+
+      // Dono atualiza SÓ as flags de chave cadastrada (escritas no mesmo
+      // writeBatch de saveUser*ApiKey — ver userSecrets.ts). Qualquer
+      // update que toque em isAdmin/plan/createdAt/email é recusado aqui
+      // e só passa pela regra de admin logo abaixo.
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'hasSerpApiKey', 'hasRapidApiKey', 'hasSearchApiKey',
+          'hasUnwrangleApiKey', 'hasGeminiApiKey', 'hasMistralApiKey'
+        ]);
+
+      // Exclusão da própria conta (src/lib/auth.ts > deleteAccount) —
+      // continua permitida ao dono, é ele apagando os próprios dados.
+      allow delete: if isOwner(userId);
+
+      // Admin: troca de plano e concessão/remoção de admin (Admin.tsx >
+      // updateUserPlan/updateUserAdmin). É o ÚNICO caminho que consegue
+      // escrever isAdmin/plan.
+      allow update: if isAdmin();
 
       // Regras de precificação — era `pricing_rules/{userId}`.
       match /pricing_rules/{docId} {
@@ -84,8 +125,15 @@ service cloud.firestore {
       // Admin tem `read` (só leitura) pra tela de detalhe por usuário
       // (ADR-0002, Action Item 1) — write continua exclusivo do dono.
       match /usage_daily/{dayId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
         allow read: if isAdmin();
+        // Escrita SÓ pelo servidor (Admin SDK ignora Security Rules) —
+        // ver api/_lib/searchQuota.ts. Antes o próprio dono escrevia este
+        // contador, o que anulava qualquer teto: bastava não incrementar
+        // (ou zerar o doc) pra seguir buscando de graça, inclusive nos
+        // mecanismos pagos pela plataforma (SCRAPERAPI_KEY). Ver
+        // docs/auditoria-2026-09.md > P0-3.
+        allow write: if false;
       }
 
       // Cache de preços (era `market_prices/{document}`, coleção global
@@ -102,6 +150,21 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow write: if false;
       }
+    }
+
+    // Índice `imageId -> { uid, expiresAt }` da foto de catálogo
+    // (set/2026, ver src/lib/catalogImages.ts e api/catalog-image.ts).
+    // Existe pra a URL pública da foto não carregar mais o UID do usuário
+    // — ela é entregue a terceiros (SerpApi/SearchApi.io baixam a imagem
+    // por ela). O dono só CRIA (apontando pro próprio uid); ler é
+    // exclusividade do servidor (Admin SDK ignora estas regras), e
+    // ninguém atualiza nem apaga — o documento expira sozinho pela TTL
+    // policy configurada em `expiresAt`.
+    match /catalog_image_index/{imageId} {
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'expiresAt']);
+      allow read, update, delete: if false;
     }
 
     // Tokens OAuth do Mercado Livre: só o Admin SDK (server, via

@@ -20,6 +20,22 @@ import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvid
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
+import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
+import { getUserApiKeyForProvider } from "./_lib/userSecrets.js";
+import { detectPackQuantity, unitPriceFromPack } from "./_lib/packQuantity.js";
+import { flagPriceSanity } from "./_lib/priceSanity.js";
+import { consumeSearchQuota, QuotaExceededError, type QuotaConsumption } from "./_lib/searchQuota.js";
+
+/**
+ * Teto de produtos por requisição (set/2026, ver docs/auditoria-2026-09.md
+ * > P0-3). O cliente já fatia catálogo grande em lotes de 20 (CHUNK_SIZE
+ * em Dashboard.tsx) ou 3 (VISION_CHUNK_SIZE) — este teto existe pra quem
+ * NÃO passa pelo cliente: sem ele, uma requisição podia pedir milhares de
+ * produtos de uma vez e queimar crédito de API (inclusive o
+ * SCRAPERAPI_KEY, que é secret do dono da plataforma, não BYOK) num
+ * request só. 50 dá folga de 2,5x sobre o maior lote que o app manda.
+ */
+const MAX_ITEMS_PER_REQUEST = 50;
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre", "geral"];
 const VALID_PROVIDERS: SearchProviderId[] = [
@@ -56,7 +72,12 @@ function isDirectProvider(p: SearchProviderId): p is DirectProvider {
 interface RequestBody {
   marketplaces?: string[];
   items?: CatalogItemQuery[];
-  /** BYOK — chave própria do usuário (SerpApi OU RapidAPI, depende de `provider`). */
+  /**
+   * ⚠️ IGNORADO desde set/2026 (ver api/_lib/userSecrets.ts): a chave BYOK
+   * passou a ser lida no servidor, a partir do uid do token. O campo
+   * segue declarado só pra documentar que uma versão antiga do cliente
+   * ainda pode mandá-lo — e que ele não é lido, nem logado.
+   */
   apiKey?: string;
   /** Qual API de busca usar — default "serpapi" pra manter compatibilidade. */
   provider?: string;
@@ -76,6 +97,108 @@ function isValidItems(value: unknown): value is CatalogItemQuery[] {
     value.length > 0 &&
     value.every((v) => typeof v?.sku === "string" && typeof v?.name === "string")
   );
+}
+
+/**
+ * Fronteira de confiança do SSRF (set/2026, ver docs/auditoria-2026-09.md
+ * > P0-2 e api/_lib/safeImageUrl.ts): `imageUrl` é o ÚNICO campo do corpo
+ * da requisição que o servidor usa como alvo de um `fetch()` — os
+ * providers de foto (Gemini/Mistral) baixam essa URL pra mandar a imagem
+ * pro modelo. Sem esta checagem, um usuário autenticado escolhia
+ * livremente o que a function ia buscar (metadata da nuvem, serviço
+ * interno, host arbitrário).
+ *
+ * Só aceita o formato que o PRÓPRIO app gera (`/api/catalog-image`, ver
+ * uploadCatalogImage em src/lib/catalogImages.ts). Item sem `imageUrl`
+ * continua válido — busca por texto não precisa de foto, e os providers
+ * de imagem já pulam item sem foto em silêncio.
+ */
+/**
+ * Anota `packQuantity`/`unitPrice` em todo resultado cujo TÍTULO do
+ * anúncio diga que é lote (set/2026, ver packQuantity.ts e
+ * docs/auditoria-2026-09.md > item 10).
+ *
+ * Feito aqui, num ponto só, de propósito: são 6 providers montando
+ * `MarketplacePriceResult`, e a informação necessária (`matchedTitle` +
+ * `price`) já está pronta em todos. Também cobre resultado vindo do CACHE
+ * — entrada gravada antes desta anotação existir ganha os campos na
+ * leitura, sem migração nenhuma.
+ *
+ * Não altera `price`: quem decide usar o preço unitário no cálculo é o
+ * marginCalculator (client), e a UI continua podendo mostrar o preço cheio
+ * do anúncio. Aqui só ANOTA.
+ */
+function annotatePackPricing(byMarketplace: Record<string, Record<string, MarketplacePriceResult>>): void {
+  for (const results of Object.values(byMarketplace)) {
+    for (const [sku, result] of Object.entries(results)) {
+      const pack = detectPackQuantity(result.matchedTitle);
+      const unitPrice = unitPriceFromPack(result.price, pack);
+      if (pack && unitPrice != null) {
+        results[sku] = { ...result, packQuantity: pack.quantity, unitPrice };
+      }
+    }
+  }
+}
+
+/**
+ * Sanidade de preço contra o custo do catálogo (set/2026, ver
+ * priceSanity.ts). Roda DEPOIS de `annotatePackPricing` de propósito: a
+ * comparação usa o preço unitário quando o anúncio é lote, senão um kit
+ * legítimo de 12 seria reprovado por "preço alto demais" sendo que o
+ * preço por peça está perfeito.
+ *
+ * Também é o único ponto que precisa do `supplierPrice` do item — por
+ * isso ele passou a viajar no `CatalogItemQuery` (ver types.ts). Nada
+ * mais no servidor usa esse número; margem continua sendo calculada no
+ * cliente.
+ */
+function annotatePriceSanity(
+  byMarketplace: Record<string, Record<string, MarketplacePriceResult>>,
+  items: CatalogItemQuery[]
+): void {
+  const supplierPriceBySku = new Map(items.map((item) => [item.sku, item.supplierPrice]));
+
+  for (const results of Object.values(byMarketplace)) {
+    for (const [sku, result] of Object.entries(results)) {
+      results[sku] = flagPriceSanity(result, supplierPriceBySku.get(sku));
+    }
+  }
+}
+
+/**
+ * Mecanismos que decidem o match olhando a FOTO (o texto é só pré-filtro
+ * ou nem isso) — os demais decidem por similaridade de nome. Ver
+ * `confidenceSource` em types.ts.
+ */
+const VISUAL_MATCH_PROVIDERS = new Set<SearchProviderId>([
+  "google_lens_products",
+  "searchapi_lens",
+  "vision_internal",
+  "vision_mistral",
+]);
+
+/**
+ * Carimba a ORIGEM da confiança em cada resultado. Feito aqui, e não em
+ * cada provider, porque a informação é o próprio `provider` da
+ * requisição: são 8 arquivos montando `MarketplacePriceResult` e todos
+ * teriam que repetir a mesma constante — um ponto só evita divergência
+ * quando um mecanismo novo entrar.
+ */
+function annotateConfidenceSource(
+  byMarketplace: Record<string, Record<string, MarketplacePriceResult>>,
+  provider: SearchProviderId
+): void {
+  const confidenceSource = VISUAL_MATCH_PROVIDERS.has(provider) ? "visual" : "texto";
+
+  for (const results of Object.values(byMarketplace)) {
+    for (const [sku, result] of Object.entries(results)) {
+      results[sku] = { ...result, confidenceSource };
+    }
+  }
+}
+
+function findInvalidImageUrlItem(items: CatalogItemQuery[]): CatalogItemQuery | undefined {
+  return items.find((item) => item.imageUrl !== undefined && !isSafeCatalogImageUrl(item.imageUrl));
 }
 
 function isValidProvider(value: unknown): value is SearchProviderId {
@@ -139,6 +262,23 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     res.status(400).json({ error: "items deve ser um array não vazio de {sku, name}" });
     return;
   }
+  if (body.items.length > MAX_ITEMS_PER_REQUEST) {
+    res.status(400).json({
+      error:
+        `Máximo de ${MAX_ITEMS_PER_REQUEST} produtos por requisição (recebidos ${body.items.length}). ` +
+        "O app já divide catálogo grande em lotes automaticamente.",
+    });
+    return;
+  }
+  const invalidImageItem = findInvalidImageUrlItem(body.items);
+  if (invalidImageItem) {
+    res.status(400).json({
+      error:
+        `A foto do produto "${invalidImageItem.sku}" não veio de /api/catalog-image — ` +
+        "só aceitamos foto hospedada pelo próprio app na busca por imagem.",
+    });
+    return;
+  }
   if (body.provider !== undefined && !isValidProvider(body.provider)) {
     res.status(400).json({ error: `provider inválido: ${VALID_PROVIDERS.join(" | ")}` });
     return;
@@ -156,6 +296,36 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   console.log(
     `[fetch-prices] uid=${uid} provider=${provider} marketplaces=${marketplaces.join("+")} items=${items.length}`
   );
+
+  // Cota ANTES de qualquer chamada externa (set/2026, ver
+  // api/_lib/searchQuota.ts): reserva o custo desta requisição e recusa
+  // com 429 se estourar o teto do dia. Mesma unidade que a barra de cota
+  // da tela já usa (produto × marketplace, ver `searchCost` em
+  // Dashboard.tsx). O cliente NÃO incrementa mais o contador — quem
+  // manda agora é este ponto, senão contaria em dobro.
+  // Chave BYOK lida NO SERVIDOR a partir do uid já verificado (set/2026,
+  // ver api/_lib/userSecrets.ts) — `apiKey` não é mais usado. Antes,
+  // a chave vinha do navegador em toda requisição, o que expunha as seis
+  // chaves do usuário a qualquer XSS. `undefined` aqui significa "provider
+  // não é BYOK" ou "usuário não cadastrou" — cada provider já trata isso
+  // com mensagem própria.
+  const apiKey = await getUserApiKeyForProvider(uid, provider);
+
+  let quota: QuotaConsumption;
+  try {
+    quota = await consumeSearchQuota(uid, provider, items.length * marketplaces.length);
+  } catch (err) {
+    if (err instanceof QuotaExceededError) {
+      res.status(429).json({ error: err.message, used: err.used, limit: err.limit });
+      return;
+    }
+    // Falha de infraestrutura no contador (rede/Firestore) não pode
+    // derrubar a busca do usuário — segue sem reservar, e o log fica
+    // pra investigar. Falha ABERTA aqui é deliberada: o teto existe
+    // contra abuso, não contra o usuário legítimo do dia a dia.
+    console.error("[fetch-prices] falha ao reservar cota (seguindo sem bloquear):", err);
+    quota = { used: 0, limit: 0 };
+  }
 
   // Providers "diretos" só cobrem 1 marketplace fixo — branch isolado,
   // sem passar pela lógica de busca compartilhada abaixo (que serve
@@ -184,9 +354,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       if (missItems.length > 0) {
         fresh =
           provider === "rapidapi_amazon"
-            ? await fetchRapidApiAmazonPrices(missItems, body.apiKey)
+            ? await fetchRapidApiAmazonPrices(missItems, apiKey)
             : provider === "mercadolivre_alt"
-              ? await fetchUnwrangleMercadoLivrePrices(missItems, body.apiKey)
+              ? await fetchUnwrangleMercadoLivrePrices(missItems, apiKey)
               : await fetchMercadoLivreDirectPrices(missItems);
 
         try {
@@ -199,7 +369,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         }
       }
 
-      res.status(200).json({ [expectedMarketplace]: { ...cached.hits, ...fresh } });
+      const directResponse = { [expectedMarketplace]: { ...cached.hits, ...fresh } };
+      annotatePackPricing(directResponse);
+      annotatePriceSanity(directResponse, items);
+      annotateConfidenceSource(directResponse, provider);
+
+      res.status(200).json({
+        ...directResponse,
+        // Ver `_usage` no branch compartilhado abaixo.
+        ...(quota.limit > 0 ? { _usage: quota } : {}),
+      });
     } catch (err) {
       res.status(502).json({
         error: "Busca de preço indisponível",
@@ -274,7 +453,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // pelo motor interno puro — mesmo formato de saída, `_warning`
           // não distingue a origem porque a UI só precisa mostrar o
           // aviso, não a causa exata.
-          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, GEMINI_BACKEND);
+          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, GEMINI_BACKEND);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "vision_mistral") {
@@ -282,19 +461,19 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // (ago/2026, substituiu o Groq — ver mistralVision.ts) — `apiKey`
           // aqui é a chave MISTRAL do usuário, campo separado do Gemini em
           // Conta.
-          const outcome = await searchVisionInternalShared(missItems, matchers, body.apiKey, MISTRAL_BACKEND);
+          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, MISTRAL_BACKEND);
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "google_lens_products") {
-          fresh = await searchGoogleLensProductsShared(missItems, matchers, body.apiKey);
+          fresh = await searchGoogleLensProductsShared(missItems, matchers, apiKey);
         } else if (provider === "searchapi_lens") {
-          fresh = await searchSearchApiLensShared(missItems, matchers, body.apiKey);
+          fresh = await searchSearchApiLensShared(missItems, matchers, apiKey);
         } else if (provider === "scraperapi") {
           // ScraperAPI (Structured Data Endpoints): sem `apiKey` de
           // propósito — é secret de servidor (SCRAPERAPI_KEY), não BYOK.
           fresh = await searchScraperApiShared(missItems, matchers);
         } else {
-          fresh = await searchGoogleShoppingShared(missItems, matchers, body.apiKey);
+          fresh = await searchGoogleShoppingShared(missItems, matchers, apiKey);
         }
 
         for (const marketplace of sharedMarketplaces) {
@@ -330,7 +509,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
       const missItems = items.filter((i) => misses.includes(i.sku));
       const registeredProvider = getProvider(marketplace);
-      const fresh = await registeredProvider.fetchPrices(missItems, body.apiKey);
+      const fresh = await registeredProvider.fetchPrices(missItems, apiKey);
       responseByMarketplace[marketplace] = { ...responseByMarketplace[marketplace], ...fresh };
 
       try {
@@ -344,11 +523,20 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     // (que só lê chaves de marketplace conhecidas, ver priceApi.ts)
     // ignora sem quebrar; o cliente novo lê e mostra no banner de aviso
     // (ver Dashboard.tsx > finishWithRows).
-    res.status(200).json(
-      internalSearchWarning
-        ? { ...responseByMarketplace, _warning: internalSearchWarning }
-        : responseByMarketplace
-    );
+    // `_usage` é aditivo, mesmo espírito do `_warning` acima: não é um
+    // marketplace, então cliente antigo ignora. O cliente novo usa isso
+    // pra atualizar a barra de cota com o número AUTORITATIVO do servidor,
+    // em vez de somar por conta própria (ver Dashboard.tsx — o incremento
+    // client-side foi removido junto com esta mudança).
+    annotatePackPricing(responseByMarketplace);
+    annotatePriceSanity(responseByMarketplace, items);
+    annotateConfidenceSource(responseByMarketplace, provider);
+
+    res.status(200).json({
+      ...responseByMarketplace,
+      ...(internalSearchWarning ? { _warning: internalSearchWarning } : {}),
+      ...(quota.limit > 0 ? { _usage: quota } : {}),
+    });
   } catch (err) {
     res.status(502).json({
       error: "Busca de preço indisponível",

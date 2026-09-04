@@ -36,7 +36,7 @@ import {
   saveCatalogUpload,
   type CatalogUploadRecord,
 } from "../lib/catalogHistory";
-import { getTodayUsage, addTodayUsage } from "../lib/usageQuota";
+import { getTodayUsage } from "../lib/usageQuota";
 import {
   getUserSerpApiKey,
   getUserRapidApiKey,
@@ -64,6 +64,10 @@ interface ParseOutcome {
   usedGeminiPageExtraction?: boolean;
   /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas que não contribuíram produto nenhum. CSV nunca seta isso (não tem conceito de "página"). */
   pagesWithNoProducts?: number[];
+  /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — linhas removidas por SKU repetido dentro do catálogo. */
+  duplicateSkusRemoved?: number;
+  /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas sem texto que não couberam no teto de OCR. */
+  ocrSkippedPages?: number[];
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -263,7 +267,9 @@ function buildParseInfoMessage(
   rowCount: number,
   skippedAmbiguous: number,
   usedGeminiPageExtraction?: boolean,
-  pagesWithNoProducts?: number[]
+  pagesWithNoProducts?: number[],
+  duplicateSkusRemoved?: number,
+  ocrSkippedPages?: number[]
 ): string | null {
   const parts: string[] = [];
   if (skippedAmbiguous > 0) {
@@ -289,6 +295,32 @@ function buildParseInfoMessage(
       `Página(s) ${pagesWithNoProducts.join(", ")} não tiveram produto nenhum reconhecido — layout ` +
         "diferente do resto do catálogo, ou é só uma página de capa/divisor. Confira essas páginas " +
         "manualmente ou reprocesse só elas com uma chave Gemini em Conta (leitura por IA como último recurso)."
+    );
+  }
+  // Ver dedupeCatalogRows em parsePdfCatalog.ts (ago/2026) — mesmo SKU
+  // aparecendo em mais de uma linha do catálogo (ex: página de destaque
+  // repetindo um produto que já está na grade principal) some do total
+  // sem aviso nenhum; melhor dizer quantas linhas saíram por isso do que
+  // deixar o usuário estranhar "por que voltou menos produto que eu
+  // contei no PDF".
+  if (duplicateSkusRemoved && duplicateSkusRemoved > 0) {
+    parts.push(
+      `${duplicateSkusRemoved} linha(s) removida(s) por SKU repetido dentro do próprio catálogo — ` +
+        "mesmo produto reconhecido mais de uma vez (ex: página de destaque + grade principal); mantivemos " +
+        "só uma ocorrência de cada, priorizando a que tinha preço de custo."
+    );
+  }
+  // Teto de OCR atingido (set/2026, ver ocrSkippedPages em ExtractResult):
+  // catálogo 100% imagem com mais páginas que o limite por processamento.
+  // Antes isso só aparecia no console — o usuário via menos produto do que
+  // o PDF tem e não tinha como saber que era só reprocessar o resto.
+  if (ocrSkippedPages && ocrSkippedPages.length > 0) {
+    const first = ocrSkippedPages[0];
+    const last = ocrSkippedPages[ocrSkippedPages.length - 1];
+    parts.push(
+      `Este PDF não tem texto (é imagem), e o limite de páginas de OCR por processamento foi atingido — ` +
+        `as páginas ${first}–${last} ficaram de fora. Processe de novo escolhendo o intervalo ` +
+        `${first}–${last} pra cobrir o restante.`
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;
@@ -520,6 +552,29 @@ export default function Dashboard({
     rows: CatalogRow[];
     meta: Parameters<typeof finishWithRows>[1];
     imagesBySku?: Record<string, string>;
+  } | null>(null);
+
+  /**
+   * Cancelamento da busca em andamento (set/2026, ver
+   * docs/auditoria-2026-09.md > item 19). Fica num ref (não em estado)
+   * porque o botão só precisa CHAMAR `.abort()` — não há nada pra
+   * re-renderizar quando o controller troca, e estado aqui só provocaria
+   * render a cada lote.
+   */
+  const searchAbortRef = useRef<AbortController | null>(null);
+
+  /**
+   * Oferta de "tentar de novo só os que falharam" (set/2026, item 20).
+   * Antes, lote que falhava (timeout, 502, instabilidade) deixava aqueles
+   * produtos sem preço e a única saída era refazer o catálogo INTEIRO —
+   * pagando cota de novo pelos que já tinham dado certo. Guarda só os
+   * SKUs que falharam + o contexto pra repetir a mesma busca.
+   */
+  const [failedRetryOffer, setFailedRetryOffer] = useState<{
+    rows: CatalogRow[];
+    meta: Parameters<typeof finishWithRows>[1];
+    imagesBySku?: Record<string, string>;
+    skus: string[];
   } | null>(null);
 
   // Mesmo padrão de mlFallbackOffer, pro outro caso onde o usuário
@@ -805,17 +860,21 @@ export default function Dashboard({
     },
     imagesBySku?: Record<string, string>,
     /**
-     * Override de provider/chave — usado SÓ pelo retry de
-     * "mercadolivre_alt" (ver handleRetryWithUnwrangle). Sem override,
-     * usa `searchProvider`/`activeProviderKey` normais (fluxo comum).
+     * Override de provider — usado SÓ pelo retry de "mercadolivre_alt"
+     * (ver handleRetryWithUnwrangle). Sem override, usa `searchProvider`
+     * normal (fluxo comum). O parâmetro `apiKeyOverride` que existia aqui
+     * saiu junto com o envio de chave pelo corpo da requisição (set/2026,
+     * ver api/_lib/userSecrets.ts) — o servidor resolve a chave do
+     * provider sozinho, inclusive nesse retry.
      */
-    providerOverride?: SearchProviderId,
-    apiKeyOverride?: string | null
+    providerOverride?: SearchProviderId
   ) {
     setMlFallbackOffer(null);
     setImageUploadFailedOffer(null);
+    // Oferta de retry é sempre da busca ANTERIOR — some ao começar outra
+    // (inclusive quando a nova busca É o retry, ver handleRetryFailed).
+    setFailedRetryOffer(null);
     const effectiveProvider = providerOverride ?? searchProvider;
-    const effectiveProviderKey = providerOverride ? apiKeyOverride : activeProviderKey;
 
     // BYOK obrigatório pros providers que pedem chave (SerpApi,
     // RapidAPI, SearchApi.io) — não existe mais chave compartilhada do
@@ -910,7 +969,6 @@ export default function Dashboard({
         ? rows.map((r) => (imagesBySku[r.sku] ? { ...r, imageUrl: imagesBySku[r.sku] } : r))
         : rows;
 
-    const searchCost = rowsWithImages.length * meta.marketplaces.length;
     setState("fetching");
     setProgress({ done: 0, total: rowsWithImages.length });
     setFoundSoFar(0);
@@ -959,9 +1017,29 @@ export default function Dashboard({
     // aviso se repete em todo lote enquanto o bloqueio persistir; dedupe
     // evita repetir a mesma frase N vezes no banner final.
     const searchWarnings = new Set<string>();
+    // SKUs dos lotes que falharam — vira a oferta "tentar de novo só os
+    // que falharam" no fim (ver `retryOffer`), em vez de obrigar o
+    // usuário a refazer o catálogo inteiro e pagar a cota de novo.
+    const failedSkus: string[] = [];
+    // Quantos produtos já saíram do laço (com sucesso OU falha) — é o
+    // número que a mensagem de "busca interrompida" precisa mostrar.
+    let processedItems = 0;
+
+    // Cancelamento (set/2026): o controller vive num ref pra o botão
+    // "Parar busca" (fora deste escopo) conseguir abortar o fetch em voo.
+    const abortController = new AbortController();
+    searchAbortRef.current = abortController;
+    let cancelled = false;
 
     try {
       for (const chunk of chunks) {
+        // Checagem ANTES do lote: o usuário pode ter mandado parar durante
+        // a espera de cota logo abaixo, ou durante o lote anterior.
+        if (abortController.signal.aborted) {
+          cancelled = true;
+          break;
+        }
+
         // Ver comentário completo de `lastVisionQuotaExhaustedAtRef` mais
         // acima — se um lote ANTERIOR (desta busca ou de uma anterior na
         // mesma sessão, mesmo backend) já avisou que a cota esgotou há
@@ -987,18 +1065,34 @@ export default function Dashboard({
           sku: r.sku,
           name: r.name,
           imageUrl: imagesBySku?.[r.sku],
+          // Custo vai junto (set/2026) só como ÂNCORA de sanidade de preço
+          // no servidor (ver api/_lib/priceSanity.ts) — a margem continua
+          // sendo calculada aqui no cliente. Catálogo "vitrine" (sem custo)
+          // manda `undefined` e a checagem simplesmente não roda.
+          supplierPrice: r.supplierPrice,
         }));
         const chunkStartedAt = performance.now();
 
         let fetched: Awaited<ReturnType<typeof fetchMultipleMarketplacePrices>>;
         try {
+          // Sem `apiKey` na chamada (set/2026): o servidor lê a chave BYOK
+          // do usuário direto do Firestore pelo uid do token — ver
+          // api/_lib/userSecrets.ts. A chave não sai mais do navegador.
           fetched = await fetchMultipleMarketplacePrices(
             meta.marketplaces,
             chunkItems,
-            effectiveProviderKey,
-            effectiveProvider
+            effectiveProvider,
+            abortController.signal
           );
         } catch (err) {
+          // Cancelamento pedido pelo usuário: sai do laço mantendo o que
+          // já foi encontrado — não conta como lote "falhado" nem entra
+          // na oferta de retry.
+          if (err instanceof DOMException && err.name === "AbortError") {
+            cancelled = true;
+            break;
+          }
+
           // Caso específico: busca pública do Mercado Livre falhou (HTTP
           // 403, instabilidade conhecida desde fev/2026 — ver
           // mercadoLivreDirectProvider.ts) E o usuário já tem a chave
@@ -1022,6 +1116,8 @@ export default function Dashboard({
 
           failedChunks++;
           failedItems += chunk.length;
+          failedSkus.push(...chunk.map((r) => r.sku));
+          processedItems += chunk.length;
           lastChunkErrorMessage = message;
           console.error(`[busca] lote de ${chunk.length} produto(s) falhou (seguindo com os próximos lotes):`, err);
           setProgress((p) =>
@@ -1042,9 +1138,14 @@ export default function Dashboard({
         }
 
         for (const marketplace of meta.marketplaces) {
-          const { results: prices, source, warning } = fetched[marketplace];
+          const { results: prices, source, warning, usage } = fetched[marketplace];
           pricesByMarket[marketplace] = { ...pricesByMarket[marketplace], ...prices };
           if (source !== "server") allFromServer = false;
+          // Cota agora é contada no SERVIDOR (ver api/_lib/searchQuota.ts,
+          // set/2026) — a barra passa a refletir o número autoritativo,
+          // lote a lote, em vez de uma soma local que o próprio navegador
+          // fazia (e que, por isso, não valia como limite de nada).
+          if (usage) setTodayUsage(usage.used);
           if (warning) {
             searchWarnings.add(warning);
             // Ver comentário de lastVisionQuotaExhaustedAtRef — marca o
@@ -1059,6 +1160,7 @@ export default function Dashboard({
           }
         }
 
+        processedItems += chunk.length;
         setProgress((p) =>
           p
             ? { done: Math.min(p.done + chunk.length, rowsWithImages.length), total: rowsWithImages.length }
@@ -1093,7 +1195,15 @@ export default function Dashboard({
         }
       }
 
-      if (failedChunks > 0 && failedChunks === chunks.length) {
+      if (cancelled) {
+        // Parada pedida pelo usuário: NÃO é erro. Segue pro resultado com
+        // o que já foi encontrado (é justamente o motivo de existir o
+        // botão), avisando quantos produtos ficaram de fora.
+        setSkippedInfo(
+          `Busca interrompida por você — ${processedItems} de ${rowsWithImages.length} produto(s) foram ` +
+            "buscados. O resultado abaixo é parcial; os demais ficaram sem preço."
+        );
+      } else if (failedChunks > 0 && failedChunks === chunks.length) {
         // TODOS os lotes falharam — não é "um lote lento", é sistêmico
         // (chave inválida, servidor fora, etc.). Propaga erro de verdade
         // em vez de seguir pra tela de resultado com "0 produtos"
@@ -1104,8 +1214,12 @@ export default function Dashboard({
       if (failedItems > 0) {
         searchInfoParts.push(
           `${failedItems} produto(s) não puderam ser buscados (erro/timeout num lote) — o resultado ` +
-            "abaixo é parcial. Tente reprocessar pra cobrir o restante."
+            "abaixo é parcial. Use o botão abaixo pra tentar de novo SÓ esses produtos."
         );
+        // Guarda o contexto pra repetir a busca só dos que falharam (ver
+        // handleRetryFailed) — sem isso o usuário teria que refazer o
+        // catálogo inteiro e pagar cota pelos que já deram certo.
+        setFailedRetryOffer({ rows, meta, imagesBySku, skus: failedSkus });
       }
       if (searchWarnings.size > 0) {
         searchInfoParts.push(...searchWarnings);
@@ -1129,10 +1243,13 @@ export default function Dashboard({
     setState("idle");
     onComplete({ rows: rowsWithImages, pricesByMarket, results: allResults, source });
 
-    if (userId) {
-      void addTodayUsage(userId, searchCost);
-      setTodayUsage((u) => (u ?? 0) + searchCost);
-    }
+    // O incremento client-side (`addTodayUsage(userId, searchCost)`) foi
+    // REMOVIDO aqui (set/2026, ver api/_lib/searchQuota.ts): quem conta a
+    // cota agora é o servidor, dentro de uma transaction, ANTES de gastar
+    // API. Manter os dois somando contaria em dobro — e a contagem que
+    // vale é a do servidor, já que a do navegador nunca foi confiável
+    // (o próprio usuário podia zerar o doc). A barra da tela é atualizada
+    // lote a lote com o `_usage` que vem na resposta (ver acima).
 
     void saveCatalogUpload(userId, {
       fileName: meta.fileName,
@@ -1180,10 +1297,25 @@ export default function Dashboard({
         return;
       }
 
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction, pagesWithNoProducts } =
-        await parse();
+      const {
+        rows,
+        skippedAmbiguous,
+        imagesBySku,
+        usedOcr,
+        usedGeminiPageExtraction,
+        pagesWithNoProducts,
+        duplicateSkusRemoved,
+        ocrSkippedPages,
+      } = await parse();
       setSkippedInfo(
-        buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction, pagesWithNoProducts)
+        buildParseInfoMessage(
+          rows.length,
+          skippedAmbiguous,
+          usedGeminiPageExtraction,
+          pagesWithNoProducts,
+          duplicateSkusRemoved,
+          ocrSkippedPages
+        )
       );
       await finishWithRows(
         rows,
@@ -1223,10 +1355,25 @@ export default function Dashboard({
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
-      const { rows, skippedAmbiguous, imagesBySku, usedOcr, usedGeminiPageExtraction, pagesWithNoProducts } =
-        await parse();
+      const {
+        rows,
+        skippedAmbiguous,
+        imagesBySku,
+        usedOcr,
+        usedGeminiPageExtraction,
+        pagesWithNoProducts,
+        duplicateSkusRemoved,
+        ocrSkippedPages,
+      } = await parse();
       setSkippedInfo(
-        buildParseInfoMessage(rows.length, skippedAmbiguous, usedGeminiPageExtraction, pagesWithNoProducts)
+        buildParseInfoMessage(
+          rows.length,
+          skippedAmbiguous,
+          usedGeminiPageExtraction,
+          pagesWithNoProducts,
+          duplicateSkusRemoved,
+          ocrSkippedPages
+        )
       );
       await finishWithRows(
         rows,
@@ -1253,11 +1400,39 @@ export default function Dashboard({
    * arquivo (rows já estão prontas, guardadas em mlFallbackOffer no
    * momento da falha).
    */
+  /**
+   * "Parar busca" — cancela o fetch em voo e sai do laço de lotes
+   * mantendo tudo que já foi encontrado (ver finishWithRows). O único
+   * jeito de parar antes disso era recarregar a página, o que jogava fora
+   * o resultado parcial junto.
+   */
+  function handleStopSearch() {
+    searchAbortRef.current?.abort();
+  }
+
+  /**
+   * "Tentar de novo só os que falharam" — repete a busca apenas pros SKUs
+   * dos lotes que deram erro, reaproveitando as linhas já lidas do
+   * arquivo (nada de reprocessar PDF/planilha) e sem gastar cota de novo
+   * com os produtos que já voltaram com preço.
+   */
+  async function handleRetryFailed() {
+    if (!failedRetryOffer) return;
+    const { rows, meta, imagesBySku, skus } = failedRetryOffer;
+    setFailedRetryOffer(null);
+
+    const failedSet = new Set(skus);
+    const rowsToRetry = rows.filter((r) => failedSet.has(r.sku));
+    if (rowsToRetry.length === 0) return;
+
+    await finishWithRows(rowsToRetry, meta, imagesBySku);
+  }
+
   async function handleRetryWithUnwrangle() {
     if (!mlFallbackOffer || !unwrangleApiKey) return;
     const { rows, meta, imagesBySku } = mlFallbackOffer;
     setMlFallbackOffer(null);
-    await finishWithRows(rows, meta, imagesBySku, "mercadolivre_alt", unwrangleApiKey);
+    await finishWithRows(rows, meta, imagesBySku, "mercadolivre_alt");
   }
 
   /**
@@ -1281,8 +1456,8 @@ export default function Dashboard({
   async function handleCsv(file: File) {
     if (IMAGE_MODE_PROVIDERS.has(searchProvider)) {
       setError(
-        "\"Busca por imagem\" precisa de foto do produto — catálogo .csv não tem. " +
-          "Troque de provider ou suba um .pdf com foto."
+        "\"Busca por imagem\" precisa de foto do produto — planilha (.csv/.xlsx) não tem. " +
+          "Troque de mecanismo ou suba um .pdf com foto."
       );
       return;
     }
@@ -1352,7 +1527,7 @@ export default function Dashboard({
           <span className={styles.eyebrow}>Arbitragem de preços</span>
           <h1 className={styles.title}>Bancada de precificação</h1>
           <p className={styles.subtitle}>
-            Suba um catálogo em .csv ou .pdf, escolha onde comparar e a gente devolve preço de
+            Suba um catálogo em .csv, .xlsx ou .pdf, escolha onde comparar e a gente devolve preço de
             mercado e margem produto por produto.
           </p>
         </div>
@@ -1587,21 +1762,21 @@ export default function Dashboard({
                       Arraste o arquivo aqui ou escolha do computador
                     </span>
                     <span className={styles.dropzoneHint}>
-                      .csv com sku/nome/custo · .pdf de catálogo (pede intervalo de páginas)
+                      .csv ou .xlsx com sku/nome/custo · .pdf de catálogo (pede intervalo de páginas)
                     </span>
                   </span>
                   <span className={styles.dropzoneButton}>Escolher arquivo</span>
                   <input
                     className={styles.fileInput}
                     type="file"
-                    accept=".csv,.pdf"
+                    accept=".csv,.xlsx,.xlsm,.pdf"
                     onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
                   />
                 </label>
               )}
             </div>
 
-            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || imageUploadFailedOffer || !userId || !hasRequiredKey) && (
+            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || failedRetryOffer || imageUploadFailedOffer || !userId || !hasRequiredKey) && (
               <div className={styles.cardFooter}>
                 {state === "parsing" && (
                   <p className={styles.status}>
@@ -1632,6 +1807,13 @@ export default function Dashboard({
                         />
                       </div>
                     )}
+                    {/* "Parar busca" (set/2026) — catálogo grande roda por
+                        minutos e, até aqui, a única saída era recarregar a
+                        página, o que jogava fora TODO o resultado parcial.
+                        Parar aqui mantém o que já foi encontrado. */}
+                    <button className={styles.linkButton} type="button" onClick={handleStopSearch}>
+                      Parar busca e ficar com o que já achei
+                    </button>
                   </div>
                 )}
                 {error && (
@@ -1663,6 +1845,19 @@ export default function Dashboard({
                       onClick={() => void handleRetryWithUnwrangle()}
                     >
                       Tentar com Unwrangle
+                    </button>
+                  </p>
+                )}
+                {failedRetryOffer && (
+                  <p className={styles.warningNote}>
+                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                    {failedRetryOffer.skus.length} produto(s) ficaram sem preço porque o lote deles falhou.{" "}
+                    <button
+                      className={styles.linkButton}
+                      type="button"
+                      onClick={() => void handleRetryFailed()}
+                    >
+                      Tentar de novo só esses {failedRetryOffer.skus.length}
                     </button>
                   </p>
                 )}

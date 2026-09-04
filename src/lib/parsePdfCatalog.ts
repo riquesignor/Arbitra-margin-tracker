@@ -1,5 +1,6 @@
 import type { CatalogRow } from "../types";
 import { parseCurrency } from "./parseCatalog";
+import { dedupeCatalogRows } from "./catalogRows";
 import { mapWithConcurrency } from "./concurrency";
 import { assertPubliclyReachable, uploadCatalogImage } from "./catalogImages";
 import {
@@ -440,7 +441,38 @@ export interface ExtractResult {
    * com pelo menos 1 produto.
    */
   pagesWithNoProducts?: number[];
+  /**
+   * Quantas linhas foram REMOVIDAS por terem o mesmo SKU de uma linha
+   * anterior no mesmo catálogo — ver `dedupeCatalogRows` abaixo pro
+   * porquê (ago/2026, pedido explícito: "evitar duplicatas"). `undefined`/
+   * 0 = nenhuma duplicata encontrada (caso comum — testado contra dois
+   * catálogos reais de ~4600 e ~17 produtos, zero duplicata em nenhum
+   * dos dois com a extração atual; a proteção é preventiva, não a
+   * correção de um bug reproduzido nesses arquivos específicos).
+   */
+  duplicateSkusRemoved?: number;
+  /**
+   * Páginas sem texto embutido que NÃO chegaram a passar por OCR porque o
+   * teto de páginas por processamento (MAX_OCR_PAGES_PER_CALL: 25 no
+   * desktop, 10 no celular) já tinha sido atingido — catálogo 100%
+   * imagem com mais páginas que isso.
+   *
+   * Existia só como `console.warn` (set/2026): o usuário via "voltou
+   * menos produto do que tem no PDF" sem nenhuma pista de que bastava
+   * reprocessar o intervalo restante. Com a lista, o Dashboard monta a
+   * mensagem com o intervalo EXATO que ficou de fora.
+   */
+  ocrSkippedPages?: number[];
 }
+
+/**
+ * `dedupeCatalogRows` MUDOU DE ARQUIVO (set/2026) — vive em
+ * ./catalogRows.ts, porque o parser de CSV (parseCatalog.ts) passou a
+ * precisar da mesma deduplicação e importá-la daqui criaria ciclo (este
+ * arquivo já importa `parseCurrency` de lá). Reexportada pra não quebrar
+ * quem já importava deste módulo (inclusive parsePdfCatalog.test.ts).
+ */
+export { dedupeCatalogRows } from "./catalogRows";
 
 /**
  * ⚠️ Heurística, não parser estruturado. Cada linha de texto vira um
@@ -1542,6 +1574,10 @@ export async function parsePdfCatalogFile(
   // Páginas (número absoluto, 1-based) que não contribuíram NENHUM
   // produto — ver `pagesWithNoProducts` em ExtractResult pro porquê.
   const pagesWithNoProducts: number[] = [];
+  // Páginas SEM texto embutido que nem chegaram a passar por OCR porque o
+  // teto de páginas por processamento (MAX_OCR_PAGES_PER_CALL) já tinha
+  // sido atingido — ver `ocrSkippedPages` em ExtractResult.
+  const ocrSkippedPages: number[] = [];
 
   // try/finally garante que o worker do Tesseract (WASM + dado de
   // idioma, alguns MB) é liberado ao final do processamento — mesmo se
@@ -1609,6 +1645,12 @@ export async function parsePdfCatalogFile(
           // celular/aparelho fraco de travar processando OCR página após
           // página sem limite. Página fica sem produtos reconhecidos;
           // usuário pode reprocessar um intervalo menor pra cobri-la.
+          // Registrado (não só logado) desde set/2026: antes isso morria
+          // num console.warn que o usuário nunca vê — ele só notava que
+          // "sumiu produto" no fim, sem saber quais páginas ficaram de
+          // fora nem que bastava reprocessar um intervalo. Ver
+          // `ocrSkippedPages` em ExtractResult e a mensagem no Dashboard.
+          ocrSkippedPages.push(pageNum);
           console.warn(
             `Página ${pageNum} sem texto ignorada — limite de ${MAX_OCR_PAGES_PER_CALL} páginas de OCR por processamento atingido.`
           );
@@ -1876,6 +1918,14 @@ export async function parsePdfCatalogFile(
       }
     }
 
+    // Dedup ANTES do check de "zero produto" abaixo — um catálogo cujas
+    // ÚNICAS linhas fossem duplicatas (caso extremo, nunca visto num PDF
+    // real até agora) deve cair no erro "nenhum produto reconhecido" em
+    // vez de devolver um resultado vazio sem explicação.
+    const { rows: dedupedRows, removed: duplicateSkusRemoved } = dedupeCatalogRows(rows);
+    rows.length = 0;
+    rows.push(...dedupedRows);
+
     if (rows.length === 0) {
       // Complementa a mensagem de sempre com o que aconteceu (ou não)
       // com o fallback de IA — sem isso, quem já tem chave Gemini
@@ -1910,6 +1960,8 @@ export async function parsePdfCatalogFile(
       usedOcr: ocrProducedUsableProduct,
       usedGeminiPageExtraction: geminiPageExtractionUsed,
       pagesWithNoProducts: pagesWithNoProducts.length > 0 ? pagesWithNoProducts : undefined,
+      duplicateSkusRemoved: duplicateSkusRemoved > 0 ? duplicateSkusRemoved : undefined,
+      ocrSkippedPages: ocrSkippedPages.length > 0 ? ocrSkippedPages : undefined,
     };
   } finally {
     // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB

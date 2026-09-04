@@ -143,6 +143,8 @@ export interface CatalogItemQuery {
   name: string;
   /** Ver mesmo campo em api/_lib/types.ts — URL pública temporária da foto do produto. */
   imageUrl?: string;
+  /** Ver mesmo campo em api/_lib/types.ts — custo do catálogo, usado no servidor só como âncora de sanidade de preço. */
+  supplierPrice?: number;
 }
 
 export interface MarketplacePriceResult {
@@ -169,6 +171,14 @@ export interface MarketplacePriceResult {
   approximate?: boolean;
   /** Loja de onde o anúncio veio de fato — usada na tag "Aproximado". */
   matchedSource?: string;
+  /** Ver mesmo campo (com a justificativa completa) em api/_lib/types.ts — quantidade do LOTE anunciado. */
+  packQuantity?: number;
+  /** Ver mesmo campo em api/_lib/types.ts — preço por unidade quando o anúncio é lote. */
+  unitPrice?: number;
+  /** Ver mesmo campo em api/_lib/types.ts — preço incompatível com o custo do catálogo. */
+  priceSanityFlag?: "abaixo_do_custo" | "muito_acima_do_custo";
+  /** Ver mesmo campo em api/_lib/types.ts — o que decidiu o match (foto x nome). */
+  confidenceSource?: "visual" | "texto";
 }
 
 export interface MarketplaceFee {
@@ -240,6 +250,21 @@ export interface MarginResult {
    * compra sem conferir o anúncio.
    */
   approximate?: boolean;
+  /**
+   * Preço CHEIO do anúncio quando ele vende lote — só preenchido nesse
+   * caso (ver `packQuantity` abaixo e packQuantity.ts). `marketplacePrice`
+   * acima carrega o preço POR UNIDADE, que é o comparável com o custo do
+   * catálogo e o que entra na margem; este campo existe pra tela poder
+   * mostrar também o número que o usuário vai encontrar ao abrir o link,
+   * senão o preço exibido não bateria com o do anúncio.
+   */
+  listingPrice?: number;
+  /** Quantidade de unidades do lote anunciado — ver mesmo campo em MarketplacePriceResult. */
+  packQuantity?: number;
+  /** Preço incompatível com o custo do catálogo — ver mesmo campo em MarketplacePriceResult e priceSanity.ts. */
+  priceSanityFlag?: "abaixo_do_custo" | "muito_acima_do_custo";
+  /** O que decidiu o match (foto x nome) — ver mesmo campo em MarketplacePriceResult. */
+  confidenceSource?: "visual" | "texto";
   /** Loja real de origem do preço — mostrada junto da tag "Aproximado". */
   matchedSource?: string;
   /**

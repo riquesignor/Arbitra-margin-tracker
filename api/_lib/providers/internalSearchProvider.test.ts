@@ -223,6 +223,18 @@ describe("detectBlock", () => {
     expect(reason).toMatch(/bloquead|IP/i);
   });
 
+  it(
+    "a alternativa sugerida no 403 tem que EXISTIR no seletor — regressão real (set/2026): a mensagem " +
+      'mandava "use RapidAPI/Mercado Livre", que saíram do grid (ver AB_TEST_PROVIDER_IDS em ' +
+      "Dashboard.tsx), então o usuário procurava uma opção inexistente e achava que o app tinha quebrado",
+    () => {
+      const reason = detectBlock(403, "", "Amazon")!;
+
+      expect(reason).toMatch(/ScraperAPI|SearchApi\.io/);
+      expect(reason).not.toMatch(/RapidAPI/i);
+    }
+  );
+
   it("detecta CAPTCHA servido com HTTP 200 (o status sozinho não denuncia)", () => {
     const captcha = `<html><body><form action="/errors/validateCaptcha">
       Digite os caracteres que aparecem na imagem</form>${FILLER}</body></html>`;

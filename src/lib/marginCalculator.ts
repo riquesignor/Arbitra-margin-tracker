@@ -6,6 +6,7 @@ import type {
   PricingRules,
   Recommendation,
 } from "../types";
+import { safeExternalUrl } from "./safeExternalUrl";
 
 export const DEFAULT_PRICING_RULES: PricingRules = {
   marketplaceFees: [
@@ -45,13 +46,37 @@ export function calculateMargin(
   priceResult: MarketplacePriceResult,
   rules: PricingRules
 ): MarginResult {
+  // Preço COMPARÁVEL com o custo do catálogo (set/2026, ver
+  // packQuantity.ts): quando o anúncio é lote ("kit com 12"), o número que
+  // faz sentido comparar com o custo de UMA peça é o preço unitário, não o
+  // do lote inteiro. Antes disso, anúncio de atacado gerava margem
+  // fantasiosa — e é o tipo de anúncio que mais aparece nessa busca.
+  // `unitPrice` só vem preenchido quando o título declara a quantidade;
+  // no caso comum (anúncio unitário) isto é exatamente `priceResult.price`,
+  // ou seja, zero mudança de comportamento.
+  const comparablePrice = priceResult.unitPrice ?? priceResult.price;
+
   const base = {
     sku: row.sku,
     name: row.name,
-    marketplacePrice: priceResult.price,
+    marketplacePrice: comparablePrice,
+    // Preço cheio do anúncio + quantidade do lote, preservados pra UI
+    // conseguir mostrar "R$ 120 no anúncio (lote de 12 · R$ 10/un.)" —
+    // sem isso o usuário veria um preço que não bate com o que ele
+    // encontra ao abrir o link, e perderia a confiança no número.
+    listingPrice: priceResult.unitPrice != null ? priceResult.price : undefined,
+    packQuantity: priceResult.packQuantity,
     marketplace: priceResult.marketplace,
     confidence: priceResult.confidence,
-    link: priceResult.link,
+    // Ponto único de saneamento do link de anúncio (set/2026, ver
+    // safeExternalUrl.ts e docs/auditoria-2026-09.md > P1-7): o `link` vem
+    // de API de terceiro e é renderizado como `href` clicável em duas
+    // telas (Resultados e Carteira). Sanear AQUI, na fronteira onde o dado
+    // externo vira dado do app, cobre as duas de uma vez — e qualquer tela
+    // nova que use MarginResult nasce protegida. Esquema fora de http(s)
+    // (`javascript:`, `data:`) vira `undefined`, que a UI já sabe exibir
+    // como "sem link".
+    link: safeExternalUrl(priceResult.link),
     matchedTitle: priceResult.matchedTitle,
     competitorCount: priceResult.competitorCount,
     buyBoxEligible: priceResult.buyBoxEligible,
@@ -65,6 +90,15 @@ export function calculateMargin(
     // de referência é um chute (ver tag "Aproximado" em ResultsTable.tsx).
     approximate: priceResult.approximate,
     matchedSource: priceResult.matchedSource,
+    // Motivo ESPECÍFICO de o preço ser suspeito (ver priceSanity.ts) — a
+    // tag "Aproximado" sozinha não distingue "veio de outra loja" de
+    // "esse preço não fecha com o seu custo", que é o caso em que o
+    // usuário mais precisa parar e conferir o anúncio.
+    priceSanityFlag: priceResult.priceSanityFlag,
+    // Origem da confiança (foto x nome) — ver confidenceSource em
+    // ../types: a coluna "Confiança" mostra o mesmo número pros dois
+    // casos, e eles não significam a mesma coisa.
+    confidenceSource: priceResult.confidenceSource,
   };
 
   // Catálogo sem preço de custo (ver CatalogRow.supplierPrice, catálogo
@@ -78,16 +112,16 @@ export function calculateMargin(
 
   const feesCost = rules.marketplaceFees
     .filter((f) => f.enabled)
-    .reduce((sum, fee) => sum + priceResult.price * fee.rate, 0);
+    .reduce((sum, fee) => sum + comparablePrice * fee.rate, 0);
 
   const shippingCost = resolveShippingCost(row.supplierPrice, rules.shippingTiers);
 
   const taxesCost = rules.taxRates
     .filter((t) => t.enabled)
-    .reduce((sum, tax) => sum + priceResult.price * tax.rate, 0);
+    .reduce((sum, tax) => sum + comparablePrice * tax.rate, 0);
 
   const totalCost = row.supplierPrice + feesCost + shippingCost + taxesCost;
-  const marginPct = row.supplierPrice > 0 ? (priceResult.price - totalCost) / row.supplierPrice : 0;
+  const marginPct = row.supplierPrice > 0 ? (comparablePrice - totalCost) / row.supplierPrice : 0;
 
   return {
     ...base,

@@ -112,6 +112,14 @@ export interface CatalogItemQuery {
    * reconhecida) e é pulado silenciosamente pela busca por imagem.
    */
   imageUrl?: string;
+  /**
+   * Custo de fornecedor do catálogo (set/2026) — mandado pro servidor
+   * como ÂNCORA de sanidade de preço (ver priceSanity.ts), não pra
+   * cálculo: a margem continua sendo calculada no cliente
+   * (marginCalculator.ts). Ausente em catálogo "vitrine" (sem preço de
+   * custo), e nesse caso a checagem simplesmente não roda.
+   */
+  supplierPrice?: number;
 }
 
 export interface MarketplacePriceResult {
@@ -138,4 +146,36 @@ export interface MarketplacePriceResult {
   approximate?: boolean;
   /** Loja de onde o anúncio veio de fato (`source` cru do provider) — sem isso a tag "Aproximado" não teria como dizer de ONDE veio o preço. */
   matchedSource?: string;
+  /**
+   * Quantidade de unidades que o ANÚNCIO entrega, quando o título diz
+   * explicitamente que é lote ("kit com 12", "atacado 50 peças" — ver
+   * detectPackQuantity em packQuantity.ts). `undefined` = anúncio unitário
+   * (o caso comum) OU título sem padrão reconhecível; nos dois casos
+   * `price` já é o preço de uma unidade.
+   */
+  packQuantity?: number;
+  /**
+   * `price / packQuantity` — o número comparável com o custo unitário do
+   * catálogo (set/2026, ver docs/auditoria-2026-09.md > item 10). Existe
+   * porque comparar o preço de um LOTE com o custo de UMA peça produzia
+   * margem fantasiosa justamente nos anúncios de atacado, que é o que
+   * mais aparece nesse tipo de busca. `undefined` quando não há lote.
+   */
+  unitPrice?: number;
+  /**
+   * Preço fora da faixa plausível em relação ao custo de fornecedor do
+   * catálogo (ver priceSanity.ts). Vem junto com `approximate: true` — a
+   * UI usa o flag pra explicar POR QUE o resultado é suspeito, em vez do
+   * aviso genérico de "aproximado".
+   */
+  priceSanityFlag?: "abaixo_do_custo" | "muito_acima_do_custo";
+  /**
+   * O que DECIDIU este match (set/2026, ver docs/auditoria-2026-09.md >
+   * item 12): comparação da FOTO (mecanismos por imagem — Google Lens,
+   * SearchApi.io, motor interno + IA) ou similaridade do NOME (mecanismos
+   * por texto). A coluna "Confiança" mostrava um número sem dizer de onde
+   * ele vinha — 62% por semelhança de string e 62% por confirmação visual
+   * têm significados bem diferentes na hora de decidir compra.
+   */
+  confidenceSource?: "visual" | "texto";
 }

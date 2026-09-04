@@ -31,24 +31,17 @@ export async function getTodayUsage(userId: string | null): Promise<number> {
 }
 
 /**
- * Incrementa o contador do dia. Best-effort e otimista: se isso falhar
- * (rede, regra), a busca já foi feita (a chamada à SerpApi já aconteceu)
- * — não faz sentido reverter nada, só logamos e seguimos. Enforcement
- * real de cota (bloquear ANTES de gastar SerpApi) é feito por quem
- * chama `getTodayUsage` antes de disparar a busca (ver Dashboard.tsx).
+ * `addTodayUsage` foi REMOVIDA (set/2026, ver api/_lib/searchQuota.ts e
+ * docs/auditoria-2026-09.md > P0-3). O contador era escrito pelo próprio
+ * navegador, o que tornava a "cota" puramente decorativa: o usuário podia
+ * simplesmente não incrementar (ou zerar o doc, já que a security rule
+ * dava write ao dono) e seguir gastando busca — inclusive nos mecanismos
+ * pagos pela plataforma via SCRAPERAPI_KEY.
+ *
+ * Agora quem incrementa é o servidor, dentro de uma transaction e ANTES
+ * de gastar API, no MESMO doc/campo que `getTodayUsage` acima lê — a
+ * leitura client-side continua valendo pra desenhar a barra de cota. A
+ * tela de busca também recebe o total atualizado direto na resposta de
+ * /api/fetch-prices (`_usage`, ver priceApi.ts), sem precisar reler o
+ * Firestore a cada lote.
  */
-export async function addTodayUsage(userId: string | null, amount: number): Promise<void> {
-  if (!userId || !firebaseConfigured || amount <= 0) return;
-
-  try {
-    const db = await getFirebaseDb();
-    const { doc, setDoc, increment } = await import("firebase/firestore");
-    await setDoc(
-      doc(db, "users", userId, SUBCOLLECTION, todayKey()),
-      { searchCount: increment(amount), updatedAt: Date.now() },
-      { merge: true }
-    );
-  } catch (err) {
-    console.warn("Não consegui registrar uso diário:", err);
-  }
-}

@@ -7,6 +7,16 @@ import { firebaseConfigured, getFirebaseDb } from "./firebase";
 // api/catalog-image.ts), porque o Admin SDK do lado servidor precisa do
 // path completo pra buscar um doc de subcoleção.
 const SUBCOLLECTION = "catalog_images";
+
+/**
+ * Coleção de nível superior `catalog_image_index/{imageId} -> { uid,
+ * expiresAt }`. Existe só pra tirar o UID da URL pública da foto (ver
+ * uploadCatalogImage abaixo): o servidor recebe o id da imagem e descobre
+ * de quem ela é, em vez de o id do usuário viajar pra dentro da SerpApi/
+ * SearchApi.io junto com a URL. Escrita só pelo dono; leitura só pelo
+ * Admin SDK (ver firestore.rules).
+ */
+const IMAGE_INDEX_COLLECTION = "catalog_image_index";
 // 30 dias — estendido a partir das 2h originais (mesmo TTL do cache de
 // preço, market_prices) pra a foto continuar aparecendo na coluna de
 // produto da tela de Resultados mesmo quando o usuário reabre um
@@ -171,14 +181,31 @@ export async function uploadCatalogImage(
   const base64 = await blobToBase64(blob);
 
   const db = await getFirebaseDb();
-  const { collection, addDoc } = await import("firebase/firestore");
+  const { collection, addDoc, doc, setDoc } = await import("firebase/firestore");
+  const expiresAt = Date.now() + TTL_MS;
   const docRef = await addDoc(collection(db, "users", userId, SUBCOLLECTION), {
     sku,
     contentType: "image/jpeg",
     base64,
     createdAt: Date.now(),
-    expiresAt: Date.now() + TTL_MS,
+    expiresAt,
   });
 
-  return `${window.location.origin}/api/catalog-image?uid=${encodeURIComponent(userId)}&id=${docRef.id}`;
+  // Índice `imageId -> uid` (set/2026, ver docs/auditoria-2026-09.md >
+  // P1-6). A URL antiga carregava `?uid=...` em texto e era ENTREGUE a
+  // terceiros (SerpApi/SearchApi.io baixam a foto por ela), vazando o
+  // identificador do usuário pra fora sem necessidade. O servidor precisa
+  // do uid só pra montar o path da subcoleção — então ele passa a
+  // descobri-lo aqui, por um id que já era aleatório e não sequencial.
+  //
+  // Best-effort de propósito: se este write falhar (regra, rede), a foto
+  // já existe e a URL antiga (com uid) continua funcionando — melhor uma
+  // URL menos elegante do que perder a busca por imagem do item.
+  try {
+    await setDoc(doc(db, IMAGE_INDEX_COLLECTION, docRef.id), { uid: userId, expiresAt });
+    return `${window.location.origin}/api/catalog-image?id=${docRef.id}`;
+  } catch (err) {
+    console.warn("Não consegui criar o índice da foto (usando URL com uid):", err);
+    return `${window.location.origin}/api/catalog-image?uid=${encodeURIComponent(userId)}&id=${docRef.id}`;
+  }
 }

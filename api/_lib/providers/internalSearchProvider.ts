@@ -581,9 +581,15 @@ const STORE_SCRAPERS: StoreScraper[] = [
 export function detectBlock(status: number, html: string, storeLabel: string): string | null {
   if (status === 403) {
     return (
-      `${storeLabel} recusou a requisição (HTTP 403) — o IP do servidor foi bloqueado. ` +
-      "É a limitação conhecida de rodar o motor interno direto da Vercel (IP de datacenter). " +
-      "Use RapidAPI/Mercado Livre no seletor enquanto isso."
+      // Mensagem atualizada (set/2026): a versão anterior mandava "Use
+      // RapidAPI/Mercado Livre no seletor", e nenhum dos dois está mais no
+      // seletor (ver AB_TEST_PROVIDER_IDS em Dashboard.tsx) — o usuário
+      // procurava uma opção que não existe e concluía que o app estava
+      // quebrado. Só citar alternativa que ele consegue clicar de fato.
+      `${storeLabel} recusou a requisição (HTTP 403) — o IP do servidor foi bloqueado pelo anti-bot da loja. ` +
+      "É a limitação conhecida de raspar a loja direto de um IP de datacenter (Vercel), mesmo via proxy. " +
+      'Troque o mecanismo no seletor: "ScraperAPI" (endpoints estruturados, sem chave) ou ' +
+      '"Busca por imagem (SearchApi.io)" costumam passar quando a raspagem direta está barrada.'
     );
   }
   if (status === 429) {

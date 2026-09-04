@@ -60,6 +60,8 @@ const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/$
  * o teto de 300s da function pra um lote inteiro. Ver VISION_CHUNK_SIZE
  * em Dashboard.tsx, reduzido junto com esta mudança pela mesma razão.
  */
+import { fetchImageWithLimit, UnsafeImageUrlError } from "./safeImageUrl.js";
+
 const REQUEST_TIMEOUT_MS = 20000;
 
 /**
@@ -110,17 +112,21 @@ async function fetchImageAsBase64(imageUrl: string): Promise<{ data: string; mim
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(imageUrl, { signal: controller.signal });
-    if (!response.ok) {
-      throw new GeminiVisionError(`Não consegui baixar a imagem (${imageUrl}): HTTP ${response.status}`);
-    }
-    const mimeType = response.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-    const buffer = await response.arrayBuffer();
+    // `fetchImageWithLimit` (safeImageUrl.ts, set/2026) substituiu o
+    // `fetch(imageUrl)` cru que existia aqui: valida esquema/host, recusa
+    // redirecionamento pra rede interna e corta o download num teto de
+    // bytes. A mensagem de erro dele é genérica DE PROPÓSITO — a versão
+    // antiga ecoava a URL e o status HTTP recebido, o que transformava
+    // esta função num scanner de rede interna pra quem controlasse
+    // `item.imageUrl` (ver docs/auditoria-2026-09.md > P0-2).
+    const { buffer, mimeType } = await fetchImageWithLimit(imageUrl, controller.signal);
     // Node/Vercel runtime: Buffer está disponível globalmente, sem import.
-    const data = Buffer.from(buffer).toString("base64");
-    return { data, mimeType };
+    return { data: buffer.toString("base64"), mimeType };
   } catch (err) {
     if (err instanceof GeminiVisionError) throw err;
+    if (err instanceof UnsafeImageUrlError) {
+      throw new GeminiVisionError(err.message);
+    }
     if (err instanceof Error && err.name === "AbortError") {
       throw new GeminiVisionError(`Baixar a imagem demorou mais que ${REQUEST_TIMEOUT_MS / 1000}s.`);
     }

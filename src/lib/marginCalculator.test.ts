@@ -37,6 +37,53 @@ describe("calculateMargin", () => {
     expect(result.marginPct).toBeCloseTo(0.6, 4); // (200 - 140) / 100
   });
 
+  it(
+    "usa o preço POR UNIDADE quando o anúncio é lote — regressão estrutural (set/2026): comparar o preço " +
+      "de um kit de 12 com o custo de UMA peça gerava margem fantasiosa justamente nos anúncios de atacado",
+    () => {
+      const rules: PricingRules = {
+        marketplaceFees: [{ id: "f1", name: "Taxa", rate: 0.1, enabled: true }],
+        shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 5 }],
+        taxRates: [],
+        targetMarginPct: 0.2,
+        priceFloor: 0,
+      };
+
+      const result = calculateMargin(
+        makeRow({ supplierPrice: 8 }),
+        makePrice({ price: 120, packQuantity: 12, unitPrice: 10, matchedTitle: "Produto Kit com 12 unidades" }),
+        rules
+      );
+
+      // Margem calculada em cima de R$10 (unitário), não de R$120 (lote).
+      expect(result.marketplacePrice).toBe(10);
+      expect(result.feesCost).toBe(1); // 10 * 0.10 — não 12
+      expect(result.totalCost).toBe(14); // 8 + 1 + 5
+      expect(result.marginPct).toBeCloseTo(-0.5, 4); // (10 - 14) / 8 — prejuízo real, exposto
+      // O preço do anúncio continua disponível pra tela mostrar o número
+      // que o usuário vai ver ao abrir o link.
+      expect(result.listingPrice).toBe(120);
+      expect(result.packQuantity).toBe(12);
+    }
+  );
+
+  it("anúncio unitário (sem lote detectado) mantém exatamente o comportamento antigo", () => {
+    const rules: PricingRules = {
+      marketplaceFees: [{ id: "f1", name: "Taxa", rate: 0.1, enabled: true }],
+      shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 10 }],
+      taxRates: [],
+      targetMarginPct: 0.2,
+      priceFloor: 0,
+    };
+
+    const result = calculateMargin(makeRow({ supplierPrice: 100 }), makePrice({ price: 200 }), rules);
+
+    expect(result.marketplacePrice).toBe(200);
+    expect(result.listingPrice).toBeUndefined();
+    expect(result.packQuantity).toBeUndefined();
+    expect(result.feesCost).toBe(20);
+  });
+
   it("ignora taxa e imposto desabilitados", () => {
     const rules: PricingRules = {
       marketplaceFees: [{ id: "f1", name: "Taxa", rate: 0.5, enabled: false }],

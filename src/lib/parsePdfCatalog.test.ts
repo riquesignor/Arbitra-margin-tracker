@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dedupeCatalogRows,
   extractGridBlocks,
   extractProductBlocksWithoutPrice,
   extractProductBlocksWithoutPriceIndexed,
@@ -7,6 +8,7 @@ import {
   extractVitrineGridBlocks,
   sanitizeProductName,
 } from "./parsePdfCatalog";
+import type { CatalogRow } from "../types";
 
 describe("sanitizeProductName", () => {
   it("não mexe em nome limpo (garantia de não-regressão pra catálogo que já funcionava)", () => {
@@ -765,5 +767,82 @@ describe("extractVitrineGridBlocks", () => {
     ];
 
     expect(extractVitrineGridBlocks(items, PAGE_WIDTH)).toBeNull();
+  });
+});
+
+describe("dedupeCatalogRows", () => {
+  it("remove a segunda ocorrência de um SKU repetido, mantendo a primeira", () => {
+    const rows: CatalogRow[] = [
+      { sku: "TOP2905", name: "Mesa Para Computador", supplierPrice: 120 },
+      { sku: "TOP2977", name: "Moldura P/ Foto", supplierPrice: 30 },
+      { sku: "TOP2905", name: "Mesa Para Computador", supplierPrice: 120 },
+    ];
+
+    const { rows: deduped, removed } = dedupeCatalogRows(rows);
+
+    expect(removed).toBe(1);
+    expect(deduped).toHaveLength(2);
+    expect(deduped.map((r) => r.sku)).toEqual(["TOP2905", "TOP2977"]);
+  });
+
+  it("não mexe em catálogo sem SKU repetido nenhum (caso comum — zero custo)", () => {
+    const rows: CatalogRow[] = [
+      { sku: "A1", name: "Produto A", supplierPrice: 10 },
+      { sku: "B2", name: "Produto B", supplierPrice: 20 },
+      { sku: "C3", name: "Produto C", supplierPrice: 30 },
+    ];
+
+    const { rows: deduped, removed } = dedupeCatalogRows(rows);
+
+    expect(removed).toBe(0);
+    expect(deduped).toEqual(rows);
+  });
+
+  it(
+    "quando o SKU repete e só UMA ocorrência tem supplierPrice (ex: página vitrine sem preço + grade " +
+      "principal com preço mais adiante), mantém a que tem preço — nunca perde o custo de fornecedor",
+    () => {
+      const rows: CatalogRow[] = [
+        { sku: "B2", name: "Produto Vitrine (sem preço)" }, // aparece primeiro, sem preço
+        { sku: "A1", name: "Produto A", supplierPrice: 10 },
+        { sku: "B2", name: "Produto Vitrine", supplierPrice: 45 }, // mesma peça, agora com preço
+      ];
+
+      const { rows: deduped, removed } = dedupeCatalogRows(rows);
+
+      expect(removed).toBe(1);
+      expect(deduped).toHaveLength(2);
+      const b2 = deduped.find((r) => r.sku === "B2");
+      expect(b2).toMatchObject({ name: "Produto Vitrine", supplierPrice: 45 });
+    }
+  );
+
+  it("mantém a PRIMEIRA ocorrência quando as duas têm preço (ou as duas não têm) — não tenta adivinhar qual é 'mais certa'", () => {
+    const rows: CatalogRow[] = [
+      { sku: "A1", name: "Nome Primeira Leitura", supplierPrice: 10 },
+      { sku: "A1", name: "Nome Segunda Leitura (ruído de OCR, por exemplo)", supplierPrice: 11 },
+    ];
+
+    const { rows: deduped, removed } = dedupeCatalogRows(rows);
+
+    expect(removed).toBe(1);
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]).toMatchObject({ name: "Nome Primeira Leitura", supplierPrice: 10 });
+  });
+
+  it("normaliza SKU (maiúsculas/espaço) antes de comparar — mesmo produto lido de formas ligeiramente diferentes em páginas diferentes ainda é reconhecido como duplicata", () => {
+    const rows: CatalogRow[] = [
+      { sku: "top-2905", name: "Produto A", supplierPrice: 10 },
+      { sku: " TOP-2905 ", name: "Produto A", supplierPrice: 10 },
+    ];
+
+    const { rows: deduped, removed } = dedupeCatalogRows(rows);
+
+    expect(removed).toBe(1);
+    expect(deduped).toHaveLength(1);
+  });
+
+  it("é no-op em array vazio", () => {
+    expect(dedupeCatalogRows([])).toEqual({ rows: [], removed: 0 });
   });
 });

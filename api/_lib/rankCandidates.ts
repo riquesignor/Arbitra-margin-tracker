@@ -1,4 +1,4 @@
-import { textSimilarity } from "./textSimilarity.js";
+import { accessoryPenalty, textSimilarity } from "./textSimilarity.js";
 
 /**
  * Escolhe o melhor candidato entre resultados de busca (SerpApi, RapidAPI
@@ -91,7 +91,18 @@ export function pickBestCandidate<T>(
 
   const scored = candidates.map((candidate) => ({
     candidate,
-    similarity: textSimilarity(catalogName, getTitle(candidate)),
+    // Penalidade de acessório (set/2026, ver accessoryPenalty em
+    // textSimilarity.ts): "Capa para Fone XM4" tem quase os mesmos tokens
+    // de "Fone XM4" e, sendo mais vendida, ganhava o desempate por
+    // popularidade logo abaixo — trazendo um preço de acessório como se
+    // fosse o preço do produto. Só desconta quando o termo de acessório
+    // está no anúncio e NÃO no nome do catálogo (catálogo de capas não é
+    // penalizado). Piso em 0 pra nunca virar similaridade negativa.
+    similarity: Math.max(
+      0,
+      textSimilarity(catalogName, getTitle(candidate)) -
+        accessoryPenalty(catalogName, getTitle(candidate))
+    ),
   }));
 
   const maxSimilarity = Math.max(...scored.map((s) => s.similarity));
@@ -134,7 +145,18 @@ export function getTopCandidates<T>(
 
   const scored = candidates.map((candidate) => ({
     candidate,
-    similarity: textSimilarity(catalogName, getTitle(candidate)),
+    // Penalidade de acessório (set/2026, ver accessoryPenalty em
+    // textSimilarity.ts): "Capa para Fone XM4" tem quase os mesmos tokens
+    // de "Fone XM4" e, sendo mais vendida, ganhava o desempate por
+    // popularidade logo abaixo — trazendo um preço de acessório como se
+    // fosse o preço do produto. Só desconta quando o termo de acessório
+    // está no anúncio e NÃO no nome do catálogo (catálogo de capas não é
+    // penalizado). Piso em 0 pra nunca virar similaridade negativa.
+    similarity: Math.max(
+      0,
+      textSimilarity(catalogName, getTitle(candidate)) -
+        accessoryPenalty(catalogName, getTitle(candidate))
+    ),
   }));
 
   const maxSimilarity = Math.max(...scored.map((s) => s.similarity));
