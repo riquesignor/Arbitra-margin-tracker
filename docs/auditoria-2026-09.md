@@ -1,15 +1,49 @@
 # Auditoria completa — Arbitra (set/2026)
 
-> **Status da execução (atualizado na mesma data):** **18 dos 24 itens estão
+> **Status da execução (atualizado na mesma data):** **os 24 itens estão
 > implementados e validados** — todos os P0 (1-4), todos os P1 (5-8), toda a
-> parte de precisão de busca (9-14), leitura de catálogo (15-17) e os três de
-> experiência mais pedidos (19, 20, 22-parcial). `tsc` client+api limpos e **254
-> testes passando** (59 novos nesta rodada).
+> parte de precisão de busca (9-14), leitura de catálogo (15-18) e experiência
+> (19-24).
 >
-> **Ficou de fora (backlog consciente):** 18 (2ª passada de OCR só na faixa do
-> preço), 21 (motivo da falha POR LINHA — exige o servidor devolver razão por
-> SKU, mudança em 6 providers), 23 (consumo real de crédito na tela) e 24
-> (onboarding do BYOK). Nenhum deles é bloqueio de segurança ou de correção.
+> **Atualização (mesma data, 2ª rodada): os 24 itens estão fechados.** Entraram
+> 18 (2ª passada de OCR na faixa do preço, `ocrPriceFromBand` em
+> parsePdfCatalog.ts — worker próprio com whitelist de caracteres e PSM de
+> linha única, roda antes da correção via Gemini e não exige chave), 21 (razão
+> por SKU: `api/_lib/searchMissReasons.ts` → `_reasons` na resposta → resumo
+> agrupado na tela; derivada no ponto de saída, sem mexer nos 6 providers), 23
+> (barra de cota deixou de ser exclusiva do SerpApi, passa a usar o teto
+> autoritativo do servidor e mostra o custo REAL da última busca) e 24
+> (`src/config/providerKeys.ts`: aviso com link pra criar a chave e o custo,
+> exibido ao ESCOLHER o mecanismo, não depois da busca falhar).
+>
+> **Também nesta rodada (fora da auditoria original), contra o bloqueio das
+> lojas e pra conferência manual:**
+>
+> - **Download de imagem instrumentado e com proxy** (`safeImageUrl.ts`): host +
+>   status HTTP no log do servidor, e 2ª tentativa via ScraperAPI quando a loja
+>   responde 401/403/405/429/503. Era o vetor invisível — thumbnail bloqueada
+>   fazia o candidato perder a comparação visual e o sintoma chegava como "a IA
+>   não confirmou nada". 404/410 não repetem (não queima crédito à toa) e foto
+>   do próprio app nunca vai pro proxy.
+> - **Fonte de candidatos com rede de segurança** (`fetchCandidateOffers` em
+>   visionInternalSearchProvider.ts): a raspagem continua primária; quando a
+>   Amazon volta vazia ou bloqueada, cai pro endpoint estruturado
+>   (`fetchAmazonCandidatesForQuery`, 5 créditos/consulta). Mercado Livre segue
+>   só na raspagem de propósito — a alternativa via Google Shopping custaria o
+>   link do anúncio e o nº de vendas.
+> - **Popularidade do anúncio na tela**: `reviewCount`/`rating` já eram
+>   extraídos e já pesavam no desempate, mas morriam no servidor. Agora viajam
+>   até a UI (badge com 🔥 vendas no ML / ⭐ avaliações na Amazon) e o CSV.
+> - **Zoom na miniatura** (`ProductThumb`): clicar amplia a foto do anúncio —
+>   a mesma imagem que a IA usou pra decidir. É a verificação manual que sobra
+>   quando a fonte não devolve link.
+>
+> `tsc` client+api limpos e **271 testes passando** (17 novos nesta rodada).
+>
+> **Em aberto, pendente de evidência real:** a API pública do Mercado Livre
+> (`api.mercadolibre.com/sites/MLB/search`) como substituta da raspagem do ML —
+> o teste feito daqui foi inconclusivo (resposta vazia), precisa de uma chamada
+> a partir do servidor, com log de status, antes de virar plano.
 >
 > ⚠️ **Ação manual pendente:** `firestore.rules` não sobe no deploy da Vercel —
 > precisa de `firebase deploy --only firestore:rules`. Sem isso, os itens P0-1

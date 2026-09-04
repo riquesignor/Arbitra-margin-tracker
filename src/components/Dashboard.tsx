@@ -26,7 +26,8 @@ import type {
 } from "../types";
 import { parseCatalogFile } from "../lib/parseCatalog";
 import { getPdfPageCount, parsePdfCatalogFile, type PageRange } from "../lib/parsePdfCatalog";
-import { fetchMultipleMarketplacePrices } from "../lib/priceApi";
+import { fetchMultipleMarketplacePrices, MISS_REASON_LABEL, type MissReason } from "../lib/priceApi";
+import { missingKeyMessage, PROVIDER_KEY_GUIDE } from "../config/providerKeys";
 import { calculateMargins } from "../lib/marginCalculator";
 import {
   computeFileHash,
@@ -512,6 +513,23 @@ export default function Dashboard({
 
   // Cota diária de buscas do plano — ver config/plans.ts e usageQuota.ts.
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
+  /**
+   * Teto AUTORITATIVO devolvido pelo servidor no `_usage` (ver
+   * api/_lib/searchQuota.ts) — só ele sabe se o mecanismo escolhido custa
+   * crédito da plataforma (limite do plano) ou roda com chave do usuário
+   * (teto anti-abuso, bem mais alto). Antes a tela usava sempre
+   * `plan.dailySearchLimit`, o que mostrava uma barra errada pra quem
+   * estava em BYOK. `null` até a primeira resposta do servidor.
+   */
+  const [serverQuotaLimit, setServerQuotaLimit] = useState<number | null>(null);
+  /**
+   * Quanto a ÚLTIMA busca consumiu de fato (diferença do contador do
+   * servidor entre o começo e o fim). A barra sozinha só dizia o
+   * acumulado do dia — não dava pra saber o preço do que você acabou de
+   * rodar, que é justamente o número que faz o usuário decidir se repete
+   * a busca com outro mecanismo (auditoria item 23).
+   */
+  const [lastSearchCost, setLastSearchCost] = useState<number | null>(null);
 
   // Comparativo de velocidade por mecanismo (ver providerSpeedStats.ts) —
   // substitui o antigo card estático "Como o cálculo roda".
@@ -740,7 +758,11 @@ export default function Dashboard({
   // busca (mesma filosofia BYOK do resto do app). `!` a partir de 80% —
   // design-tokens.md § Regras de tela adicionadas — respeitando o
   // toggle "Avisar quando eu chegar a 80% da cota" (Conta).
-  const quotaPct = todayUsage !== null ? Math.min(1, todayUsage / plan.dailySearchLimit) : 0;
+  // Teto real da barra: o do servidor manda (ele sabe se é limite de plano
+  // ou teto BYOK, ver searchQuota.ts); antes da primeira busca do dia usa
+  // o do plano, que é o palpite correto pra quem gasta crédito da casa.
+  const effectiveQuotaLimit = serverQuotaLimit ?? plan.dailySearchLimit;
+  const quotaPct = todayUsage !== null ? Math.min(1, todayUsage / effectiveQuotaLimit) : 0;
   const quotaWarning = warnAt80PercentQuota && quotaPct >= 0.8;
 
   function toggleMarketplace(id: MarketplaceId) {
@@ -892,17 +914,9 @@ export default function Dashboard({
       }
       if (!hasRequiredKey) {
         setState("error");
-        setError(
-          activeProvider.needsKey === "serpApiKey"
-            ? "Cadastre sua chave SerpApi em Conta antes de buscar preço (card \"SerpApi\")."
-            : activeProvider.needsKey === "rapidApiKey"
-              ? "Cadastre sua chave RapidAPI em Conta antes de buscar preço (card \"RapidAPI (Amazon)\")."
-              : activeProvider.needsKey === "searchApiKey"
-                ? "Cadastre sua chave SearchApi.io em Conta antes de buscar preço (card \"SearchApi.io\")."
-                : activeProvider.needsKey === "mistralApiKey"
-                  ? "Cadastre sua chave Mistral em Conta antes de buscar preço (card \"Mistral (motor interno + IA)\")."
-                  : "Cadastre sua chave Gemini em Conta antes de buscar preço (card \"Gemini (motor interno + IA)\")."
-        );
+        // Mensagem única (ver config/providerKeys.ts) — inclui ONDE criar
+        // a chave e quanto custa, não só "vá em Conta".
+        setError(activeProvider.needsKey ? missingKeyMessage(activeProvider.needsKey) : "Chave de API ausente.");
         return;
       }
     }
@@ -1021,6 +1035,11 @@ export default function Dashboard({
     // que falharam" no fim (ver `retryOffer`), em vez de obrigar o
     // usuário a refazer o catálogo inteiro e pagar a cota de novo.
     const failedSkus: string[] = [];
+    const missReasons = new Map<string, MissReason>();
+    // Fotografia do contador ANTES de começar — base pra calcular o custo
+    // real desta busca quando o servidor devolver o `_usage` (item 23).
+    const usageAtSearchStart = todayUsage;
+    setLastSearchCost(null);
     // Quantos produtos já saíram do laço (com sucesso OU falha) — é o
     // número que a mensagem de "busca interrompida" precisa mostrar.
     let processedItems = 0;
@@ -1138,14 +1157,27 @@ export default function Dashboard({
         }
 
         for (const marketplace of meta.marketplaces) {
-          const { results: prices, source, warning, usage } = fetched[marketplace];
+          const { results: prices, source, warning, usage, reasons } = fetched[marketplace];
+          // Razão POR SKU de quem voltou sem preço (ver
+          // api/_lib/searchMissReasons.ts) — acumula ao longo dos lotes
+          // pra virar um resumo agrupado no fim da busca.
+          if (reasons) {
+            for (const [sku, reason] of Object.entries(reasons)) missReasons.set(sku, reason);
+          }
           pricesByMarket[marketplace] = { ...pricesByMarket[marketplace], ...prices };
           if (source !== "server") allFromServer = false;
           // Cota agora é contada no SERVIDOR (ver api/_lib/searchQuota.ts,
           // set/2026) — a barra passa a refletir o número autoritativo,
           // lote a lote, em vez de uma soma local que o próprio navegador
           // fazia (e que, por isso, não valia como limite de nada).
-          if (usage) setTodayUsage(usage.used);
+          if (usage) {
+            setTodayUsage(usage.used);
+            setServerQuotaLimit(usage.limit);
+            // `usageAtSearchStart` é lido uma vez por busca (ver acima do
+            // laço) — a diferença é o custo REAL desta execução, incluindo
+            // os lotes que falharam e os itens que vieram do cache.
+            if (usageAtSearchStart !== null) setLastSearchCost(usage.used - usageAtSearchStart);
+          }
           if (warning) {
             searchWarnings.add(warning);
             // Ver comentário de lastVisionQuotaExhaustedAtRef — marca o
@@ -1220,6 +1252,24 @@ export default function Dashboard({
         // handleRetryFailed) — sem isso o usuário teria que refazer o
         // catálogo inteiro e pagar cota pelos que já deram certo.
         setFailedRetryOffer({ rows, meta, imagesBySku, skus: failedSkus });
+      }
+      // Resumo do "por quê" agrupado por razão (ver searchMissReasons.ts).
+      // Fica FORA do bloco de `failedItems` acima porque são coisas
+      // diferentes: lá o lote falhou (erro/timeout), aqui a busca rodou
+      // normalmente e mesmo assim o produto não rendeu preço — antes as
+      // duas situações chegavam ao usuário com a mesma cara ("sumiu").
+      const reasonCounts = new Map<MissReason, number>();
+      for (const [sku, reason] of missReasons) {
+        if (failedSkus.includes(sku)) continue; // já explicado pelo aviso de lote
+        reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+      }
+      const missTotal = [...reasonCounts.values()].reduce((sum, n) => sum + n, 0);
+      if (missTotal > 0) {
+        const detail = [...reasonCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([reason, count]) => `${count} ${MISS_REASON_LABEL[reason]}`)
+          .join("; ");
+        searchInfoParts.push(`${missTotal} produto(s) ficaram sem preço — ${detail}.`);
       }
       if (searchWarnings.size > 0) {
         searchInfoParts.push(...searchWarnings);
@@ -1536,7 +1586,9 @@ export default function Dashboard({
             <span className={`${styles.headerCardDot} ${styles.dotSuccess}`} />
             fonte <b className={styles.headerCardStrong}>{activeProvider.label}</b>
           </span>
-          {userId && activeProvider.needsKey === "serpApiKey" && serpApiKey && todayUsage !== null && (
+          {/* Mesmo motivo do card "Cota diária" abaixo: o contador vale pra
+              todo mecanismo, não só SerpApi (auditoria item 23). */}
+          {userId && todayUsage !== null && (
             <span className={styles.headerCardRow}>
               <span className={`${styles.headerCardDot} ${styles.dotAccent}`} />
               plano <b className={styles.headerCardStrong}>{plan.name}</b> · {todayUsage} busca(s)
@@ -1587,6 +1639,30 @@ export default function Dashboard({
                   );
                 })}
               </div>
+
+              {/* Onboarding do BYOK (set/2026, auditoria item 24): o aviso de
+                  chave faltando só existia DEPOIS da busca falhar e mandava
+                  "vá em Conta" sem dizer onde criar a chave nem se é paga.
+                  Aqui ele aparece no instante em que o mecanismo é escolhido,
+                  com link direto e o custo — as duas dúvidas que faziam a
+                  pessoa parar no meio. */}
+              {userId && !hasRequiredKey && activeProvider.needsKey && (
+                <p className={styles.byokHint}>
+                  <AlertCircle size={13} />
+                  <span>
+                    Este mecanismo roda com a <b>sua</b> chave{" "}
+                    {PROVIDER_KEY_GUIDE[activeProvider.needsKey].name} ({PROVIDER_KEY_GUIDE[activeProvider.needsKey].cost}).{" "}
+                    <a
+                      href={PROVIDER_KEY_GUIDE[activeProvider.needsKey].url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Criar chave
+                    </a>{" "}
+                    e cadastrar em Conta, no card "{PROVIDER_KEY_GUIDE[activeProvider.needsKey].card}".
+                  </span>
+                </p>
+              )}
 
               {IMAGE_MODE_PROVIDERS.has(searchProvider) && (
                 <div className={styles.subGroup}>
@@ -1898,15 +1974,9 @@ export default function Dashboard({
                     <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
                     {!userId
                       ? "Faça login ou crie uma conta em Conta pra poder buscar preço."
-                      : activeProvider.needsKey === "serpApiKey"
-                        ? "Cadastre sua chave SerpApi em Conta (grátis, só email) pra poder buscar preço."
-                        : activeProvider.needsKey === "rapidApiKey"
-                          ? "Cadastre sua chave RapidAPI em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
-                          : activeProvider.needsKey === "searchApiKey"
-                            ? "Cadastre sua chave SearchApi.io em Conta (grátis até 100 buscas/mês) pra poder buscar preço."
-                            : activeProvider.needsKey === "mistralApiKey"
-                              ? "Cadastre sua chave Mistral em Conta (grátis, sem cartão) pra poder buscar preço."
-                              : "Cadastre sua chave Gemini em Conta (grátis, sem cartão) pra poder buscar preço."}
+                      : activeProvider.needsKey
+                        ? missingKeyMessage(activeProvider.needsKey)
+                        : "Chave de API ausente."}
                   </p>
                 )}
               </div>
@@ -2045,7 +2115,14 @@ export default function Dashboard({
             </div>
           </section>
 
-          {userId && activeProvider.needsKey === "serpApiKey" && serpApiKey && todayUsage !== null && (
+          {/* Cota (set/2026, auditoria item 23): o card era exclusivo de quem
+              usava SerpApi, mas o contador do servidor vale pra TODO
+              mecanismo — quem rodava motor interno/ScraperAPI gastava cota
+              sem nada na tela dizendo isso. O teto exibido vem do servidor
+              (`_usage.limit`) quando já houve uma busca; antes dela, cai
+              pro limite do plano, que é o palpite certo pra quem ainda não
+              rodou nada. */}
+          {userId && todayUsage !== null && (
             <section className={quotaWarning ? styles.cardWarning : styles.card}>
               <div className={styles.cardHeader}>
                 <span className={styles.cardHeaderIcon}>
@@ -2065,8 +2142,17 @@ export default function Dashboard({
                   />
                 </div>
                 <span className={styles.quotaLabel}>
-                  {todayUsage} / {plan.dailySearchLimit} busca(s) hoje · plano {plan.name}
+                  {todayUsage} / {effectiveQuotaLimit} busca(s) hoje
+                  {serverQuotaLimit !== null && serverQuotaLimit > plan.dailySearchLimit
+                    ? " · com sua própria chave"
+                    : ` · plano ${plan.name}`}
                 </span>
+                {lastSearchCost !== null && lastSearchCost > 0 && (
+                  <span className={styles.quotaLabel}>
+                    Última busca consumiu <b>{lastSearchCost}</b> — contagem do servidor, já descontando o
+                    que veio do cache.
+                  </span>
+                )}
               </div>
             </section>
           )}

@@ -456,6 +456,28 @@
   margin: 0;
 }
 
+/* Aviso de chave própria faltando, logo abaixo do grid de mecanismos
+   (ver PROVIDER_KEY_GUIDE / auditoria item 24). Tom de aviso, não de
+   erro: nada quebrou ainda — a pessoa só ainda não tem a chave. */
+.byokHint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.byokHint a {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .pageRangePanel {
   background: var(--color-bg);
   border: 1px solid var(--color-border);

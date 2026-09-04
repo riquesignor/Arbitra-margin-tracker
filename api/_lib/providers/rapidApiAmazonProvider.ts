@@ -174,6 +174,13 @@ export async function fetchRapidApiAmazonPrices(
         matchedTitle: best.product_title,
         imageUrl: best.product_photo,
         approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+        // `product_star_rating` vem como string na API (ver comentário do
+        // popularityScore acima) — normaliza aqui, e descarta valor não
+        // numérico em vez de mandar NaN pra tela.
+        reviewCount: best.product_num_ratings,
+        rating: Number.isFinite(Number(best.product_star_rating))
+          ? Number(best.product_star_rating)
+          : undefined,
       };
     } catch (err) {
       errorCount++;

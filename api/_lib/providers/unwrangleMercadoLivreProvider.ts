@@ -121,6 +121,10 @@ export async function fetchUnwrangleMercadoLivrePrices(
         matchedTitle: ranked.candidate.name,
         imageUrl: ranked.candidate.thumbnail,
         approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+        // Popularidade do anúncio escolhido — já pesava no desempate
+        // (popularityScore acima), agora também chega à tela.
+        reviewCount: ranked.candidate.total_ratings,
+        rating: ranked.candidate.rating,
       };
     } catch (err) {
       errorCount++;

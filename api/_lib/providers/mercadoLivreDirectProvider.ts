@@ -107,6 +107,10 @@ export async function fetchMercadoLivreDirectPrices(
         matchedTitle: best.title,
         imageUrl: best.thumbnail,
         approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
+        // No ML o sinal disponível é VENDA, não avaliação (ver
+        // popularityScore acima) — vai no mesmo campo `reviewCount`, e a
+        // UI rotula por marketplace ("vendidos" x "avaliações").
+        reviewCount: best.sold_quantity,
       };
     } catch (err) {
       errorCount++;

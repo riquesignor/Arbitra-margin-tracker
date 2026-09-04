@@ -14,15 +14,21 @@ import {
  * funcionar — comportamento coberto pelo último bloco.
  */
 const ORIGINAL_VERCEL_ENV = process.env.VERCEL_ENV;
+/** A 2ª tentativa por proxy só existe com chave configurada — o padrão dos testes é SEM, pra o caminho direto ficar isolado. */
+const ORIGINAL_SCRAPERAPI_KEY = process.env.SCRAPERAPI_KEY;
 
 beforeEach(() => {
   process.env.VERCEL_ENV = "production";
+  delete process.env.SCRAPERAPI_KEY;
 });
 
 afterEach(() => {
   if (ORIGINAL_VERCEL_ENV === undefined) delete process.env.VERCEL_ENV;
   else process.env.VERCEL_ENV = ORIGINAL_VERCEL_ENV;
+  if (ORIGINAL_SCRAPERAPI_KEY === undefined) delete process.env.SCRAPERAPI_KEY;
+  else process.env.SCRAPERAPI_KEY = ORIGINAL_SCRAPERAPI_KEY;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("isSafeCatalogImageUrl — foto do catálogo (URL vinda do CLIENTE)", () => {
@@ -176,6 +182,103 @@ describe("fetchImageWithLimit", () => {
     await expect(
       fetchImageWithLimit("https://exemplo.com/proibida.jpg", new AbortController().signal)
     ).rejects.toThrow(/^Não consegui baixar a imagem\.$/);
+  });
+});
+
+/**
+ * Vetor de bloqueio que ficava invisível (set/2026): a loja recusava a
+ * FOTO (não a página), o candidato ficava sem comparação visual e o
+ * sintoma chegava ao usuário como "a IA não confirmou nada".
+ */
+describe("fetchImageWithLimit — 2ª tentativa via ScraperAPI quando a loja bloqueia", () => {
+  function okResponse(): Response {
+    return {
+      ok: true,
+      status: 200,
+      url: "",
+      headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "image/jpeg" : null) },
+      arrayBuffer: async () => new Uint8Array([9, 9]).buffer,
+      body: null,
+    } as unknown as Response;
+  }
+
+  function blockedResponse(status: number): Response {
+    return {
+      ok: false,
+      status,
+      url: "",
+      headers: { get: () => null },
+      body: null,
+    } as unknown as Response;
+  }
+
+  it("repete pela ScraperAPI em 403 e devolve a imagem que o proxy trouxe", async () => {
+    process.env.SCRAPERAPI_KEY = "chave-de-teste";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(blockedResponse(403))
+      .mockResolvedValueOnce(okResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { buffer } = await fetchImageWithLimit(
+      "https://m.media-amazon.com/images/I/abc.jpg",
+      new AbortController().signal
+    );
+
+    expect(buffer.byteLength).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const segundaUrl = String(fetchMock.mock.calls[1][0]);
+    expect(segundaUrl).toContain("api.scraperapi.com");
+    // A URL original viaja como parâmetro, não é descartada.
+    expect(decodeURIComponent(segundaUrl)).toContain("m.media-amazon.com/images/I/abc.jpg");
+  });
+
+  it("não gasta crédito quando a imagem simplesmente não existe (404 não é bloqueio)", async () => {
+    process.env.SCRAPERAPI_KEY = "chave-de-teste";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(blockedResponse(404));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://http2.mlstatic.com/sumiu.jpg", new AbortController().signal)
+    ).rejects.toThrow(UnsafeImageUrlError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("não tenta proxy pra foto do próprio app (/api/catalog-image)", async () => {
+    process.env.SCRAPERAPI_KEY = "chave-de-teste";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(blockedResponse(403));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://arbitra.vercel.app/api/catalog-image?id=x", new AbortController().signal)
+    ).rejects.toThrow(UnsafeImageUrlError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sem SCRAPERAPI_KEY, falha igual ao comportamento antigo (sem 2ª tentativa)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(blockedResponse(429));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://http2.mlstatic.com/foto.jpg", new AbortController().signal)
+    ).rejects.toThrow(/^Não consegui baixar a imagem\.$/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("proxy também bloqueado: propaga erro genérico, sem 3ª tentativa", async () => {
+    process.env.SCRAPERAPI_KEY = "chave-de-teste";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fetchMock = vi.fn().mockResolvedValue(blockedResponse(403));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://m.media-amazon.com/images/I/abc.jpg", new AbortController().signal)
+    ).rejects.toThrow(/^Não consegui baixar a imagem\.$/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 

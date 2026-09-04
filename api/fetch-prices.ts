@@ -25,6 +25,7 @@ import { getUserApiKeyForProvider } from "./_lib/userSecrets.js";
 import { detectPackQuantity, unitPriceFromPack } from "./_lib/packQuantity.js";
 import { flagPriceSanity } from "./_lib/priceSanity.js";
 import { consumeSearchQuota, QuotaExceededError, type QuotaConsumption } from "./_lib/searchQuota.js";
+import { collectMissReasons } from "./_lib/searchMissReasons.js";
 
 /**
  * Teto de produtos por requisição (set/2026, ver docs/auditoria-2026-09.md
@@ -374,10 +375,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       annotatePriceSanity(directResponse, items);
       annotateConfidenceSource(directResponse, provider);
 
+      const directReasons = collectMissReasons(directResponse, items, provider);
+
       res.status(200).json({
         ...directResponse,
         // Ver `_usage` no branch compartilhado abaixo.
         ...(quota.limit > 0 ? { _usage: quota } : {}),
+        // Ver `_reasons` no branch compartilhado abaixo.
+        ...(Object.keys(directReasons).length > 0 ? { _reasons: directReasons } : {}),
       });
     } catch (err) {
       res.status(502).json({
@@ -532,10 +537,20 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     annotatePriceSanity(responseByMarketplace, items);
     annotateConfidenceSource(responseByMarketplace, provider);
 
+    // `_reasons` é aditivo pelo mesmo motivo de `_warning`/`_usage`: não é
+    // chave de marketplace, então cliente antigo ignora. Diz POR SKU por
+    // que o produto voltou sem preço — antes disso, a explicação existia
+    // só no nível do lote e o produto sumia da tela sem rastro (ver
+    // searchMissReasons.ts e auditoria item 21).
+    const reasons = collectMissReasons(responseByMarketplace, items, provider, {
+      quotaExhausted: Boolean(internalSearchWarning),
+    });
+
     res.status(200).json({
       ...responseByMarketplace,
       ...(internalSearchWarning ? { _warning: internalSearchWarning } : {}),
       ...(quota.limit > 0 ? { _usage: quota } : {}),
+      ...(Object.keys(reasons).length > 0 ? { _reasons: reasons } : {}),
     });
   } catch (err) {
     res.status(502).json({

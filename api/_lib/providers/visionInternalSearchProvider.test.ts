@@ -52,8 +52,13 @@ vi.mock("./internalSearchProvider.js", () => ({
 // depender do Passo 4 — só os testes do describe "busca geral" configuram
 // um retorno próprio.
 const fetchGoogleShoppingCandidatesForQuery = vi.fn();
+// Fonte estruturada da Amazon (set/2026, ver fetchCandidateOffers) —
+// padrão vazio: nestes testes quem manda é o mock de `fetchStoreOffers`,
+// e o fallback só deve entrar quando a raspagem não trouxe nada.
+const fetchAmazonCandidatesForQuery = vi.fn(async (..._args: unknown[]) => [] as unknown[]);
 vi.mock("./scraperApiSearchProvider.js", () => ({
   fetchGoogleShoppingCandidatesForQuery: (...args: unknown[]) => fetchGoogleShoppingCandidatesForQuery(...args),
+  fetchAmazonCandidatesForQuery: (...args: unknown[]) => fetchAmazonCandidatesForQuery(...args),
 }));
 
 // Import dinâmico (não estático) de propósito: import ES é hoisted acima de

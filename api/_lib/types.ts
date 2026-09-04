@@ -178,4 +178,18 @@ export interface MarketplacePriceResult {
    * têm significados bem diferentes na hora de decidir compra.
    */
   confidenceSource?: "visual" | "texto";
+  /**
+   * Popularidade do ANÚNCIO encontrado (set/2026): nº de avaliações na
+   * Amazon, nº de vendas no Mercado Livre ("+1000 vendidos") — ver
+   * `ScrapedOffer.reviewCount` em internalSearchProvider.ts. O dado já
+   * era extraído e já pesava no desempate entre candidatos
+   * (`popularityScore` em rankCandidates.ts), mas morria no servidor:
+   * nada na tela dizia se o preço veio de um anúncio que vende de
+   * verdade ou de um anúncio parado. Ausente quando a fonte não expõe o
+   * sinal (Google Shopping estruturado, por exemplo, não devolve isso de
+   * forma confiável).
+   */
+  reviewCount?: number;
+  /** Nota média do anúncio (0-5), quando a fonte expõe — ver `reviewCount`. */
+  rating?: number;
 }

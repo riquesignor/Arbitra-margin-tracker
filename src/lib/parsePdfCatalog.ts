@@ -1404,8 +1404,16 @@ interface TesseractLine {
   bbox: TesseractBbox;
   words: TesseractWord[];
 }
+interface TesseractRecognizeOptions {
+  /** Recorte em PIXEL do canvas — evita re-renderizar a página só pra ler uma faixa (ver ocrPriceFromBand). */
+  rectangle?: { left: number; top: number; width: number; height: number };
+}
 interface TesseractWorker {
-  recognize: (image: HTMLCanvasElement) => Promise<{ data: { lines: TesseractLine[] } }>;
+  recognize: (
+    image: HTMLCanvasElement,
+    options?: TesseractRecognizeOptions
+  ) => Promise<{ data: { lines: TesseractLine[]; text?: string } }>;
+  setParameters?: (params: Record<string, string>) => Promise<unknown>;
   terminate: () => Promise<unknown>;
 }
 interface TesseractModule {
@@ -1441,6 +1449,114 @@ async function getTesseractWorker(): Promise<TesseractWorker> {
     })();
   }
   return tesseractWorkerPromise;
+}
+
+/**
+ * SEGUNDA PASSADA DE OCR, SÓ NA FAIXA DO PREÇO (set/2026, auditoria item 18)
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * O caso: banner de preço colorido/diagonal — o padrão nesse tipo de
+ * catálogo. A passada geral da página (PSM automático, alfabeto inteiro,
+ * português) lê o nome e o código bem, mas erra o preço: confunde "5"
+ * com "S", "0" com "O", e às vezes nem enxerga o número dentro do
+ * banner. O resultado é `priceless` — produto reconhecido, sem custo, sem
+ * margem.
+ *
+ * A correção existente pra isso exigia chave Gemini (BYOK). Esta aqui é
+ * gratuita e roda antes: um worker separado, com o alfabeto restrito a
+ * dígitos e pontuação de preço e segmentação de LINHA ÚNICA, lendo só a
+ * faixa de baixo do cartão. Restringir o alfabeto é o que resolve a
+ * confusão dígito/letra — o Tesseract deixa de ter a opção de responder
+ * "S". Quem tem chave Gemini continua tendo a 2ª rede de segurança pros
+ * cartões que nem isso recupera.
+ *
+ * Worker PRÓPRIO (não o mesmo da página) de propósito: `setParameters` é
+ * global no worker, então alternar whitelist entre a passada da página e
+ * a do preço a cada cartão daria um bug intermitente difícil de achar —
+ * a página seguinte poderia ler texto com alfabeto de preço.
+ */
+let tesseractPriceWorkerPromise: Promise<TesseractWorker> | null = null;
+async function getTesseractPriceWorker(): Promise<TesseractWorker> {
+  if (!tesseractPriceWorkerPromise) {
+    tesseractPriceWorkerPromise = (async () => {
+      const tesseract = (await import("tesseract.js")) as unknown as TesseractModule;
+      const worker = await tesseract.createWorker("por");
+      await worker.setParameters?.({
+        // Alfabeto do preço e mais nada — é isto que impede "R$ 5,90"
+        // virar "R$ S,90".
+        tessedit_char_whitelist: "0123456789.,R$ ",
+        // 7 = "trate a imagem como UMA linha de texto". A faixa recortada
+        // é justamente isso; deixar o segmentador procurar blocos numa
+        // tira de 30px piora o resultado.
+        tessedit_pageseg_mode: "7",
+      });
+      return worker;
+    })();
+  }
+  return tesseractPriceWorkerPromise;
+}
+
+/**
+ * Fração da ALTURA do cartão, de baixo pra cima, onde o banner de preço
+ * fica nesse tipo de catálogo. Generoso de propósito: errar pra mais só
+ * inclui um pedaço do nome na faixa (inofensivo — o alfabeto restrito
+ * descarta letras), errar pra menos corta o preço fora.
+ */
+const PRICE_BAND_FRACTION = 0.45;
+
+/**
+ * Lê o preço na faixa inferior de UM cartão. `null` = não achou nada
+ * plausível — o chamador mantém o produto como estava (sem preço), nunca
+ * inventa valor.
+ */
+async function ocrPriceFromBand(
+  canvas: HTMLCanvasElement,
+  viewport: PdfjsViewport,
+  scale: number,
+  block: Pick<GridBlock, "yTop" | "yBottom" | "xMin" | "xMax">
+): Promise<number | null> {
+  const pageHeightPdf = viewport.height / scale;
+  const toPixelY = (yPdf: number) => (pageHeightPdf - yPdf) * scale;
+
+  const top = Math.max(0, Math.round(toPixelY(block.yTop)));
+  const bottom = Math.min(canvas.height, Math.round(toPixelY(block.yBottom)));
+  const height = bottom - top;
+  if (height < 8) return null; // cartão degenerado — não vale acordar o worker
+
+  const bandHeight = Math.max(8, Math.round(height * PRICE_BAND_FRACTION));
+  const bandTop = Math.max(0, bottom - bandHeight);
+
+  const left = Math.max(0, Math.round(block.xMin * scale));
+  const right = Math.min(canvas.width, Math.round(block.xMax * scale));
+  const width = right - left;
+  if (width < 8) return null;
+
+  const worker = await getTesseractPriceWorker();
+  const { data } = await worker.recognize(canvas, {
+    rectangle: { left, top: bandTop, width, height: bandHeight },
+  });
+
+  const text =
+    data.text ??
+    (data.lines ?? []).map((line) => (line.words ?? []).map((w) => w.text).join(" ")).join(" ");
+  if (!text?.trim()) return null;
+
+  // Vários números na faixa (ex: "12x R$ 9,90" ou preço riscado + preço
+  // novo): fica com o MAIOR. Preço promocional aparece junto do "de/por",
+  // e o valor cheio é o que serve de âncora de custo — subestimar o custo
+  // produziria margem fantasiosa, que é exatamente o erro que o resto do
+  // pipeline tenta evitar (ver priceSanity.ts).
+  let best: number | null = null;
+  for (const match of text.matchAll(PRICE_PATTERN_GLOBAL)) {
+    const value = parseCurrency(extractPriceGroup(match));
+    if (value == null || !Number.isFinite(value) || value <= 0) continue;
+    // Teto de sanidade: OCR de banner às vezes emenda dois números
+    // ("1290" + "990" = "1290990"). Catálogo de distribuidor não tem item
+    // de R$ 1 milhão.
+    if (value > 1_000_000) continue;
+    if (best == null || value > best) best = value;
+  }
+  return best;
 }
 
 /**
@@ -1688,14 +1804,48 @@ export async function parsePdfCatalogFile(
         // pro Tesseract, mas não pra um modelo de visão. UMA chamada por
         // PÁGINA (não por produto) — reaproveita o canvas já renderizado
         // pro próprio OCR, sem custo de renderização extra.
-        if (pageUsedOcr && grid.priceless.length > 0 && options?.geminiApiKey && !geminiQuotaExhausted) {
+        // 2ª passada de OCR na faixa do preço (auditoria item 18) — de
+        // graça e sem chave, roda ANTES da correção via Gemini e reduz o
+        // número de cartões que precisam dela. Ver ocrPriceFromBand.
+        let remainingPriceless = grid.priceless;
+        if (pageUsedOcr && grid.priceless.length > 0) {
+          const stillPriceless: typeof grid.priceless = [];
+          const { canvas: c, viewport: v } = await ensureCanvas();
+          for (const p of grid.priceless) {
+            try {
+              const price = await ocrPriceFromBand(c!, v!, IMAGE_RENDER_SCALE, p);
+              if (price == null) {
+                stillPriceless.push(p);
+                continue;
+              }
+              gridBlocks.push({
+                sku: p.sku,
+                name: p.name,
+                supplierPrice: price,
+                yTop: p.yTop,
+                yBottom: p.yBottom,
+                xMin: p.xMin,
+                xMax: p.xMax,
+              });
+              gridSkippedAmbiguous--;
+            } catch (err) {
+              // Falha isolada não derruba a página — o cartão só segue
+              // sem preço, exatamente como seguia antes desta passada.
+              console.warn(`2ª passada de OCR falhou no preço de "${p.sku}" (página ${pageNum}):`, err);
+              stillPriceless.push(p);
+            }
+          }
+          remainingPriceless = stillPriceless;
+        }
+
+        if (pageUsedOcr && remainingPriceless.length > 0 && options?.geminiApiKey && !geminiQuotaExhausted) {
           try {
             const { canvas: c } = await ensureCanvas();
             const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
             const geminiProducts = await extractCatalogPageWithGemini(pageDataUrl, options.geminiApiKey);
             const bySku = new Map(geminiProducts.map((p) => [normalizeSkuForMatch(p.sku), p]));
 
-            for (const p of grid.priceless) {
+            for (const p of remainingPriceless) {
               const match = bySku.get(normalizeSkuForMatch(p.sku));
               if (!match) continue; // Gemini não achou esse SKU na página — mantém como ambíguo, sem palpite
 
@@ -1974,6 +2124,14 @@ export async function parsePdfCatalogFile(
     if (tesseractWorkerPromise) {
       const promise = tesseractWorkerPromise;
       tesseractWorkerPromise = null;
+      void promise.then((w) => w.terminate()).catch(() => {});
+    }
+    // Mesmo tratamento pro worker da 2ª passada (faixa do preço, ver
+    // getTesseractPriceWorker) — só existe se algum cartão ficou sem
+    // preço legível neste catálogo.
+    if (tesseractPriceWorkerPromise) {
+      const promise = tesseractPriceWorkerPromise;
+      tesseractPriceWorkerPromise = null;
       void promise.then((w) => w.terminate()).catch(() => {});
     }
   }

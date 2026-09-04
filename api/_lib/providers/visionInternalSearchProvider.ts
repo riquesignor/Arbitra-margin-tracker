@@ -4,8 +4,11 @@ import * as gemini from "../geminiVision.js";
 import * as mistral from "../mistralVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers } from "./internalSearchProvider.js";
-import type { ScrapedOffer } from "./internalSearchProvider.js";
-import { fetchGoogleShoppingCandidatesForQuery } from "./scraperApiSearchProvider.js";
+import type { ScrapedOffer, StoreOffers } from "./internalSearchProvider.js";
+import {
+  fetchAmazonCandidatesForQuery,
+  fetchGoogleShoppingCandidatesForQuery,
+} from "./scraperApiSearchProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -26,6 +29,66 @@ import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
  * mensagens de erro/warning pro usuário saber qual das duas chaves
  * (Conta → Gemini/Mistral) está em jogo.
  */
+/**
+ * FONTE DE CANDIDATOS COM REDE DE SEGURANÇA (set/2026)
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * A raspagem de HTML (`fetchStoreOffers`) continua sendo a fonte
+ * PRIMÁRIA: é gratuita, traz link, foto no tamanho do card e o sinal de
+ * popularidade da loja. Mas ela tem dois modos de falha silenciosa —
+ * bloqueio anti-bot (403) e mudança de layout (parser devolve 0 ofertas,
+ * ver o warning "0 ofertas" em internalSearchProvider.ts) — e nos dois o
+ * item voltava sem preço nenhum.
+ *
+ * Quando isso acontece COM A AMAZON, existe agora uma segunda fonte com
+ * os mesmos campos: o endpoint estruturado da ScraperAPI
+ * (`fetchAmazonCandidatesForQuery`). Ela custa 5 créditos por consulta,
+ * por isso é FALLBACK e não substituição — só dispara quando a raspagem
+ * não trouxe nada, ou seja, exatamente quando a alternativa seria não
+ * ter resultado.
+ *
+ * Mercado Livre não tem equivalente: não existe endpoint estruturado
+ * nativo pra ele na ScraperAPI, e usar Google Shopping filtrado por
+ * origem custaria o link do anúncio e o número de vendas — caro demais
+ * pra pagar sempre (ver a análise em docs/auditoria-2026-09.md).
+ */
+export async function fetchCandidateOffers(
+  query: string,
+  matchers: MarketplaceMatcher[]
+): Promise<StoreOffers[]> {
+  let stores: StoreOffers[] = [];
+  let scrapeError: unknown = null;
+
+  try {
+    stores = await fetchStoreOffers(query, matchers);
+  } catch (err) {
+    // Todas as lojas falharam (fetchStoreOffers só lança nesse caso) —
+    // guarda o erro e ainda tenta a fonte estruturada antes de desistir.
+    scrapeError = err;
+  }
+
+  if (matchers.some((m) => m.marketplace === "amazon")) {
+    const scraped = stores.find((s) => s.marketplace === "amazon");
+    if (!scraped || scraped.offers.length === 0) {
+      const structured = await fetchAmazonCandidatesForQuery(query);
+      if (structured.length > 0) {
+        console.warn(
+          `[motor-interno+IA] Amazon sem oferta pela raspagem pra "${query}" — ` +
+            `usando o endpoint estruturado (${structured.length} candidato(s)).`
+        );
+        // `AmazonStructuredCandidate` tem exatamente os campos de
+        // `ScrapedOffer` — é o que permite trocar a fonte sem tocar em
+        // ranqueamento nem em comparação visual.
+        if (scraped) scraped.offers = structured;
+        else stores.push({ marketplace: "amazon", label: "Amazon", offers: structured });
+      }
+    }
+  }
+
+  if (stores.length === 0 && scrapeError) throw scrapeError;
+  return stores;
+}
+
 export interface VisionBackend {
   label: string;
   describeProductImage(imageUrl: string, apiKey: string): Promise<string>;
@@ -418,7 +481,7 @@ export async function searchVisionInternalShared(
       ): Promise<
         { marketplace: MarketplaceId; label: string; offersCount: number; best: VisualMatch<ScrapedOffer> | null }[]
       > => {
-        const storeOffers = await fetchStoreOffers(q, focusedMatchers);
+        const storeOffers = await fetchCandidateOffers(q, focusedMatchers);
         const attempts: {
           marketplace: MarketplaceId;
           label: string;
@@ -538,6 +601,11 @@ export async function searchVisionInternalShared(
           imageUrl: attempt.best.candidate.thumbnail,
           approximate: attempt.best.score < APPROXIMATE_BELOW_SCORE,
           matchedSource: attempt.label,
+          // Popularidade do anúncio escolhido — já vinha do parser da
+          // loja (ScrapedOffer) e já pesava no desempate; agora também
+          // viaja até a tela (ver reviewCount em types.ts).
+          reviewCount: attempt.best.candidate.reviewCount,
+          rating: attempt.best.candidate.rating,
         };
       }
 

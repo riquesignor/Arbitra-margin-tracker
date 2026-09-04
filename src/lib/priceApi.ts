@@ -34,7 +34,29 @@ export interface FetchPricesResult {
    * (Dashboard.tsx) só precisa olhar um deles.
    */
   warning?: string;
+  /**
+   * Por que CADA produto voltou sem preço (`_reasons`, ver
+   * api/_lib/searchMissReasons.ts, set/2026) — mapa SKU → razão. Antes
+   * disso a explicação existia só no nível do lote e o produto sumia da
+   * tela sem rastro. Repetido em todos os marketplaces do retorno (é um
+   * diagnóstico global da requisição, igual `warning`).
+   */
+  reasons?: Record<string, MissReason>;
 }
+
+/** Ver api/_lib/searchMissReasons.ts — mantido em sincronia com o servidor. */
+export type MissReason = "sem_foto" | "cota_ia" | "sem_candidato";
+
+/**
+ * Texto de cada razão na tela. Duplicado do servidor de propósito: o
+ * bundle do cliente não importa de `api/` (contextos de build diferentes),
+ * e é a mesma escolha já feita pros outros rótulos espelhados.
+ */
+export const MISS_REASON_LABEL: Record<MissReason, string> = {
+  sem_foto: "sem foto no catálogo (o mecanismo escolhido busca por imagem)",
+  cota_ia: "a cota de IA esgotou antes de chegar neles",
+  sem_candidato: "nenhum anúncio parecido encontrado",
+};
 
 function emptyResult(marketplaces: MarketplaceId[]): Record<MarketplaceId, FetchPricesResult> {
   return Object.fromEntries(
@@ -143,6 +165,7 @@ export async function fetchMultipleMarketplacePrices(
   const body = (await response.json()) as Record<string, Record<string, MarketplacePriceResult>> & {
     _warning?: string;
     _usage?: { used: number; limit: number };
+    _reasons?: Record<string, MissReason>;
   };
   const out = {} as Record<MarketplaceId, FetchPricesResult>;
   for (const marketplace of marketplaces) {
@@ -151,6 +174,7 @@ export async function fetchMultipleMarketplacePrices(
       source: "server",
       warning: body._warning,
       usage: body._usage,
+      reasons: body._reasons,
     };
   }
   return out;

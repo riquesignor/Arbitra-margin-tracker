@@ -207,6 +207,8 @@ export async function searchGoogleShoppingShared(
           imageUrl: ranked.candidate.thumbnail,
           approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
           matchedSource: ranked.candidate.source,
+          reviewCount: ranked.candidate.reviews,
+          rating: ranked.candidate.rating,
         };
       }
 
@@ -239,6 +241,8 @@ export async function searchGoogleShoppingShared(
             imageUrl: ranked.candidate.thumbnail,
             approximate: true,
             matchedSource: ranked.candidate.source,
+            reviewCount: ranked.candidate.reviews,
+            rating: ranked.candidate.rating,
           };
         }
       }

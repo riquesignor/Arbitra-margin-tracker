@@ -179,6 +179,10 @@ export interface MarketplacePriceResult {
   priceSanityFlag?: "abaixo_do_custo" | "muito_acima_do_custo";
   /** Ver mesmo campo em api/_lib/types.ts — o que decidiu o match (foto x nome). */
   confidenceSource?: "visual" | "texto";
+  /** Ver mesmo campo em api/_lib/types.ts — avaliações (Amazon) ou vendas (ML) do anúncio encontrado. */
+  reviewCount?: number;
+  /** Ver mesmo campo em api/_lib/types.ts — nota média (0-5) do anúncio encontrado. */
+  rating?: number;
 }
 
 export interface MarketplaceFee {
@@ -276,6 +280,16 @@ export interface MarginResult {
    */
   competitorCount: number;
   buyBoxEligible: boolean;
+  /**
+   * Popularidade do anúncio (avaliações na Amazon, vendas no ML) —
+   * copiada de MarketplacePriceResult em calculateMargin(). Vira o badge
+   * de popularidade na tela de Resultados: um preço vindo de anúncio com
+   * milhares de vendas é referência de mercado muito mais forte do que o
+   * mesmo preço vindo de um anúncio sem histórico.
+   */
+  reviewCount?: number;
+  /** Nota média (0-5) do anúncio — ver `reviewCount`. */
+  rating?: number;
 }
 
 export interface MarginSummary {

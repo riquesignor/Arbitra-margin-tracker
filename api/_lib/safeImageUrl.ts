@@ -40,6 +40,47 @@
 
 export class UnsafeImageUrlError extends Error {}
 
+/**
+ * Marcador interno (set/2026): a loja respondeu, mas RECUSOU o download
+ * (403/429/503 — bloqueio de bot, não erro de URL). Existe pra separar
+ * "essa imagem não existe" de "essa imagem existe e a loja não deixou o
+ * servidor pegar", que é o caso em que vale repetir via proxy. Nunca sai
+ * daqui: o erro que chega em quem chama continua sendo genérico, pra não
+ * virar oráculo de varredura (ver cabeçalho).
+ */
+class ImageDownloadBlockedError extends UnsafeImageUrlError {
+  constructor(readonly status: number) {
+    super("Não consegui baixar a imagem.");
+  }
+}
+
+/**
+ * Status que indicam BLOQUEIO (a loja viu a requisição e recusou), não
+ * ausência do recurso. 404/410 ficam de fora de propósito: repetir por
+ * proxy uma imagem que não existe só queima crédito.
+ */
+const BLOCKED_STATUSES = new Set([401, 403, 405, 429, 503]);
+
+/**
+ * Repete o download por trás da ScraperAPI quando a loja bloqueou o IP da
+ * function (set/2026). O vetor era invisível: a foto do anúncio ia direto
+ * pro `fetch()`, e quando a Amazon/ML recusava, o candidato ficava sem
+ * comparação visual e sumia em silêncio — o sintoma chegava ao usuário
+ * como "a IA não confirmou nada", sem nada no log dizendo que o problema
+ * tinha sido o download da imagem, não o modelo.
+ *
+ * Só entra como SEGUNDA tentativa: o caminho direto é gratuito e resolve
+ * a maioria dos casos; cada passagem por aqui custa um crédito.
+ */
+function scraperApiImageUrl(target: string): string | null {
+  const key = process.env.SCRAPERAPI_KEY;
+  if (!key) return null;
+  const proxied = new URL("https://api.scraperapi.com/");
+  proxied.searchParams.set("api_key", key);
+  proxied.searchParams.set("url", target);
+  return proxied.toString();
+}
+
 /** Teto do download de UMA imagem. Foto de catálogo real sai em ~100-300KB (ver compressForUpload, teto de 700KB antes do base64); thumbnail de marketplace é menor ainda. 8MB é folga de sobra pro caso legítimo e ainda impede um stream sem fim. */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
@@ -144,9 +185,60 @@ export function isSafeCatalogImageUrl(rawUrl: unknown): boolean {
  *
  * Erros são propositalmente genéricos: não ecoam a URL nem o status HTTP
  * recebido do alvo — era exatamente isso que transformava a falha num
- * oráculo de varredura.
+ * oráculo de varredura. O detalhe (host + status) vai só pro log do
+ * servidor, ver `downloadImage`.
+ *
+ * Quando a loja BLOQUEIA (403/429/503, ver BLOCKED_STATUSES), repete uma
+ * vez via ScraperAPI — ver `scraperApiImageUrl`.
  */
 export async function fetchImageWithLimit(
+  rawUrl: string,
+  signal: AbortSignal
+): Promise<{ buffer: Buffer; mimeType: string }> {
+  const url = assertFetchableImageUrl(rawUrl);
+
+  try {
+    return await downloadImage(rawUrl, signal);
+  } catch (err) {
+    if (!(err instanceof ImageDownloadBlockedError)) throw err;
+
+    // Foto do próprio app (rota /api/catalog-image) nunca é bloqueada por
+    // anti-bot — se ela falhou, o problema é outro, e mandar a URL do
+    // nosso storage pra um terceiro não resolveria nada.
+    if (url.pathname === CATALOG_IMAGE_PATH) throw err;
+
+    const proxied = scraperApiImageUrl(rawUrl);
+    if (!proxied) {
+      console.warn(
+        `[imagem] ${url.hostname} recusou o download (HTTP ${err.status}) e não há SCRAPERAPI_KEY pra repetir por proxy.`
+      );
+      throw err;
+    }
+
+    console.warn(`[imagem] ${url.hostname} recusou o download (HTTP ${err.status}) — repetindo via ScraperAPI.`);
+    try {
+      return await downloadImage(proxied, signal);
+    } catch (proxyErr) {
+      const detail =
+        proxyErr instanceof ImageDownloadBlockedError
+          ? `HTTP ${proxyErr.status}`
+          : proxyErr instanceof Error
+            ? proxyErr.message
+            : String(proxyErr);
+      console.warn(`[imagem] ScraperAPI também não trouxe a imagem de ${url.hostname}: ${detail}`);
+      // Erro genérico e ORIGINAL (não o do proxy): quem chama só precisa
+      // saber que a imagem não veio.
+      throw err;
+    }
+  }
+}
+
+/**
+ * Uma tentativa de download, com todas as guardas. Separada de
+ * `fetchImageWithLimit` só pra permitir a 2ª tentativa por proxy sem
+ * duplicar validação/teto de bytes.
+ */
+async function downloadImage(
   rawUrl: string,
   signal: AbortSignal
 ): Promise<{ buffer: Buffer; mimeType: string }> {
@@ -155,6 +247,20 @@ export async function fetchImageWithLimit(
   const response = await fetch(rawUrl, { signal });
 
   if (!response.ok) {
+    // Instrumentação (set/2026): o status e o HOST ficam no log do
+    // servidor — a mensagem que sobe pro chamador continua sem eles. Sem
+    // isso não havia como saber se a comparação visual falhava por
+    // bloqueio de loja, imagem removida ou erro de rede.
+    let hostname = "desconhecido";
+    try {
+      hostname = new URL(rawUrl).hostname;
+    } catch {
+      /* URL já validada acima; guarda só por segurança */
+    }
+    if (BLOCKED_STATUSES.has(response.status)) {
+      throw new ImageDownloadBlockedError(response.status);
+    }
+    console.warn(`[imagem] download de ${hostname} falhou com HTTP ${response.status}.`);
     throw new UnsafeImageUrlError("Não consegui baixar a imagem.");
   }
 

@@ -148,6 +148,81 @@ export async function fetchGoogleShoppingCandidatesForQuery(query: string): Prom
 }
 
 /**
+ * Candidato da Amazon vindo do endpoint ESTRUTURADO (set/2026). Tem tudo
+ * que a raspagem de HTML tem — título, preço, link, foto — e mais
+ * `reviewCount`/`rating` nativos, com a vantagem de não quebrar quando a
+ * Amazon muda o layout da página nem levar 403 de anti-bot.
+ *
+ * Mesmo formato de campo do `ScrapedOffer` (internalSearchProvider.ts) de
+ * propósito: é o que permite trocar a fonte de candidatos do motor
+ * interno sem tocar em nada do ranqueamento nem da comparação visual.
+ */
+export interface AmazonStructuredCandidate {
+  title: string;
+  price: number;
+  link?: string;
+  thumbnail?: string;
+  reviewCount?: number;
+  rating?: number;
+}
+
+/**
+ * Candidatos NATIVOS da Amazon pra uma consulta (set/2026) — irmã da
+ * `fetchGoogleShoppingCandidatesForQuery` acima, extraída da chamada que
+ * já existia embutida em `searchScraperApiShared` pra poder ser usada
+ * fora do mecanismo "scraperapi".
+ *
+ * Motivo de existir: o motor interno + IA busca candidato raspando o HTML
+ * da página de busca da Amazon (`fetchStoreOffers`), e essa raspagem é o
+ * ponto que leva bloqueio e que quebra quando o layout muda. Esta função
+ * é a fonte alternativa — mesmo dado, sem HTML no meio.
+ *
+ * Custa 5 créditos por chamada (ver tabela de custo no bloco abaixo).
+ * Devolve `[]` (não lança) quando não há chave ou a chamada falha: quem
+ * chama decide se cai pra raspagem.
+ */
+export async function fetchAmazonCandidatesForQuery(query: string): Promise<AmazonStructuredCandidate[]> {
+  const apiKey = SCRAPERAPI_KEY;
+  if (!apiKey) return [];
+
+  try {
+    const url = new URL(AMAZON_SEARCH_ENDPOINT);
+    url.searchParams.set("api_key", apiKey);
+    url.searchParams.set("query", query);
+    url.searchParams.set("tld", "com.br");
+    url.searchParams.set("country_code", "br");
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      console.warn(`ScraperAPI (Amazon Search, candidatos) "${query}" retornou ${response.status}`);
+      return [];
+    }
+    const data = (await response.json()) as AmazonSearchResponse;
+    if (data.error) {
+      console.warn(`ScraperAPI (Amazon Search, candidatos) "${query}": ${data.error}`);
+      return [];
+    }
+
+    return (data.results ?? [])
+      .filter((r): r is AmazonSearchResult & { price: number } => r.price != null)
+      .map((r) => ({
+        title: r.name,
+        price: r.price,
+        // `url` normalmente vem, mas a doc não garante — cai pro link
+        // direto por ASIN, mesmo fallback já usado em
+        // rapidApiAmazonProvider.ts, pra não perder o "Ver anúncio".
+        link: r.url ?? (r.asin ? `https://www.amazon.com.br/dp/${r.asin}` : undefined),
+        thumbnail: r.image,
+        reviewCount: r.total_reviews,
+        rating: r.stars,
+      }));
+  } catch (err) {
+    console.warn(`ScraperAPI (Amazon Search, candidatos) falhou pra "${query}":`, err);
+    return [];
+  }
+}
+
+/**
  * Terceiro mecanismo do teste A/B (ago/2026) — ScraperAPI ISOLADA como
  * mecanismo de BUSCA de verdade, não só transporte. Diferente do uso já
  * existente em internalSearchProvider.ts (proxy de HTML cru, o motor
@@ -349,6 +424,12 @@ export async function searchScraperApiShared(
           imageUrl: ranked.candidate.thumbnail,
           approximate: ranked.similarity < APPROXIMATE_BELOW_SIMILARITY,
           matchedSource: ranked.candidate.source,
+          // Só a fonte nativa da Amazon traz esses dois (o Google
+          // Shopping estruturado não devolve avaliação de forma
+          // confiável) — ficam `undefined` no resto, e a UI simplesmente
+          // não mostra o badge. Ver reviewCount em types.ts.
+          reviewCount: ranked.candidate.reviews,
+          rating: ranked.candidate.rating,
         };
       }
 
@@ -376,6 +457,8 @@ export async function searchScraperApiShared(
             imageUrl: ranked.candidate.thumbnail,
             approximate: true,
             matchedSource: ranked.candidate.source,
+            reviewCount: ranked.candidate.reviews,
+            rating: ranked.candidate.rating,
           };
         }
       }

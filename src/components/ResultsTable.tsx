@@ -21,6 +21,9 @@ import {
   Users,
   Crown,
   AlertTriangle,
+  Flame,
+  Star,
+  X,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -55,15 +58,33 @@ function formatHistoryLabel(record: CatalogUploadRecord): string {
 }
 
 /**
- * Thumbnail do produto — só existe quando a busca rodou em modo imagem
- * (Google Lens, ver imageUrl em CatalogRow/MarginResult). Cai pro ícone
- * genérico tanto na ausência do campo (busca por texto, nunca teve
- * foto) quanto no load da imagem falhando (documento expirado em
- * `catalog_images`, ver TTL em catalogImages.ts) — as duas situações são
- * o esperado, não um erro pra reportar ao usuário.
+ * Thumbnail do produto — prioriza a foto do ANÚNCIO encontrado e cai pra
+ * foto do catálogo (ver imageUrl em MarketplacePriceResult/CatalogRow).
+ * Cai pro ícone genérico tanto na ausência do campo (busca por texto,
+ * nunca teve foto) quanto no load da imagem falhando (documento expirado
+ * em `catalog_images`, ver TTL em catalogImages.ts) — as duas situações
+ * são o esperado, não um erro pra reportar ao usuário.
+ *
+ * Clicar amplia (set/2026): quando o resultado vem sem link do anúncio —
+ * caso de fontes agregadas — conferir a foto é a única verificação manual
+ * que sobra. A imagem é a MESMA que a IA usou pra decidir o match, então
+ * ampliar mostra exatamente o dado em que a decisão se baseou. Resolução
+ * é a da miniatura do marketplace: ampliar não cria detalhe, mas resolve
+ * erro grosseiro (cor, modelo, kit x unidade).
  */
-export function ProductThumb({ src }: { src?: string }) {
+export function ProductThumb({ src, label }: { src?: string; label?: string }) {
   const [failed, setFailed] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+
+  useEffect(() => {
+    if (!zoomed) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setZoomed(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomed]);
+
   if (!src || failed) {
     return (
       <span className={styles.photoPlaceholder} title="Sem foto disponível">
@@ -71,14 +92,49 @@ export function ProductThumb({ src }: { src?: string }) {
       </span>
     );
   }
+
   return (
-    <img
-      className={styles.photoImg}
-      src={src}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <button
+        type="button"
+        className={styles.photoButton}
+        onClick={() => setZoomed(true)}
+        title="Ampliar a foto do anúncio"
+        aria-label="Ampliar a foto do anúncio"
+      >
+        <img
+          className={styles.photoImg}
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      </button>
+      {zoomed && (
+        <div
+          className={styles.lightboxOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Foto ampliada do anúncio"
+          onClick={() => setZoomed(false)}
+        >
+          <div className={styles.lightboxBox} onClick={(e) => e.stopPropagation()}>
+            <img className={styles.lightboxImg} src={src} alt={label ?? ""} />
+            {label && <p className={styles.lightboxCaption}>{label}</p>}
+            <p className={styles.lightboxHint}>
+              Miniatura do marketplace — é a mesma imagem usada na comparação automática.
+            </p>
+            <button
+              type="button"
+              className={styles.lightboxClose}
+              onClick={() => setZoomed(false)}
+            >
+              <X size={13} /> Fechar
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -90,6 +146,55 @@ export function ProductThumb({ src }: { src?: string }) {
  * pra não precisar mexer nos 3 modos de visualização (flat/lado-a-lado/
  * agrupado) em mais lugares do que o necessário.
  */
+/**
+ * Popularidade do anúncio de onde o preço saiu (set/2026) — avaliações na
+ * Amazon, vendas no Mercado Livre. O dado já era extraído e já pesava no
+ * desempate entre candidatos (`popularityScore` em rankCandidates.ts),
+ * mas nunca chegava à tela: o usuário via um preço sem saber se ele vem
+ * de um anúncio que vende de verdade ou de um anúncio parado com preço
+ * inventado. Ganha importância quando a fonte não devolve link (aí a
+ * popularidade e a foto são a única conferência possível).
+ *
+ * O campo é o mesmo (`reviewCount`) pros dois casos porque o sinal é o
+ * mesmo — "quanta gente passou por esse anúncio" —; só o rótulo muda por
+ * marketplace, senão a tela mentiria dizendo "avaliações" pra um número
+ * que no ML é venda.
+ */
+export function PopularityBadge({
+  reviewCount,
+  rating,
+  marketplace,
+}: {
+  reviewCount?: number;
+  rating?: number;
+  marketplace: MarketplaceId;
+}) {
+  if ((reviewCount == null || reviewCount <= 0) && rating == null) return null;
+
+  const isSales = marketplace === "mercadolivre";
+  const noun = isSales ? "vendas" : "avaliações";
+  const parts: string[] = [];
+  if (reviewCount != null && reviewCount > 0) parts.push(`${reviewCount.toLocaleString("pt-BR")} ${noun}`);
+  if (rating != null) parts.push(`nota ${rating.toFixed(1).replace(".", ",")} de 5`);
+
+  return (
+    <span
+      className={styles.popularityBadge}
+      title={`Anúncio com ${parts.join(" · ")} — sinal de que o preço vem de oferta com procura real, não de anúncio parado.`}
+    >
+      {isSales ? <Flame size={10} /> : <Star size={10} />}
+      {reviewCount != null && reviewCount > 0 ? formatCompactCount(reviewCount) : rating?.toFixed(1).replace(".", ",")}
+    </span>
+  );
+}
+
+/** "1.2 mil" em vez de "1.240" — a coluna Status é estreita e o número exato já está no title do badge. */
+function formatCompactCount(count: number): string {
+  if (count < 1000) return String(count);
+  const thousands = count / 1000;
+  return `${thousands.toFixed(thousands < 10 ? 1 : 0).replace(".", ",")} mil`;
+}
+
 export function CompetitionBadge({
   competitorCount,
   buyBoxEligible,
@@ -459,6 +564,11 @@ export default function ResultsTable({
       Recomendação: BADGE_LABEL[r.recommendation],
       Concorrentes: r.competitorCount,
       "Elegível Buy Box": r.buyBoxEligible ? "Sim" : "Não",
+      // Popularidade do anúncio de origem — no ML o número é VENDAS, na
+      // Amazon é AVALIAÇÕES (ver PopularityBadge); o cabeçalho diz os
+      // dois pra planilha não induzir a leitura errada fora do app.
+      "Vendas/avaliações do anúncio": r.reviewCount ?? "",
+      "Nota do anúncio": r.rating != null ? r.rating.toFixed(1) : "",
       // Match aproximado precisa sobreviver à exportação — quem analisa
       // a planilha fora do app não pode confundir chute com match real.
       Aproximado: r.approximate ? "Sim" : "Não",
@@ -674,7 +784,7 @@ export default function ResultsTable({
                     }}
                   >
                     <td className={styles.photoCell}>
-                      <ProductThumb src={r.imageUrl} />
+                      <ProductThumb src={r.imageUrl} label={r.matchedTitle ?? r.name} />
                     </td>
                     <td>{r.sku}</td>
                     <td className={styles.productCell}>
@@ -722,6 +832,11 @@ export default function ResultsTable({
                         competitorCount={r.competitorCount}
                         buyBoxEligible={r.buyBoxEligible}
                       />
+                      <PopularityBadge
+                        reviewCount={r.reviewCount}
+                        rating={r.rating}
+                        marketplace={r.marketplace}
+                      />
                     </td>
                   </motion.tr>
                 ))}
@@ -757,7 +872,7 @@ export default function ResultsTable({
                   return (
                     <motion.tr key={best.sku} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
                       <td className={styles.photoCell}>
-                        <ProductThumb src={best.imageUrl} />
+                        <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                       </td>
                       <td>{best.sku}</td>
                       <td className={styles.productCell}>
@@ -822,6 +937,11 @@ export default function ResultsTable({
                           competitorCount={best.competitorCount}
                           buyBoxEligible={best.buyBoxEligible}
                         />
+                        <PopularityBadge
+                          reviewCount={best.reviewCount}
+                          rating={best.rating}
+                          marketplace={best.marketplace}
+                        />
                       </td>
                     </motion.tr>
                   );
@@ -856,7 +976,7 @@ export default function ResultsTable({
                     <Fragment key={best.sku}>
                       <motion.tr initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
                         <td className={styles.photoCell}>
-                          <ProductThumb src={best.imageUrl} />
+                          <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                         </td>
                         <td>{best.sku}</td>
                         <td className={styles.productCell}>
@@ -911,6 +1031,11 @@ export default function ResultsTable({
                             competitorCount={best.competitorCount}
                             buyBoxEligible={best.buyBoxEligible}
                           />
+                          <PopularityBadge
+                            reviewCount={best.reviewCount}
+                            rating={best.rating}
+                            marketplace={best.marketplace}
+                          />
                         </td>
                       </motion.tr>
                       {isExpanded &&
@@ -951,6 +1076,11 @@ export default function ResultsTable({
                               <CompetitionBadge
                                 competitorCount={r.competitorCount}
                                 buyBoxEligible={r.buyBoxEligible}
+                              />
+                              <PopularityBadge
+                                reviewCount={r.reviewCount}
+                                rating={r.rating}
+                                marketplace={r.marketplace}
                               />
                             </td>
                           </tr>

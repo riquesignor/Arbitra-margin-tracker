@@ -99,6 +99,12 @@ export function calculateMargin(
     // ../types: a coluna "Confiança" mostra o mesmo número pros dois
     // casos, e eles não significam a mesma coisa.
     confidenceSource: priceResult.confidenceSource,
+    // Popularidade do anúncio de onde o preço saiu (avaliações na Amazon,
+    // vendas no ML) — ver reviewCount em ../types. Um preço vindo de
+    // anúncio com histórico de venda é referência de mercado; o mesmo
+    // preço num anúncio parado pode ser só um vendedor pedindo o que quer.
+    reviewCount: priceResult.reviewCount,
+    rating: priceResult.rating,
   };
 
   // Catálogo sem preço de custo (ver CatalogRow.supplierPrice, catálogo
