@@ -21,6 +21,16 @@ export interface UserProfile {
   hasSerpApiKey?: boolean;
   /** Mesmo padrão de `hasSerpApiKey` acima, pra chave RapidAPI (Amazon direto). */
   hasRapidApiKey?: boolean;
+  /**
+   * Campos de billing (Mercado Pago, ver api/billing-create-subscription.ts
+   * e api/billing-webhook.ts) — SÓ LEITURA no client. Quem escreve é
+   * sempre o servidor via Admin SDK (ignora firestore.rules); a regra do
+   * dono (`allow update`) nem lista esses campos no `hasOnly`, então uma
+   * tentativa de setDoc client-side aqui seria recusada de qualquer jeito.
+   */
+  mpPreapprovalId?: string;
+  mpSubscriptionStatus?: string;
+  mpSubscriptionUpdatedAt?: number;
 }
 
 function fallbackProfile(uid: string, email: string | null): UserProfile {
@@ -53,6 +63,9 @@ export async function ensureUserProfile(uid: string, email: string | null): Prom
         createdAt: data.createdAt ?? Date.now(),
         hasSerpApiKey: data.hasSerpApiKey ?? false,
         hasRapidApiKey: data.hasRapidApiKey ?? false,
+        mpPreapprovalId: data.mpPreapprovalId,
+        mpSubscriptionStatus: data.mpSubscriptionStatus,
+        mpSubscriptionUpdatedAt: data.mpSubscriptionUpdatedAt,
       };
     }
 

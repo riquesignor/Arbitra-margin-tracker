@@ -55,7 +55,13 @@ service cloud.firestore {
       // Dono atualiza SÓ as flags de chave cadastrada (escritas no mesmo
       // writeBatch de saveUser*ApiKey — ver userSecrets.ts). Qualquer
       // update que toque em isAdmin/plan/createdAt/email é recusado aqui
-      // e só passa pela regra de admin logo abaixo.
+      // e só passa pela regra de admin logo abaixo. Isso também cobre,
+      // de propósito, os campos de billing do Mercado Pago
+      // (`mpPreapprovalId`/`mpSubscriptionStatus`/`mpSubscriptionUpdatedAt`,
+      // ver api/billing-create-subscription.ts e api/billing-webhook.ts):
+      // não estão no `hasOnly` acima, então o client nunca consegue
+      // gravá-los direto — só o Admin SDK (que ignora esta regra) escreve,
+      // depois de confirmar o status na própria API do Mercado Pago.
       allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'hasSerpApiKey', 'hasRapidApiKey', 'hasSearchApiKey',

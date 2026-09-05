@@ -13,6 +13,7 @@ import type { AuthUser } from "../lib/auth";
 import { changeEmail, changePassword, deleteAccount, signOutUser } from "../lib/auth";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
+import { createSubscriptionCheckout } from "../lib/billingApi";
 import type {
   AccentPalette,
   FontSizePreset,
@@ -154,7 +155,13 @@ export default function Settings({ preferences, onUpdatePreferences, user, profi
           {section === "personalizacao" && (
             <PersonalizacaoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
-          {section === "pagamento" && <PagamentoSection planName={plan.name} priceLabel={plan.priceLabel} />}
+          {section === "pagamento" && (
+            <PagamentoSection
+              planName={plan.name}
+              priceLabel={plan.priceLabel}
+              subscriptionStatus={profile?.mpSubscriptionStatus}
+            />
+          )}
           {section === "conta" && <ContaSection user={user} />}
         </div>
       </div>
@@ -288,18 +295,53 @@ function PersonalizacaoSection({
   );
 }
 
-function PagamentoSection({ planName, priceLabel }: { planName: string; priceLabel: string }) {
+const SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
+  authorized: "ativa",
+  pending: "aguardando pagamento",
+  paused: "pausada",
+  cancelled: "cancelada",
+};
+
+function PagamentoSection({
+  planName,
+  priceLabel,
+  subscriptionStatus,
+}: {
+  planName: string;
+  priceLabel: string;
+  subscriptionStatus?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isActive = subscriptionStatus === "authorized";
+
+  async function handleSubscribe() {
+    setError(null);
+    setLoading(true);
+    try {
+      const { initPoint } = await createSubscriptionCheckout();
+      window.location.href = initPoint;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setLoading(false);
+    }
+  }
+
   return (
     <section className={styles.card}>
       <div className={styles.cardHeader}>
         <h2 className={styles.cardHeaderTitle}>Pagamento</h2>
-        <span className={styles.statusPillWarning}>em preparação</span>
+        {isActive ? (
+          <span className={styles.statusPillSuccess}>assinatura ativa</span>
+        ) : (
+          <span className={styles.statusPillWarning}>sem assinatura</span>
+        )}
       </div>
       <div className={styles.cardBody}>
         <p className={styles.cardIntro}>
-          Cobrança automática ainda não está ativa neste app. Hoje o plano é atribuído manualmente
-          (painel Admin) — quando a cobrança entrar em produção, esta tela passa a gerenciar cartão
-          e fatura.
+          Cobrança recorrente via Mercado Pago — checkout hospedado por eles, o Arbitra nunca vê nem
+          guarda dado de cartão. Ao assinar, você é redirecionado pra página de pagamento do Mercado
+          Pago; o plano é atualizado automaticamente assim que a assinatura for aprovada.
         </p>
         <div className={styles.infoGrid}>
           <div className={styles.infoGridRow}>
@@ -309,17 +351,17 @@ function PagamentoSection({ planName, priceLabel }: { planName: string; priceLab
             </span>
           </div>
           <div className={styles.infoGridRow}>
-            <span className={styles.infoGridLabel}>forma de pagamento</span>
-            <span className={styles.infoGridValue}>—</span>
-          </div>
-          <div className={styles.infoGridRow}>
-            <span className={styles.infoGridLabel}>próxima cobrança</span>
-            <span className={styles.infoGridValue}>—</span>
+            <span className={styles.infoGridLabel}>status da assinatura</span>
+            <span className={styles.infoGridValue}>
+              {subscriptionStatus ? SUBSCRIPTION_STATUS_LABEL[subscriptionStatus] ?? subscriptionStatus : "—"}
+            </span>
           </div>
         </div>
-        <button type="button" className={styles.primaryButton} disabled title="Ainda não disponível">
-          Gerenciar assinatura
+        <button type="button" className={styles.primaryButton} onClick={() => void handleSubscribe()} disabled={loading}>
+          {loading ? <Loader2 size={14} className="spin" /> : null}
+          {loading ? "Abrindo checkout…" : isActive ? "Gerenciar assinatura" : "Assinar agora"}
         </button>
+        {error && <p className={styles.errorText}>{error}</p>}
       </div>
     </section>
   );

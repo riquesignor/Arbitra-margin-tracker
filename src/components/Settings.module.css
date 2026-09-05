@@ -367,6 +367,20 @@
   flex-shrink: 0;
 }
 
+.statusPillSuccess {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--color-success-dim);
+  color: var(--color-success);
+  flex-shrink: 0;
+}
+
 .infoGrid {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,46 @@
+name: CI
+
+# Roda em todo push e PR — antes disso, typecheck/test dependiam 100% de
+# alguém lembrar de rodar na mão antes de subir (ver docs/auditoria-2026-09.md,
+# achado levantado na revisão pós-auditoria de set/2026). Não bloqueia
+# `firestore.rules` (esse deploy é manual, ver README/auditoria) — só
+# garante que o código client+api compila e os testes passam antes de
+# qualquer merge/deploy.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      # `npm run typecheck` roda os dois tsconfig (client + api, ver
+      # package.json) — é o gate mais barato e mais rápido de falhar.
+      - run: npm run typecheck
+
+      # `continue-on-error` de propósito (set/2026, 1ª vez que este projeto
+      # ganha lint) — ninguém rodou `npm run lint` no código existente
+      # ainda, então não dá pra saber se estoura achado real. Depois de
+      # rodar localmente e limpar o que aparecer, tirar essa linha pra
+      # virar gate de verdade.
+      - run: npm run lint
+        continue-on-error: true
+
+      - run: npm test
+
+      # Build de verdade (Vite) — pega problema de bundling que o tsc
+      # sozinho não vê (import dinâmico quebrado, asset ausente etc.).
+      # Não precisa de env vars reais (VITE_FIREBASE_*): o app já é
+      # desenhado pra navegar sem elas (ver .env.example), só login fica
+      # bloqueado — suficiente pro build compilar.
+      - run: npm run build
