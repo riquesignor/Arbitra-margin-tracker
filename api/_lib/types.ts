@@ -103,6 +103,42 @@ export type SearchProviderId =
   | "vision_mistral"
   | "scraperapi";
 
+/**
+ * Fonte de CANDIDATO pro motor interno + IA ("vision_internal"/
+ * "vision_mistral", set/2026) — eixo ORTOGONAL a qual backend de IA
+ * resolve descrição/comparação visual (Gemini/Mistral, ver VisionBackend
+ * em visionInternalSearchProvider.ts), mesma relação que este arquivo já
+ * tem entre MarketplaceId e SearchProviderId. Escolhido pelo usuário
+ * (pop-up ao selecionar um dos dois motores internos, ver Dashboard.tsx) —
+ * antes disso a escolha entre raspagem/oficial/ScraperAPI era 100%
+ * automática (a cascata abaixo), sem controle nenhum do usuário.
+ *
+ *   - "auto" (default) — cascata de sempre em `fetchCandidateOffers`
+ *     (visionInternalSearchProvider.ts): raspagem direta (via proxy
+ *     ScraperAPI quando há chave) → API oficial grátis (PA-API Amazon /
+ *     OAuth Mercado Livre) → ScraperAPI estruturado. Continua passando
+ *     pela comparação visual do backend de IA escolhido.
+ *   - "scraperapi" — pula os dois primeiros degraus (raspagem + oficial)
+ *     e vai direto pro Structured Data Endpoint da ScraperAPI, evitando de
+ *     propósito o risco de bloqueio 403 da raspagem direta. Ainda passa
+ *     pela comparação visual do backend de IA — troca só a FONTE de
+ *     candidato, não o pipeline de confirmação. Mais lento (uma chamada de
+ *     IA por candidato), mais preciso (confirmação visual de verdade).
+ *   - "serpapi" / "searchapi" — BYPASSA o pipeline de IA de visão inteiro:
+ *     delega a busca pro provider standalone já existente
+ *     (`searchGoogleShoppingShared`/`searchSearchApiLensShared`) e usa o
+ *     resultado dele direto, sem chamar Gemini/Mistral. Mais rápido (1
+ *     chamada por produto, sem loop de comparação por candidato), porém
+ *     mais parcial: "serpapi" decide por similaridade de TEXTO (não usa a
+ *     foto do catálogo pra nada); "searchapi" usa o Google Lens dele
+ *     (foto de verdade, mesma fonte que `searchapi_lens` já usa como
+ *     provider standalone). Nenhum dos dois usa o backend de IA escolhido
+ *     no seletor — a chave Gemini/Mistral continua sendo exigida mesmo
+ *     assim (trade-off aceito pra não complicar o `needsKey` estático por
+ *     provider em Dashboard.tsx com uma sub-escolha condicional).
+ */
+export type VisionCandidateSource = "auto" | "scraperapi" | "serpapi" | "searchapi";
+
 export interface CatalogItemQuery {
   sku: string;
   name: string;

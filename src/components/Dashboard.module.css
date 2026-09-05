@@ -262,6 +262,62 @@
   flex-shrink: 0;
 }
 
+/*
+ * Pop-up de seleção de fonte terceira pro motor interno + IA (set/2026,
+ * ver VisionCandidateSource e o pop-up em Dashboard.tsx > CandidateSourceModal).
+ * PRIMEIRO modal do app — nenhuma outra tela usa overlay fixo pra
+ * conteúdo interativo (o único precedente, ResultsTable.tsx > lightbox, é
+ * só visualização de imagem, sem escolha nenhuma) — mesmo padrão visual
+ * (overlay escurecido + box central + clique fora fecha), só que com
+ * conteúdo de formulário em vez de imagem.
+ */
+.candidateModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.candidateModalBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+}
+
+.candidateModalTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.candidateModalSubtitle {
+  margin: var(--space-1) 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--color-text-dim);
+}
+
+.candidateModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
 /* Sub-grupo dentro do card 01 — grade de marketplace fica embaixo da
    grade de provider quando o provider (SerpApi) cobre mais de um. */
 .subGroup {

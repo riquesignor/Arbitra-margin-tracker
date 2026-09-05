@@ -77,6 +77,23 @@ vi.mock("./mercadoLivreSearchProvider.js", () => ({
   fetchMlOfficialCandidatesForQuery: (...args: unknown[]) => fetchMlOfficialCandidatesForQuery(...args),
 }));
 
+// FAST LANE (set/2026, ver VisionCandidateSource em ../types) — os dois
+// providers standalone que "serpapi"/"searchapi" delegam pra quando o
+// usuário fixa essa fonte no pop-up de seleção (Dashboard.tsx). Mockados
+// inteiros: o que o describe "FAST LANE" abaixo testa é só o ROTEAMENTO
+// (searchVisionInternalShared chama o certo, não toca na IA de visão, e
+// carimba confidenceSource certo) — a lógica interna de cada provider já
+// tem os próprios testes (não existentes ainda pro primeiro, ver
+// searchApiLensProvider.ts sem .test.ts ao lado).
+const searchGoogleShoppingShared = vi.fn();
+vi.mock("./googleShoppingProvider.js", () => ({
+  searchGoogleShoppingShared: (...args: unknown[]) => searchGoogleShoppingShared(...args),
+}));
+const searchSearchApiLensShared = vi.fn();
+vi.mock("./searchApiLensProvider.js", () => ({
+  searchSearchApiLensShared: (...args: unknown[]) => searchSearchApiLensShared(...args),
+}));
+
 // Import dinâmico (não estático) de propósito: import ES é hoisted acima de
 // qualquer outro código do arquivo, o que rodaria a resolução deste módulo
 // (e por tabela, a factory de vi.mock acima) ANTES de `describeProductImage`/
@@ -134,6 +151,8 @@ beforeEach(() => {
   fetchAmazonCandidatesForQuery.mockReset().mockResolvedValue([]);
   fetchAmazonPaApiCandidatesForQuery.mockReset().mockResolvedValue([]);
   fetchMlOfficialCandidatesForQuery.mockReset().mockResolvedValue([]);
+  searchGoogleShoppingShared.mockReset();
+  searchSearchApiLensShared.mockReset();
   // Disjuntor de raspagem + memória do Google Shopping são estado de
   // MÓDULO (ver resetCandidateSourceState) — sem zerar, um caso que põe
   // a Amazon em cooldown contamina os seguintes.
@@ -722,6 +741,79 @@ describe("searchVisionInternalShared", () => {
       expect(result.results.amazon["SKU-1"]).toBeUndefined();
       // Não é falha sistêmica do item (nem erro Gemini) — o item só fica sem preço, sem exceção.
     });
+  });
+});
+
+/**
+ * FAST LANE (set/2026, ver VisionCandidateSource em ../types) — quando o
+ * usuário fixa "serpapi"/"searchapi" no pop-up de seleção, o motor
+ * BYPASSA o pipeline de IA de visão inteiro (Passo 1-4) e delega pro
+ * provider standalone já existente. Testa só o ROTEAMENTO: qual função é
+ * chamada, que a IA de visão NUNCA é acionada, e que `confidenceSource`
+ * sai marcado corretamente (visual/texto) por fonte — não a lógica
+ * interna de cada provider (isso já é responsabilidade dos testes deles
+ * próprios). "auto"/"scraperapi" NÃO passam por aqui — continuam no
+ * pipeline de sempre, coberto pelos describes acima.
+ */
+describe("searchVisionInternalShared — FAST LANE (candidateSource serpapi/searchapi)", () => {
+  it("candidateSource 'serpapi' delega pra searchGoogleShoppingShared e NUNCA chama a IA de visão", async () => {
+    searchGoogleShoppingShared.mockResolvedValue({
+      amazon: { "SKU-1": { marketplace: "amazon", sku: "SKU-1", price: 42, competitorCount: 0, buyBoxEligible: true, confidence: 0.7 } },
+      mercadolivre: {},
+    });
+
+    const result = await searchVisionInternalShared(
+      [ITEM_WITH_PHOTO],
+      MATCHERS,
+      "fake-gemini-key",
+      GEMINI_BACKEND,
+      undefined,
+      "serpapi",
+      "fake-serpapi-key"
+    );
+
+    expect(searchGoogleShoppingShared).toHaveBeenCalledWith([ITEM_WITH_PHOTO], MATCHERS, "fake-serpapi-key");
+    expect(searchSearchApiLensShared).not.toHaveBeenCalled();
+    expect(describeProductImage).not.toHaveBeenCalled();
+    expect(compareProductImages).not.toHaveBeenCalled();
+    // "serpapi" decide por TEXTO, não visual — mesmo o provider ativo
+    // sendo GEMINI_BACKEND (que normalmente marcaria "visual" via
+    // annotateConfidenceSource em fetch-prices.ts).
+    expect(result.results.amazon["SKU-1"]).toMatchObject({ price: 42, confidenceSource: "texto" });
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("candidateSource 'searchapi' delega pra searchSearchApiLensShared e marca confidenceSource 'visual'", async () => {
+    searchSearchApiLensShared.mockResolvedValue({
+      amazon: {},
+      mercadolivre: { "SKU-1": { marketplace: "mercadolivre", sku: "SKU-1", price: 15, competitorCount: 2, buyBoxEligible: true, confidence: 0.5 } },
+    });
+
+    const result = await searchVisionInternalShared(
+      [ITEM_WITH_PHOTO],
+      MATCHERS,
+      "fake-gemini-key",
+      GEMINI_BACKEND,
+      undefined,
+      "searchapi",
+      undefined,
+      "fake-searchapi-key"
+    );
+
+    expect(searchSearchApiLensShared).toHaveBeenCalledWith([ITEM_WITH_PHOTO], MATCHERS, "fake-searchapi-key");
+    expect(searchGoogleShoppingShared).not.toHaveBeenCalled();
+    expect(describeProductImage).not.toHaveBeenCalled();
+    expect(result.results.mercadolivre["SKU-1"]).toMatchObject({ price: 15, confidenceSource: "visual" });
+  });
+
+  it("propaga erro sistêmico (ex.: chave SerpApi ausente) igual o provider standalone faria", async () => {
+    searchGoogleShoppingShared.mockRejectedValue(
+      new Error("Nenhuma chave SerpApi própria configurada. Cadastre a sua em Conta antes de buscar preço.")
+    );
+
+    await expect(
+      searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS, "fake-gemini-key", GEMINI_BACKEND, undefined, "serpapi")
+    ).rejects.toThrow(/serpapi/i);
   });
 });
 

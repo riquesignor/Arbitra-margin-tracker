@@ -82,6 +82,12 @@ export type SearchProviderId =
   | "scraperapi";
 
 /**
+ * Fonte de CANDIDATO pro motor interno + IA — ver o mesmo tipo (com a
+ * justificativa completa) em api/_lib/types.ts. MANTER EM SINCRONIA.
+ */
+export type VisionCandidateSource = "auto" | "scraperapi" | "serpapi" | "searchapi";
+
+/**
  * "home" — tela de entrada (ver docs/design-critique-log.md, Session 4):
  * saudação + números + atalho pra "Nova busca" (nome de tela continua
  * "dashboard" internamente; só o rótulo de navegação mudou, ver

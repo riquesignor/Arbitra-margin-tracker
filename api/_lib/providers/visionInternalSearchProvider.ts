@@ -1,4 +1,4 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "../types.js";
+import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult, VisionCandidateSource } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import * as gemini from "../geminiVision.js";
 import * as mistral from "../mistralVision.js";
@@ -11,7 +11,9 @@ import {
 } from "./scraperApiSearchProvider.js";
 import { fetchAmazonPaApiCandidatesForQuery } from "./amazonPaApi.js";
 import { fetchMlOfficialCandidatesForQuery } from "./mercadoLivreSearchProvider.js";
+import { searchGoogleShoppingShared } from "./googleShoppingProvider.js";
 import type { MarketplaceMatcher } from "./googleShoppingProvider.js";
+import { searchSearchApiLensShared } from "./searchApiLensProvider.js";
 
 /**
  * Motor interno + IA aceita mais de um FORNECEDOR de IA de visão (ago/2026
@@ -147,15 +149,26 @@ export function resetCandidateSourceState(): void {
   shoppingMemo.clear();
 }
 
+/**
+ * `forceStructured` (set/2026, ver VisionCandidateSource em types.ts) —
+ * quando o usuário fixou "ScraperAPI" como fonte no pop-up de seleção
+ * (Dashboard.tsx), pula os degraus 1 (raspagem) e "oficial" (PA-API/OAuth)
+ * de propósito e vai direto pro Structured Data Endpoint — a pessoa
+ * escolheu essa fonte justamente pra evitar o risco de bloqueio 403 da
+ * raspagem direta, então nem vale a pena tentar raspar antes. `false`
+ * (default) preserva a cascata de sempre — nenhuma mudança de
+ * comportamento pra quem não usa a seleção explícita.
+ */
 export async function fetchCandidateOffers(
   query: string,
   matchers: MarketplaceMatcher[],
-  scraperApiKey?: string
+  scraperApiKey?: string,
+  forceStructured = false
 ): Promise<StoreOffers[]> {
   let stores: StoreOffers[] = [];
   let scrapeError: unknown = null;
 
-  const scrapable = matchers.filter((m) => !scrapeIsOnCooldown(m.marketplace));
+  const scrapable = forceStructured ? [] : matchers.filter((m) => !scrapeIsOnCooldown(m.marketplace));
   if (scrapable.length > 0) {
     try {
       stores = await fetchStoreOffers(query, scrapable, scraperApiKey);
@@ -191,10 +204,14 @@ export async function fetchCandidateOffers(
     if (empty) {
       // Degrau 1 — oficial/grátis (PA-API). Fonte OPCIONAL: sem env vars
       // configuradas ou qualquer falha, devolve `[]` e cai pro degrau 2.
-      const official = await fetchAmazonPaApiCandidatesForQuery(query).catch((err) => {
-        console.warn(`[motor-interno+IA] Amazon PA-API falhou pra "${query}":`, err);
-        return [];
-      });
+      // Pulado inteiro quando `forceStructured` (fonte fixada em
+      // "ScraperAPI" pelo usuário) — ver comentário na assinatura da função.
+      const official: Awaited<ReturnType<typeof fetchAmazonPaApiCandidatesForQuery>> = forceStructured
+        ? []
+        : await fetchAmazonPaApiCandidatesForQuery(query).catch((err) => {
+            console.warn(`[motor-interno+IA] Amazon PA-API falhou pra "${query}":`, err);
+            return [];
+          });
       if (official.length > 0) {
         console.warn(
           `[motor-interno+IA] Amazon sem oferta pela raspagem pra "${query}" — ` +
@@ -228,11 +245,14 @@ export async function fetchCandidateOffers(
       // (`scripts/ml-oauth-setup.mjs`) ou qualquer falha (incl. o 403
       // intermitente documentado desde fev/2026), devolve `[]` e cai pro
       // degrau 2 — a função já engole os próprios erros, `.catch` aqui é
-      // só rede de segurança extra.
-      const official = await fetchMlOfficialCandidatesForQuery(query).catch((err) => {
-        console.warn(`[motor-interno+IA] Mercado Livre (API oficial) falhou pra "${query}":`, err);
-        return [];
-      });
+      // só rede de segurança extra. Pulado inteiro quando `forceStructured`,
+      // mesmo motivo do bloco Amazon acima.
+      const official: Awaited<ReturnType<typeof fetchMlOfficialCandidatesForQuery>> = forceStructured
+        ? []
+        : await fetchMlOfficialCandidatesForQuery(query).catch((err) => {
+            console.warn(`[motor-interno+IA] Mercado Livre (API oficial) falhou pra "${query}":`, err);
+            return [];
+          });
       if (official.length > 0) {
         console.warn(
           `[motor-interno+IA] Mercado Livre sem oferta pela raspagem pra "${query}" — ` +
@@ -278,6 +298,16 @@ export async function fetchCandidateOffers(
   );
 
   if (stores.length === 0 && askedScrapableStore) {
+    // Fonte fixada em "ScraperAPI" (forceStructured) e mesmo assim nada
+    // voltou — mensagem própria, sem mencionar raspagem/API oficial (nem
+    // foram tentadas de propósito, ver comentário na assinatura da função).
+    if (forceStructured) {
+      throw new Error(
+        "Você fixou ScraperAPI como fonte pro motor interno + IA, mas os endpoints estruturados não " +
+          "devolveram candidato nenhum pra esta busca — verifique se sua chave ScraperAPI ainda tem " +
+          "crédito disponível, ou volte pra fonte automática no seletor."
+      );
+    }
     // Nada de nada: nem raspagem, nem fonte estruturada. A mensagem
     // precisa dizer QUAL das duas coisas checar — antes disso o usuário
     // recebia "a loja bloqueou, troque o mecanismo", conselho que não
@@ -634,7 +664,13 @@ export async function searchVisionInternalShared(
   matchers: MarketplaceMatcher[],
   userApiKey: string | undefined,
   backend: VisionBackend,
-  scraperApiKey?: string
+  scraperApiKey?: string,
+  /** Ver VisionCandidateSource (types.ts) pro contrato completo de cada valor. */
+  candidateSource: VisionCandidateSource = "auto",
+  /** Só usada quando `candidateSource === "serpapi"` — ver FAST LANE abaixo. */
+  serpApiKey?: string,
+  /** Só usada quando `candidateSource === "searchapi"` — ver FAST LANE abaixo. */
+  searchApiKey?: string
 ): Promise<VisionInternalSearchOutcome> {
   const apiKey = userApiKey?.trim();
   if (!apiKey) {
@@ -645,6 +681,45 @@ export async function searchVisionInternalShared(
 
   const results = {} as Record<string, Record<string, MarketplacePriceResult>>;
   for (const { marketplace } of matchers) results[marketplace] = {};
+
+  // ══════════════════════════════════════════════════════════════════
+  // FAST LANE (set/2026, ver VisionCandidateSource em types.ts) — quando
+  // o usuário FIXA "serpapi" ou "searchapi" no pop-up de seleção
+  // (Dashboard.tsx), pula o pipeline de IA de visão inteiro (Passo 1-4
+  // abaixo, que é o que faz este motor ser "motor interno + IA") e delega
+  // pro provider standalone já existente. Nenhum dos dois precisa de
+  // confirmação visual extra por cima: SerpApi já decide por similaridade
+  // de TEXTO, SearchApi.io Lens já faz a própria comparação visual do lado
+  // deles (mesmo motor que `searchapi_lens` usa como provider
+  // independente). Resultado: 1 chamada por produto em vez de até 7
+  // (1 descrição + até 6 comparações, ver custo documentado mais abaixo) —
+  // troca precisão/robustez por velocidade, de olhos abertos (ver texto de
+  // recomendação no pop-up).
+  //
+  // Retorna direto, sem passar pelo resto da função — `apiKey`
+  // (Gemini/Mistral) continua exigido acima mesmo sem ser usado aqui
+  // (trade-off aceito, ver VisionCandidateSource).
+  if (candidateSource === "serpapi" || candidateSource === "searchapi") {
+    const fastResults =
+      candidateSource === "serpapi"
+        ? await searchGoogleShoppingShared(items, matchers, serpApiKey)
+        : await searchSearchApiLensShared(items, matchers, searchApiKey);
+    // `confidenceSource` explícito (ver `annotateConfidenceSource` em
+    // fetch-prices.ts, que respeita um valor já preenchido em vez de
+    // sobrescrever): "serpapi" decide por similaridade de TEXTO, não visual
+    // — carimbar como "visual" (o default deste provider) mentiria sobre a
+    // origem da confiança. "searchapi" (Lens) é visual de verdade, mas
+    // ainda assim marcado explícito aqui pra não depender do default
+    // "correto por acaso" de fetch-prices.ts.
+    const confidenceSource: "texto" | "visual" = candidateSource === "serpapi" ? "texto" : "visual";
+    for (const [marketplace, bySku] of Object.entries(fastResults)) {
+      results[marketplace] = { ...results[marketplace] };
+      for (const [sku, result] of Object.entries(bySku)) {
+        results[marketplace][sku] = { ...result, confidenceSource };
+      }
+    }
+    return { results };
+  }
 
   // "geral" (ago/2026) é um pseudo-marketplace OPT-IN — só entra em
   // `matchers` quando o usuário marcou "Lojas gerais" no seletor (ver
@@ -727,7 +802,12 @@ export async function searchVisionInternalShared(
       ): Promise<
         { marketplace: MarketplaceId; label: string; offersCount: number; best: VisualMatch<ScrapedOffer> | null }[]
       > => {
-        const storeOffers = await fetchCandidateOffers(q, focusedMatchers, scraperApiKey);
+        const storeOffers = await fetchCandidateOffers(
+          q,
+          focusedMatchers,
+          scraperApiKey,
+          candidateSource === "scraperapi"
+        );
         const attempts: {
           marketplace: MarketplaceId;
           label: string;

@@ -4,6 +4,7 @@ import type {
   MarketplaceId,
   MarketplacePriceResult,
   SearchProviderId,
+  VisionCandidateSource,
 } from "./_lib/types.js";
 import { getCachedPrices, writeCachedPrices } from "./_lib/cache.js";
 import { getProvider, isGoogleShoppingMarketplace } from "./_lib/providers/registry.js";
@@ -82,6 +83,14 @@ interface RequestBody {
   apiKey?: string;
   /** Qual API de busca usar — default "serpapi" pra manter compatibilidade. */
   provider?: string;
+  /**
+   * Fonte de candidato pro motor interno + IA (set/2026, ver
+   * VisionCandidateSource em _lib/types.ts) — só lido quando `provider`
+   * é "vision_internal"/"vision_mistral"; ignorado (sem erro) pros demais,
+   * mesmo padrão de tolerância de `apiKey` acima pra campo que não se
+   * aplica ao provider da requisição.
+   */
+  candidateSource?: string;
 }
 
 function isValidMarketplaces(value: unknown): value is MarketplaceId[] {
@@ -184,16 +193,27 @@ const VISUAL_MATCH_PROVIDERS = new Set<SearchProviderId>([
  * requisição: são 8 arquivos montando `MarketplacePriceResult` e todos
  * teriam que repetir a mesma constante — um ponto só evita divergência
  * quando um mecanismo novo entrar.
+ *
+ * ⚠️ NÃO sobrescreve `confidenceSource` já preenchido (set/2026) — a FAST
+ * LANE do motor interno + IA (candidateSource "serpapi"/"searchapi", ver
+ * visionInternalSearchProvider.ts) delega pra `searchGoogleShoppingShared`/
+ * `searchSearchApiLensShared`, que devolvem resultado SEM `confidenceSource`
+ * (não é responsabilidade deles marcar isso quando usados como provider
+ * standalone). Sem esta guarda, "vision_internal"/"vision_mistral" sempre
+ * carimbariam "visual" mesmo quando a fast lane "serpapi" decidiu por
+ * similaridade de TEXTO — o valor certo por resultado individual é
+ * calculado ali dentro antes de devolver, não aqui (esta função só serve
+ * de default pro resto dos providers, que nunca preenchem o campo sozinhos).
  */
 function annotateConfidenceSource(
   byMarketplace: Record<string, Record<string, MarketplacePriceResult>>,
   provider: SearchProviderId
 ): void {
-  const confidenceSource = VISUAL_MATCH_PROVIDERS.has(provider) ? "visual" : "texto";
+  const defaultConfidenceSource: "visual" | "texto" = VISUAL_MATCH_PROVIDERS.has(provider) ? "visual" : "texto";
 
   for (const results of Object.values(byMarketplace)) {
     for (const [sku, result] of Object.entries(results)) {
-      results[sku] = { ...result, confidenceSource };
+      results[sku] = { ...result, confidenceSource: result.confidenceSource ?? defaultConfidenceSource };
     }
   }
 }
@@ -204,6 +224,11 @@ function findInvalidImageUrlItem(items: CatalogItemQuery[]): CatalogItemQuery | 
 
 function isValidProvider(value: unknown): value is SearchProviderId {
   return typeof value === "string" && (VALID_PROVIDERS as string[]).includes(value);
+}
+
+const VALID_CANDIDATE_SOURCES: VisionCandidateSource[] = ["auto", "scraperapi", "serpapi", "searchapi"];
+function isValidCandidateSource(value: unknown): value is VisionCandidateSource {
+  return typeof value === "string" && (VALID_CANDIDATE_SOURCES as string[]).includes(value);
 }
 
 /**
@@ -284,6 +309,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     res.status(400).json({ error: `provider inválido: ${VALID_PROVIDERS.join(" | ")}` });
     return;
   }
+  if (body.candidateSource !== undefined && !isValidCandidateSource(body.candidateSource)) {
+    res.status(400).json({ error: `candidateSource inválido: ${VALID_CANDIDATE_SOURCES.join(" | ")}` });
+    return;
+  }
 
   const marketplaces = body.marketplaces;
   const items = body.items;
@@ -293,6 +322,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // certo pra quem não escolheu nada explicitamente. Antes era "serpapi",
   // que falhava de cara sem BYOK configurado.
   const provider: SearchProviderId = isValidProvider(body.provider) ? body.provider : "scraperapi";
+  // Só tem efeito pra "vision_internal"/"vision_mistral" (ver
+  // VisionCandidateSource em _lib/types.ts) — default "auto" preserva a
+  // cascata de sempre pros dois providers, e é simplesmente ignorado pelos
+  // demais (nunca chega a ser lido fora do branch deles, mais abaixo).
+  const candidateSource: VisionCandidateSource = isValidCandidateSource(body.candidateSource)
+    ? body.candidateSource
+    : "auto";
 
   console.log(
     `[fetch-prices] uid=${uid} provider=${provider} marketplaces=${marketplaces.join("+")} items=${items.length}`
@@ -318,6 +354,23 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // motor interno + IA, retry de imagem bloqueada), então precisa estar
   // disponível não importa qual provider o usuário escolheu.
   const scraperApiKey = await getUserScraperApiKey(uid);
+  // Chaves da FAST LANE (set/2026, ver VisionCandidateSource em
+  // _lib/types.ts) — resolvidas só quando de fato vão ser usadas
+  // (provider é um dos dois motores internos E o usuário fixou essa fonte
+  // no pop-up), pra não pagar leitura extra de Firestore à toa em toda
+  // requisição dos outros providers. Mesmo mapa de campo que "serpapi"/
+  // "searchapi_lens" já usam como provider standalone (ver
+  // PROVIDER_SECRET_FIELD, userSecrets.ts) — reaproveitado aqui, não é
+  // uma chave nova.
+  const isVisionProvider = provider === "vision_internal" || provider === "vision_mistral";
+  const serpApiKeyForVision =
+    isVisionProvider && candidateSource === "serpapi"
+      ? await getUserApiKeyForProvider(uid, "serpapi")
+      : undefined;
+  const searchApiKeyForVision =
+    isVisionProvider && candidateSource === "searchapi"
+      ? await getUserApiKeyForProvider(uid, "searchapi_lens")
+      : undefined;
 
   let quota: QuotaConsumption;
   try {
@@ -465,7 +518,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // pelo motor interno puro — mesmo formato de saída, `_warning`
           // não distingue a origem porque a UI só precisa mostrar o
           // aviso, não a causa exata.
-          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, GEMINI_BACKEND, scraperApiKey);
+          const outcome = await searchVisionInternalShared(
+            missItems,
+            matchers,
+            apiKey,
+            GEMINI_BACKEND,
+            scraperApiKey,
+            candidateSource,
+            serpApiKeyForVision,
+            searchApiKeyForVision
+          );
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "vision_mistral") {
@@ -475,7 +537,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           // Conta. `scraperApiKey` é o mesmo dos dois branches — fallback
           // opcional quando a raspagem direta bloqueia (ver
           // fetchCandidateOffers, visionInternalSearchProvider.ts).
-          const outcome = await searchVisionInternalShared(missItems, matchers, apiKey, MISTRAL_BACKEND, scraperApiKey);
+          const outcome = await searchVisionInternalShared(
+            missItems,
+            matchers,
+            apiKey,
+            MISTRAL_BACKEND,
+            scraperApiKey,
+            candidateSource,
+            serpApiKeyForVision,
+            searchApiKeyForVision
+          );
           internalSearchWarning = outcome.warning;
           fresh = outcome.results;
         } else if (provider === "google_lens_products") {

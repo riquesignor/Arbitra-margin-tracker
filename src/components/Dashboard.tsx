@@ -15,6 +15,7 @@ import {
   Gauge,
   Zap,
   Globe,
+  X,
 } from "lucide-react";
 import type {
   CatalogRow,
@@ -23,6 +24,7 @@ import type {
   MarketplacePriceResult,
   PricingRules,
   SearchProviderId,
+  VisionCandidateSource,
 } from "../types";
 import { parseCatalogFile } from "../lib/parseCatalog";
 import { getPdfPageCount, parsePdfCatalogFile, type PageRange } from "../lib/parsePdfCatalog";
@@ -93,11 +95,14 @@ const AVAILABLE_MARKETPLACES: {
  * "Lojas gerais" (ago/2026) — pseudo-marketplace opt-in (`"geral"`, ver
  * MarketplaceId em ../types). Não entra em `AVAILABLE_MARKETPLACES`
  * acima de propósito: só faz sentido pro motor interno + IA
- * (vision_internal, ver visionInternalSearchProvider.ts > Passo 4) —
- * nos outros mecanismos o matcher existe mas é inerte (não traz produto
- * nenhum, ver GOOGLE_SHOPPING_MATCHERS). Renderizado à parte, só quando
- * `searchProvider === "vision_internal"` (ver seção 01 mais abaixo), pra
- * não oferecer uma opção que não faz nada nos outros 4.
+ * (vision_internal/vision_mistral, ver visionInternalSearchProvider.ts >
+ * Passo 4) — nos outros mecanismos o matcher existe mas é inerte (não
+ * traz produto nenhum, ver GOOGLE_SHOPPING_MATCHERS). Renderizado à
+ * parte, só quando `SLOW_AI_VISION_PROVIDERS.has(searchProvider)` (ver
+ * seção 01 mais abaixo — correção set/2026: só checava
+ * "vision_internal", deixando vision_mistral sem a opção mesmo o backend
+ * já suportando o Passo 4 pros dois igual), pra não oferecer uma opção
+ * que não faz nada nos outros providers.
  */
 const GENERAL_STORES_MARKETPLACE: { id: MarketplaceId; label: string; note: string; icon: typeof Store } = {
   id: "geral",
@@ -251,6 +256,47 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
  * reaproveitar IMAGE_MODE_PROVIDERS pra essas decisões.
  */
 const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_mistral"]);
+
+/**
+ * Opções do pop-up de seleção de fonte pro motor interno + IA (set/2026,
+ * ver VisionCandidateSource em ../types e CandidateSourceModal mais
+ * abaixo). Texto de recomendação é QUALITATIVO de propósito — não existe
+ * telemetria de acurácia por fonte neste app hoje, então uma nota numérica
+ * fixa ("10/10") seria número fabricado, o que o design deste projeto
+ * evita em outros lugares (ver comentário sobre confiança em
+ * googleShoppingProvider.ts).
+ */
+const CANDIDATE_SOURCE_OPTIONS: {
+  id: VisionCandidateSource;
+  label: string;
+  recommendation: string;
+  needsKey: "scraperApiKey" | "serpApiKey" | "searchApiKey" | null;
+}[] = [
+  {
+    id: "auto",
+    label: "Automático (recomendado)",
+    recommendation: "deixa o motor decidir sozinho — raspagem direta primeiro, cai pra API oficial/ScraperAPI só se precisar.",
+    needsKey: null,
+  },
+  {
+    id: "scraperapi",
+    label: "ScraperAPI",
+    recommendation: "maior precisão — evita bloqueio 403 indo direto no endpoint estruturado, mas é mais lento (ainda passa pela IA de visão pra confirmar cada candidato).",
+    needsKey: "scraperApiKey",
+  },
+  {
+    id: "serpapi",
+    label: "SerpApi",
+    recommendation: "maior velocidade — pula a IA de visão e decide por nome do produto, então o dado vem mais parcial (sem confirmação por foto).",
+    needsKey: "serpApiKey",
+  },
+  {
+    id: "searchapi",
+    label: "SearchApi.io",
+    recommendation: "maior velocidade — pula a IA de visão e usa o Google Lens deles direto (ainda por foto, mas sem a segunda confirmação visual do motor interno).",
+    needsKey: "searchApiKey",
+  },
+];
 
 /**
  * Providers que cobrem amazon + mercadolivre na mesma busca (o usuário
@@ -490,6 +536,89 @@ interface LastUpload {
   pageRange: PageRange | null;
 }
 
+/**
+ * Pop-up de seleção de fonte terceira pro motor interno + IA (set/2026,
+ * ver VisionCandidateSource em ../types e CANDIDATE_SOURCE_OPTIONS acima).
+ * PRIMEIRO modal do app — disparado por `selectProvider` (Dashboard, mais
+ * abaixo) sempre que o usuário entra em "vision_internal"/"vision_mistral"
+ * vindo de outro provider. Clique fora ou "Fechar" confirma "auto" (o
+ * default já é esse — não requer escolha pra não travar quem só quer
+ * clicar e seguir).
+ *
+ * `keyStatus` (chave já cadastrada por fonte, ver estado BYOK do
+ * Dashboard) alimenta o aviso "cadastre sua chave X" por opção — mesma
+ * ideia do `byokHint` do seletor principal, só que por linha em vez de um
+ * aviso único embaixo do grid.
+ */
+function CandidateSourceModal({
+  value,
+  onSelect,
+  onClose,
+  keyStatus,
+}: {
+  value: VisionCandidateSource;
+  onSelect: (id: VisionCandidateSource) => void;
+  onClose: () => void;
+  keyStatus: Record<"scraperApiKey" | "serpApiKey" | "searchApiKey", boolean>;
+}) {
+  return (
+    <div
+      className={styles.candidateModalOverlay}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Qual serviço de busca/scraping associar a este motor"
+      onClick={onClose}
+    >
+      <div className={styles.candidateModalBox} onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h2 className={styles.candidateModalTitle}>
+            Qual serviço de busca/scraping você deseja associar a este motor?
+          </h2>
+          <p className={styles.candidateModalSubtitle}>
+            O motor interno + IA sempre usa a foto do catálogo — isto aqui só decide de ONDE vêm os
+            candidatos a comparar. Pode trocar depois, a qualquer momento, escolhendo o mecanismo de
+            novo.
+          </p>
+        </div>
+        <div className={styles.marketplaceGrid}>
+          {CANDIDATE_SOURCE_OPTIONS.map((opt) => {
+            const active = value === opt.id;
+            const missingKey = opt.needsKey !== null && !keyStatus[opt.needsKey];
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
+                onClick={() => onSelect(opt.id)}
+              >
+                <span className={styles.marketplaceCardText}>
+                  <span className={styles.marketplaceCardLabel}>{opt.label}</span>
+                  <span className={styles.marketplaceCardNote}>{opt.recommendation}</span>
+                  {missingKey && (
+                    <span className={styles.marketplaceCardNote}>
+                      ⚠ precisa da sua chave {PROVIDER_KEY_GUIDE[opt.needsKey!].name} em Conta.
+                    </span>
+                  )}
+                </span>
+                {active && (
+                  <span className={styles.marketplaceCardCheck}>
+                    <Check size={11} strokeWidth={3} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className={styles.candidateModalActions}>
+          <button type="button" className={styles.button} onClick={onClose}>
+            <X size={13} /> Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({
   rules,
   userId,
@@ -525,6 +654,18 @@ export default function Dashboard({
   // cadastrar chave nenhuma, então é o único default honesto pra quem
   // acabou de criar a conta.
   const [searchProvider, setSearchProvider] = useState<SearchProviderId>(DEFAULT_PROVIDER);
+
+  // Fonte de candidato pro motor interno + IA (set/2026, ver
+  // VisionCandidateSource em ../types) — só tem efeito quando
+  // `searchProvider` é "vision_internal"/"vision_mistral" (ver
+  // SLOW_AI_VISION_PROVIDERS). Default "auto" preserva a cascata de
+  // sempre; escolhido no pop-up disparado por `selectProvider` sempre que
+  // o usuário ENTRA num dos dois motores internos vindo de outro provider.
+  const [candidateSource, setCandidateSource] = useState<VisionCandidateSource>("auto");
+  // Controla o pop-up (ver CandidateSourceModal, JSX mais abaixo) — o
+  // texto/opções não mudam entre vision_internal/vision_mistral, só
+  // precisa saber que está aberto.
+  const [candidateSourcePromptOpen, setCandidateSourcePromptOpen] = useState(false);
 
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
@@ -766,7 +907,7 @@ export default function Dashboard({
   // Inclui GENERAL_STORES_MARKETPLACE aqui (fora de AVAILABLE_MARKETPLACES
   // de propósito, ver comentário lá) só pra resolver o LABEL quando
   // selecionado — não afeta se a opção aparece no grid (isso continua
-  // condicionado a `searchProvider === "vision_internal"` no JSX).
+  // condicionado a `SLOW_AI_VISION_PROVIDERS.has(searchProvider)` no JSX).
   const marketplaceLabels = [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE]
     .filter((m) => selectedMarketplaces.includes(m.id))
     .map((m) => m.label)
@@ -822,6 +963,18 @@ export default function Dashboard({
    * subGroup na seção 01), não travam a seleção.
    */
   function selectProvider(id: SearchProviderId) {
+    // Pop-up de fonte terceira (set/2026, ver CandidateSourceModal) —
+    // dispara ao ENTRAR num motor interno vindo de outro provider (troca
+    // de vision_internal pra vision_mistral, ou o contrário, NÃO reabre —
+    // a fonte já escolhida continua valendo pro outro backend de IA,
+    // "sempre que selecionar" do pedido original é sobre entrar no grupo,
+    // não sobre alternar dentro dele). Fechar sem escolher mantém "auto"
+    // (default já é esse), então dispensa passar pelo motor sem intenção
+    // nenhuma quebra o mínimo possível.
+    if (SLOW_AI_VISION_PROVIDERS.has(id) && !SLOW_AI_VISION_PROVIDERS.has(searchProvider)) {
+      setCandidateSource("auto");
+      setCandidateSourcePromptOpen(true);
+    }
     setSearchProvider(id);
     const config = SEARCH_PROVIDERS.find((p) => p.id === id)!;
     const isMultiMarketplace = MULTI_MARKETPLACE_PROVIDERS.has(id);
@@ -1143,7 +1296,13 @@ export default function Dashboard({
             meta.marketplaces,
             chunkItems,
             effectiveProvider,
-            abortController.signal
+            abortController.signal,
+            // Só faz sentido junto dos motores internos (ver
+            // VisionCandidateSource, ../types) — `undefined` pros demais,
+            // que ignoram o campo no servidor de qualquer forma, mas
+            // mandar só quando relevante deixa o payload mais claro de ler
+            // num log de rede.
+            SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) ? candidateSource : undefined
           );
         } catch (err) {
           // Cancelamento pedido pelo usuário: sai do laço mantendo o que
@@ -1763,7 +1922,7 @@ export default function Dashboard({
                     onde comparar ({activeProvider.label} cobre os dois — escolha um ou os dois)
                   </span>
                   <div className={styles.marketplaceGrid}>
-                    {(searchProvider === "vision_internal"
+                    {(SLOW_AI_VISION_PROVIDERS.has(searchProvider)
                       ? [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE]
                       : AVAILABLE_MARKETPLACES
                     ).map((m) => {
@@ -1794,7 +1953,7 @@ export default function Dashboard({
                       );
                     })}
                   </div>
-                  {searchProvider === "vision_internal" && selectedMarketplaces.includes("geral") && (
+                  {SLOW_AI_VISION_PROVIDERS.has(searchProvider) && selectedMarketplaces.includes("geral") && (
                     <p className={styles.subGroupHint}>
                       "Lojas gerais" marcado: quando Amazon/Mercado Livre não confirmarem o produto por
                       foto, o motor interno + IA tenta achar em qualquer outra loja (Shopee, Magalu, loja
@@ -2279,6 +2438,22 @@ export default function Dashboard({
           )}
         </aside>
       </div>
+
+      {candidateSourcePromptOpen && (
+        <CandidateSourceModal
+          value={candidateSource}
+          onSelect={(id) => {
+            setCandidateSource(id);
+            setCandidateSourcePromptOpen(false);
+          }}
+          onClose={() => setCandidateSourcePromptOpen(false)}
+          keyStatus={{
+            scraperApiKey: Boolean(scraperApiKey),
+            serpApiKey: Boolean(serpApiKey),
+            searchApiKey: Boolean(searchApiKey),
+          }}
+        />
+      )}
     </motion.div>
   );
 }

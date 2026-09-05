@@ -1,4 +1,10 @@
-import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult, SearchProviderId } from "../types";
+import type {
+  CatalogItemQuery,
+  MarketplaceId,
+  MarketplacePriceResult,
+  SearchProviderId,
+  VisionCandidateSource,
+} from "../types";
 import { getProvider } from "./marketplaces/registry";
 import { getCurrentIdToken } from "./auth";
 
@@ -125,7 +131,15 @@ export async function fetchMultipleMarketplacePrices(
    * minutos; até aqui a única saída era recarregar a página — e perder
    * tudo que já tinha sido encontrado.
    */
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /**
+   * Fonte de candidato pro motor interno + IA (set/2026, ver
+   * VisionCandidateSource em ../types e o pop-up de seleção em
+   * Dashboard.tsx) — só faz sentido junto de `provider` "vision_internal"/
+   * "vision_mistral"; `undefined` (comportamento de sempre, cascata
+   * automática) pros demais.
+   */
+  candidateSource?: VisionCandidateSource
 ): Promise<Record<MarketplaceId, FetchPricesResult>> {
   if (items.length === 0 || marketplaces.length === 0) {
     return emptyResult(marketplaces);
@@ -141,7 +155,7 @@ export async function fetchMultipleMarketplacePrices(
         "Content-Type": "application/json",
         ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       },
-      body: JSON.stringify({ marketplaces, items, provider }),
+      body: JSON.stringify({ marketplaces, items, provider, candidateSource }),
       signal,
     });
   } catch (err) {
