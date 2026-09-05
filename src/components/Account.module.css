@@ -478,6 +478,47 @@
   min-width: 0;
 }
 
+/* Wrapper do KeyInput (Account.tsx) — input + botão "olhinho" pra revelar
+   o que foi digitado antes de salvar. Ocupa o mesmo espaço flex que o
+   .input ocupava sozinho antes de existir esse wrapper. */
+.keyInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+
+.keyInputWrap .input {
+  width: 100%;
+  padding-right: 38px;
+}
+
+.keyInputToggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.keyInputToggle:hover {
+  color: var(--color-text);
+}
+
+.keyInputToggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .iconButton {
   display: flex;
   align-items: center;

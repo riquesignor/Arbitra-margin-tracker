@@ -12,6 +12,8 @@ import {
   Library,
   Gauge,
   SlidersHorizontal,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { firebaseConfigured } from "../lib/firebase";
 import { signIn, signOutUser, signUp, type AuthUser } from "../lib/auth";
@@ -240,6 +242,48 @@ const SCRAPERAPI_INTRO = (
 // última barra (hoje) é dado real; o resto é só pra dar forma ao
 // gráfico (ver aviso abaixo do gráfico, igual ao mockup).
 const ILLUSTRATIVE_USAGE_SHAPE = [4, 12, 2, 8, 18, 14, 6, 2, 15, 20, 9, 7, 11];
+
+// Input de chave BYOK com "olhinho" pra revelar o que foi digitado/colado
+// antes de salvar — NÃO reexibe a chave já salva (o servidor só devolve
+// "tem chave configurada?" via has*ApiKey, nunca o valor em si, ver
+// userSecrets.ts). Visibilidade é estado local do próprio campo (não do
+// componente Account) pra não precisar de mais um useState por chave.
+function KeyInput({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  disabled?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className={styles.keyInputWrap}>
+      <input
+        className={styles.input}
+        type={visible ? "text" : "password"}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        autoComplete="off"
+      />
+      <button
+        type="button"
+        className={styles.keyInputToggle}
+        onClick={() => setVisible((v) => !v)}
+        disabled={disabled}
+        tabIndex={-1}
+        title={visible ? "Ocultar chave" : "Mostrar chave"}
+        aria-label={visible ? "Ocultar chave" : "Mostrar chave"}
+      >
+        {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
+  );
+}
 
 function PrefSwitch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
   return (
@@ -770,13 +814,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{SERPAPI_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
+                <KeyInput
                   value={serpKeyInput}
-                  onChange={(e) => setSerpKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setSerpKeyInput}
+                  placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
+                  disabled={savingSerpKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -819,13 +861,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{RAPIDAPI_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
+                <KeyInput
                   value={rapidKeyInput}
-                  onChange={(e) => setRapidKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setRapidKeyInput}
+                  placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
+                  disabled={savingRapidKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -868,13 +908,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{SEARCHAPI_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
+                <KeyInput
                   value={searchApiKeyInput}
-                  onChange={(e) => setSearchApiKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setSearchApiKeyInput}
+                  placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
+                  disabled={savingSearchApiKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -917,13 +955,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{GEMINI_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
+                <KeyInput
                   value={geminiKeyInput}
-                  onChange={(e) => setGeminiKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setGeminiKeyInput}
+                  placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
+                  disabled={savingGeminiKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -966,13 +1002,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{MISTRAL_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
+                <KeyInput
                   value={mistralKeyInput}
-                  onChange={(e) => setMistralKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setMistralKeyInput}
+                  placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
+                  disabled={savingMistralKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -1015,13 +1049,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{SCRAPERAPI_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
+                <KeyInput
                   value={scraperApiKeyInput}
-                  onChange={(e) => setScraperApiKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setScraperApiKeyInput}
+                  placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
+                  disabled={savingScraperApiKey}
                 />
                 <button
                   className={styles.primaryButton}
@@ -1064,13 +1096,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <p className={styles.cardIntro}>{UNWRANGLE_INTRO}</p>
 
               <div className={styles.compactKeyRow}>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
+                <KeyInput
                   value={unwrangleKeyInput}
-                  onChange={(e) => setUnwrangleKeyInput(e.target.value)}
-                  autoComplete="off"
+                  onChange={setUnwrangleKeyInput}
+                  placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
+                  disabled={savingUnwrangleKey}
                 />
                 <button
                   className={styles.primaryButton}
