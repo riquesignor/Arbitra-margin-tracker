@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   ChevronDown,
   Settings as SettingsIcon,
+  HelpCircle,
 } from "lucide-react";
 import type { Screen } from "../types";
 import type { Theme } from "../lib/theme";
@@ -111,6 +112,16 @@ export default function TopNav({
           title="Configurações"
         >
           <SettingsIcon size={15} strokeWidth={2} />
+        </button>
+
+        <button
+          type="button"
+          className={active === "faq" ? styles.iconButtonActive : styles.iconButton}
+          onClick={() => onChange("faq")}
+          aria-label="Perguntas frequentes"
+          title="Perguntas frequentes"
+        >
+          <HelpCircle size={15} strokeWidth={2} />
         </button>
 
         <span className={styles.statusRow}>

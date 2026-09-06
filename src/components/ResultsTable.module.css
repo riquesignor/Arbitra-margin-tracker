@@ -116,6 +116,130 @@
   border-color: var(--color-accent);
 }
 
+/* --- Multi-seleção de catálogos do histórico (HistoryMultiSelect) --- */
+
+.historyMultiSelectWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.historyMultiSelectButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  max-width: 260px;
+  cursor: pointer;
+}
+
+.historyMultiSelectButton:hover {
+  border-color: var(--color-accent);
+}
+
+.historyMultiSelectButtonLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyMultiSelectBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+
+.historyMultiSelectPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 21;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.historyMultiSelectClear {
+  background: none;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  color: var(--color-text-dim);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.historyMultiSelectClear:hover:not(:disabled) {
+  color: var(--color-text);
+  border-color: var(--color-accent);
+}
+
+.historyMultiSelectClear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.historyMultiSelectList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.historyMultiSelectItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: 0.82rem;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.historyMultiSelectItem:hover {
+  background: var(--color-bg);
+}
+
+/* --- Tag "veio do catálogo X" (visão combinada) --- */
+
+.sourceUploadTag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--color-text-dim);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  margin: 2px 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- Cards de resumo --- */
 
 .summaryRow {

@@ -404,52 +404,71 @@ function buildParseInfoMessage(
  * "mercadolivre_direct" falha e o usuário já tem a chave cadastrada (ver
  * mlFallbackOffer mais abaixo).
  */
+type ProviderGroup = "texto" | "foto";
+
 /**
- * ⚠️ MODO TESTE A/B (ago/2026) — temporário, ver conversa sobre comparar
- * os mecanismos de terceiros depois do ScraperAPI entrar no motor
- * interno. Grid principal reduzido de propósito, pra comparação direta
- * com o MESMO catálogo:
+ * Grid principal reorganizado em 2 grupos, escolhidos por aba (set/2026)
+ * — substitui o teste A/B temporário que existia aqui antes
+ * (AB_TEST_PROVIDER_IDS), encerrado porque nenhuma das 5 opções testadas
+ * cobria busca por TEXTO puro sem depender de foto/IA — exatamente o que
+ * falta pra planilha .csv/.xlsx com nome real de produto (pedido direto
+ * do dono do produto, set/2026). As duas opções gratuitas que cobrem esse
+ * caso (RapidAPI Amazon, Mercado Livre direto) sempre existiram no código
+ * mas ficavam escondidas do grid só por causa do teste.
  *
- *   - serpapi           → "a serp api": Google Shopping, cota renovada
- *   - searchapi_lens     → "a search": busca por foto via SearchApi.io
- *   - scraperapi         → "a scraper" (nativa): Structured Data Endpoints
- *     da própria ScraperAPI (Amazon Search API + Google Shopping API), ver
- *     scraperApiSearchProvider.ts — mecanismo de busca de verdade, não só
- *     transporte.
- *   - vision_internal    → motor interno + IA (Gemini): busca por FOTO
- *     sem depender de SerpApi/SearchApi.io, com confirmação visual via IA.
- *   - vision_mistral (ago/2026) → MESMO motor interno + IA, backend
- *     Mistral no lugar do Gemini (ver VisionBackend em
- *     visionInternalSearchProvider.ts e mistralVision.ts) — entrou no
- *     grid JUNTO com vision_internal de propósito, pra comparar os dois
- *     lado a lado no mesmo catálogo. SUBSTITUIU vision_groq (removido no
- *     mesmo mês — free tier de 8.000 tokens/minuto zerava resultado
- *     mesmo com comparação em lote; o da Mistral, 500.000 tokens/minuto,
- *     tem folga bem maior).
+ *   - "texto" — não depende de foto: ScraperAPI (paga, cobre os dois
+ *     marketplaces, sem risco de bloqueio 403 como o público), Amazon
+ *     direto/RapidAPI (grátis até 100/mês, só Amazon) e Mercado Livre API
+ *     pública (grátis, só ML, mais instável). Vira o grupo padrão e o
+ *     alvo da auto-troca quando uma planilha é enviada com um provider de
+ *     foto selecionado (ver handleCsv).
+ *   - "foto" — motor interno + IA (Gemini/Mistral), cada um já com o
+ *     próprio pop-up de fonte terceira (ScraperAPI/SerpApi/SearchApi.io,
+ *     ver CandidateSourceModal/VisionCandidateSource) — cobre o que antes
+ *     eram opções standalone separadas (SerpApi/Google Lens/SearchApi.io
+ *     Lens) sem precisar mostrá-las como escolha própria aqui: o motor
+ *     interno já delega pra elas quando a fonte escolhida é
+ *     "serpapi"/"searchapi".
  *
- * `internal_search` (motor interno SEM IA) foi REMOVIDO do grid (ago/2026,
- * decisão de produto pós-rodada de teste): entre os "motor interno"
- * testados, só as variantes COM IA (`vision_internal`/`vision_mistral`)
- * seguiram — ver SearchProviderId em ../types.
- *
- * Fora deliberadamente desta rodada: rapidapi_amazon e mercadolivre_direct
- * (não são "terceiro" no sentido testado aqui) e google_lens_products
- * (mesma chave/cota da SerpApi acima — testar os dois juntos dilui a
- * leitura de qual mecanismo rendeu melhor).
- *
- * Reverter depois do teste: trocar a linha abaixo de volta pra
- * `SEARCH_PROVIDERS.filter((p) => p.id !== "serpapi")` (o filtro
- * original, que só tirava a SerpApi do grid principal — ver comentário
- * antigo preservado acima em SEARCH_PROVIDERS).
+ * "serpapi", "google_lens_products", "searchapi_lens" continuam sendo
+ * SearchProviderId válidos e seguem usados internamente (fallback de OCR
+ * mais abaixo, candidateSource do motor interno) — só não aparecem mais
+ * como opção própria no grid.
  */
-const AB_TEST_PROVIDER_IDS = new Set<SearchProviderId>([
-  "serpapi",
-  "searchapi_lens",
-  "scraperapi",
-  "vision_internal",
-  "vision_mistral",
-]);
-const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) => AB_TEST_PROVIDER_IDS.has(p.id));
+const PROVIDER_GROUPS: {
+  id: ProviderGroup;
+  label: string;
+  hint: string;
+  providerIds: SearchProviderId[];
+}[] = [
+  {
+    id: "texto",
+    label: "Busca por texto",
+    hint: "usa o NOME do produto do catálogo — ideal pra planilha (.csv/.xlsx) ou PDF com texto, mais rápida e sem depender de foto.",
+    providerIds: ["scraperapi", "rapidapi_amazon", "mercadolivre_direct"],
+  },
+  {
+    id: "foto",
+    label: "Busca por foto",
+    hint: "usa a FOTO do produto (catálogo em .pdf com imagem) — mais lenta, mas confirma visualmente com IA antes de decidir o preço.",
+    providerIds: ["vision_internal", "vision_mistral"],
+  },
+];
+
+const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) =>
+  PROVIDER_GROUPS.some((g) => g.providerIds.includes(p.id))
+);
+
+function groupOfProvider(id: SearchProviderId): ProviderGroup {
+  return PROVIDER_GROUPS.find((g) => g.providerIds.includes(id))?.id ?? "texto";
+}
+
+/**
+ * Primeiro provider do grupo "texto" — alvo da auto-troca quando um
+ * arquivo sem foto (.csv/.xlsx) chega com um provider de FOTO selecionado
+ * (ver handleCsv). ScraperAPI por ser o mesmo DEFAULT_PROVIDER de sempre.
+ */
+const DEFAULT_TEXT_PROVIDER: SearchProviderId = PROVIDER_GROUPS[0].providerIds[0];
 
 // Tamanho do lote de busca — catálogos grandes são processados em
 // lotes sequenciais (não tudo de uma vez) só pra reportar progresso
@@ -985,6 +1004,20 @@ export default function Dashboard({
     }
   }
 
+  // Grupo da aba ativa — DERIVADO de `searchProvider` (não é estado
+  // próprio) de propósito: existem caminhos que trocam `searchProvider`
+  // direto via `setSearchProvider` sem passar por `selectProvider` (ver
+  // fallback de OCR em finishWithRows) — derivar sempre do valor atual
+  // evita a aba ficar dessincronizada nesses casos.
+  const activeProviderGroup = groupOfProvider(searchProvider);
+
+  /** Troca de aba (grupo) — seleciona o primeiro provider do grupo alvo, a não ser que o provider atual já pertença a ele. */
+  function selectProviderGroup(group: ProviderGroup) {
+    if (group === activeProviderGroup) return;
+    const target = PROVIDER_GROUPS.find((g) => g.id === group)!;
+    selectProvider(target.providerIds[0]);
+  }
+
   function loadHistoryRecord(record: CatalogUploadRecord) {
     setHistoryInfo(null);
     setSkippedInfo(null);
@@ -1161,8 +1194,8 @@ export default function Dashboard({
               `tende a errar o produto nesse caso. Já troquei o mecanismo pra "${imageModeFallback.label}" ` +
               `— clique em "Reprocessar agora" abaixo pra extrair as fotos e buscar de novo.`
           : "Este PDF não tem texto real — o catálogo foi lido por OCR (imagem), e busca por NOME " +
-              "tende a errar o produto nesse caso. Troque pra \"Busca por imagem\" na seção 01 antes " +
-              "de continuar."
+              "tende a errar o produto nesse caso. Troque pra a aba \"Busca por foto\" na seção 01 " +
+              "antes de continuar."
       );
       return;
     }
@@ -1692,8 +1725,8 @@ export default function Dashboard({
    * reprocessar o PDF do zero, quando um provider de imagem falhou por
    * não ter conseguido extrair/subir foto nenhuma.
    *
-   * "scraperapi" (não "internal_search", que foi removido — ver
-   * AB_TEST_PROVIDER_IDS) por ser o provider por TEXTO de referência do
+   * "scraperapi" (não "internal_search", removido há tempos — ver
+   * PROVIDER_GROUPS) por ser o provider por TEXTO de referência do
    * app (DEFAULT_PROVIDER).
    *
    * ⚠️ Usa `providerOverride` (ver finishWithRows), que PULA a checagem
@@ -1720,9 +1753,17 @@ export default function Dashboard({
 
   async function handleCsv(file: File) {
     if (IMAGE_MODE_PROVIDERS.has(searchProvider)) {
+      // Planilha (.csv/.xlsx) nunca tem foto — troca automaticamente pro
+      // mecanismo de busca por TEXTO (mesmo padrão de auto-troca já usado
+      // no fallback de OCR, ver finishWithRows) em vez de só bloquear com
+      // erro. Não processa nesta mesma chamada de propósito: `selectProvider`
+      // é `setState`, que só reflete no `searchProvider` do PRÓXIMO render —
+      // processar aqui ainda leria o provider antigo por closure. Pede pra
+      // reenviar, já com o mecanismo certo pré-selecionado.
+      selectProvider(DEFAULT_TEXT_PROVIDER);
       setError(
-        "\"Busca por imagem\" precisa de foto do produto — planilha (.csv/.xlsx) não tem. " +
-          "Troque de mecanismo ou suba um .pdf com foto."
+        "\"Busca por foto\" precisa de imagem, que uma planilha (.csv/.xlsx) não tem — já troquei o " +
+          "mecanismo pra \"Busca por texto\". Suba o arquivo de novo pra processar."
       );
       return;
     }
@@ -1825,34 +1866,60 @@ export default function Dashboard({
               </span>
             </div>
             <div className={styles.cardBody}>
-              <div className={styles.marketplaceGrid}>
-                {SELECTABLE_PROVIDERS.map((p) => {
-                  const active = searchProvider === p.id;
-                  const Icon = p.icon;
+              {/* Abas de grupo (set/2026) — ver PROVIDER_GROUPS. Substitui a
+                  antiga lista única de 5 opções (teste A/B): "texto" cobre
+                  planilha/CSV sem depender de foto, "foto" é o motor interno
+                  + IA. Ativa = groupOfProvider(searchProvider), não estado
+                  próprio (ver activeProviderGroup). */}
+              <div className={styles.providerGroupTabs}>
+                {PROVIDER_GROUPS.map((g) => {
+                  const active = g.id === activeProviderGroup;
                   return (
                     <button
-                      key={p.id}
+                      key={g.id}
                       type="button"
-                      className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
-                      onClick={() => selectProvider(p.id)}
-                      title={p.note}
+                      className={active ? styles.providerGroupTabActive : styles.providerGroupTab}
+                      onClick={() => selectProviderGroup(g.id)}
                     >
-                      <span
-                        className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
-                      >
-                        <Icon size={15} />
-                      </span>
-                      <span className={styles.marketplaceCardText}>
-                        <span className={styles.marketplaceCardLabel}>{p.label}</span>
-                      </span>
-                      {active && (
-                        <span className={styles.marketplaceCardCheck}>
-                          <Check size={11} strokeWidth={3} />
-                        </span>
-                      )}
+                      {g.label}
                     </button>
                   );
                 })}
+              </div>
+              <p className={styles.providerGroupHint}>
+                {PROVIDER_GROUPS.find((g) => g.id === activeProviderGroup)!.hint}
+              </p>
+
+              <div className={styles.marketplaceGrid}>
+                {SELECTABLE_PROVIDERS.filter((p) => groupOfProvider(p.id) === activeProviderGroup).map(
+                  (p) => {
+                    const active = searchProvider === p.id;
+                    const Icon = p.icon;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
+                        onClick={() => selectProvider(p.id)}
+                        title={p.note}
+                      >
+                        <span
+                          className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
+                        >
+                          <Icon size={15} />
+                        </span>
+                        <span className={styles.marketplaceCardText}>
+                          <span className={styles.marketplaceCardLabel}>{p.label}</span>
+                        </span>
+                        {active && (
+                          <span className={styles.marketplaceCardCheck}>
+                            <Check size={11} strokeWidth={3} />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  }
+                )}
               </div>
 
               {/* Onboarding do BYOK (set/2026, auditoria item 24): o aviso de
@@ -1877,43 +1944,6 @@ export default function Dashboard({
                     e cadastrar em Conta, no card "{PROVIDER_KEY_GUIDE[activeProvider.needsKey].card}".
                   </span>
                 </p>
-              )}
-
-              {IMAGE_MODE_PROVIDERS.has(searchProvider) && (
-                <div className={styles.subGroup}>
-                  <span className={styles.subGroupLabel}>API em uso agora</span>
-                  <div className={styles.apiSwitchRow}>
-                    {/* Antes iterava SEARCH_PROVIDERS (todos), o que reintroduzia
-                        google_lens_products/vision_internal aqui mesmo escondidos
-                        do grid principal (ver AB_TEST_PROVIDER_IDS acima) — troca
-                        pra SELECTABLE_PROVIDERS pra respeitar o mesmo recorte. */}
-                    {SELECTABLE_PROVIDERS.filter((p) => IMAGE_MODE_PROVIDERS.has(p.id)).map((p) => {
-                      const active = p.id === searchProvider;
-                      const Icon = p.icon;
-                      return (
-                        <button
-                          key={p.id}
-                          type="button"
-                          className={active ? styles.apiChipActive : styles.apiChip}
-                          title={p.note}
-                          onClick={() => selectProvider(p.id)}
-                        >
-                          <Icon size={12} />
-                          {p.label}
-                          {active && <Check size={11} strokeWidth={3} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className={styles.subGroupHint}>
-                    "Busca por imagem" usa a foto do catálogo pra achar o produto. Duas SerpApi/
-                    SearchApi.io resolvem o preço com a chave/cota de Google Lens; "Motor interno +
-                    IA (Gemini)" faz o mesmo sem essas duas, usando a chave Gemini pra descrever e
-                    confirmar visualmente o produto no motor interno. Clique acima pra voltar pra
-                    busca por texto (Motor interno, Amazon direto ou Mercado Livre) a qualquer
-                    momento.
-                  </p>
-                </div>
               )}
 
               {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider) && (

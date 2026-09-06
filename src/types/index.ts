@@ -102,7 +102,8 @@ export type Screen =
   | "suppliers"
   | "account"
   | "settings"
-  | "admin";
+  | "admin"
+  | "faq";
 
 /**
  * Planos (Fase Planos): controlam (1) quais catálogos da biblioteca
@@ -296,6 +297,16 @@ export interface MarginResult {
   reviewCount?: number;
   /** Nota média (0-5) do anúncio — ver `reviewCount`. */
   rating?: number;
+  /**
+   * De qual busca salva (CatalogUploadRecord) esta linha veio — só
+   * preenchido quando a tela de Resultados está mostrando VÁRIOS
+   * catálogos do histórico combinados de uma vez (ver
+   * handleSelectHistoryMultiple em App.tsx e a coluna "Catálogo" em
+   * ResultsTable.tsx). Ausente no fluxo normal (busca única recém-feita
+   * ou um só catálogo selecionado) — não precisa persistir em lugar
+   * nenhum, é montado em memória só na hora de combinar.
+   */
+  sourceUpload?: { id: string; fileName: string };
 }
 
 export interface MarginSummary {

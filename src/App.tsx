@@ -31,6 +31,8 @@ import SupplierCompare from "./components/SupplierCompare";
 import Account from "./components/Account";
 import Settings from "./components/Settings";
 import Admin from "./components/Admin";
+import Faq from "./components/Faq";
+import DoubtToast from "./components/DoubtToast";
 
 export default function App() {
   // "home" — tela de entrada (ver docs/design-critique-log.md, Session
@@ -58,6 +60,15 @@ export default function App() {
   // manualmente pelo seletor.
   const [history, setHistory] = useState<CatalogUploadRecord[]>([]);
   const [activeHistoryId, setActiveHistoryId] = useState<string | null>(null);
+  // Seleção MÚLTIPLA do histórico, só usada pela tela de Resultados (ver
+  // handleSelectHistoryMultiple abaixo e o seletor em ResultsTable.tsx) —
+  // "processei 5 catálogos, quero ver só 3 combinados". Fica em sincronia
+  // com `activeHistoryId` (0 ou 1 item = mesma coisa que o single-select
+  // de sempre), mas existe separado porque Precificação (PricingConfig)
+  // continua só single-select — combinar pricesByMarket de catálogos
+  // diferentes ali não faria sentido (a tela recalcula margem em cima de
+  // UM mapa de preço só).
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState<string[]>([]);
 
   // Catálogo da biblioteca escolhido em "usar" na Home (ver Home.tsx) —
   // a biblioteca em si só mora na Home agora; isto é só o gatilho pra
@@ -150,6 +161,7 @@ export default function App() {
         setResults(latest.results);
         setSource(latest.source);
         setActiveHistoryId(latest.id);
+        setSelectedHistoryIds([latest.id]);
       }
     });
   }, [user]);
@@ -161,6 +173,7 @@ export default function App() {
     setResults(data.results);
     setSource(data.source);
     setActiveHistoryId(null);
+    setSelectedHistoryIds([]);
     setScreen("results");
   }
 
@@ -193,17 +206,63 @@ export default function App() {
   function handleHistoryDeleted(id: string) {
     setHistory((prev) => prev.filter((h) => h.id !== id));
     if (activeHistoryId === id) setActiveHistoryId(null);
+    setSelectedHistoryIds((prev) => prev.filter((existingId) => existingId !== id));
   }
 
-  /** Troca qual busca salva está sendo exibida em Precificação/Resultados (ver seletor de histórico). */
+  /** Troca qual busca salva está sendo exibida em Precificação/Resultados (ver seletor de histórico) — single-select de sempre. */
   function handleSelectHistory(id: string) {
     const record = history.find((h) => h.id === id);
     if (!record) return;
     setActiveHistoryId(id);
+    setSelectedHistoryIds([id]);
     setCatalogRows(record.rows);
     setPricesByMarket(record.pricesByMarket);
     setResults(record.results);
     setSource(record.source);
+  }
+
+  /**
+   * Multi-seleção do histórico, só pra tela de Resultados (ver
+   * `selectedHistoryIds` acima) — "processei 5 catálogos, quero ver só 3
+   * combinados". Com 0 ou 1 id vira o mesmo comportamento de
+   * `handleSelectHistory`; com 2+, concatena os resultados de cada
+   * catálogo marcado, carimbando `sourceUpload` em cada linha (ver
+   * MarginResult em types/index.ts) pra tabela poder mostrar de qual
+   * catálogo veio cada oferta — sem isso, dois catálogos com o mesmo SKU
+   * ficariam indistinguíveis na visão combinada.
+   */
+  function handleSelectHistoryMultiple(ids: string[]) {
+    setSelectedHistoryIds(ids);
+
+    if (ids.length <= 1) {
+      const id = ids[0];
+      if (id) handleSelectHistory(id);
+      else setActiveHistoryId(null);
+      return;
+    }
+
+    setActiveHistoryId(null);
+    const records = ids
+      .map((id) => history.find((h) => h.id === id))
+      .filter((r): r is CatalogUploadRecord => Boolean(r));
+
+    const combinedResults = records.flatMap((r) =>
+      r.results.map((res) => ({ ...res, sourceUpload: { id: r.id, fileName: r.fileName } }))
+    );
+    const combinedRows = records.flatMap((r) => r.rows);
+    // Prioriza "server" se qualquer um dos catálogos combinados for real
+    // (não faz sentido rebaixar a fonte só porque um dos vários também
+    // rodou em modo mock local, ver Dashboard.tsx).
+    const combinedSource: "server" | "local" | null = records.some((r) => r.source === "server")
+      ? "server"
+      : (records[0]?.source ?? null);
+
+    setCatalogRows(combinedRows);
+    setResults(combinedResults);
+    setSource(combinedSource);
+    // `pricesByMarket` fica como está — só Precificação (PricingConfig)
+    // consome esse mapa, e aquela tela continua usando o single-select
+    // de sempre (handleSelectHistory), nunca este handler.
   }
 
   /** Abre um registro do histórico direto na tela de Resultados (Home > "Suas buscas" / "Ver último resultado"). */
@@ -233,6 +292,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
+      <DoubtToast onOpenFaq={() => setScreen("faq")} />
       <TopNav
         active={screen}
         onChange={setScreen}
@@ -297,8 +357,8 @@ export default function App() {
                 targetMarginPct={pricingRules.targetMarginPct}
                 source={source}
                 history={history}
-                activeHistoryId={activeHistoryId}
-                onSelectHistory={handleSelectHistory}
+                selectedHistoryIds={selectedHistoryIds}
+                onSelectHistoryMultiple={handleSelectHistoryMultiple}
                 showCharts={preferences.chartsResults}
                 compareSideBySide={preferences.compareEnginesSideBySide}
                 groupBySku={preferences.groupOffersBySku}
@@ -327,6 +387,7 @@ export default function App() {
               />
             )}
             {screen === "admin" && <Admin profile={profile} />}
+            {screen === "faq" && <Faq />}
           </motion.div>
         </AnimatePresence>
       </main>

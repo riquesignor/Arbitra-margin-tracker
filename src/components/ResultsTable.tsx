@@ -35,16 +35,109 @@ interface Props {
   results: MarginResult[];
   targetMarginPct: number;
   source: "server" | "local" | null;
-  /** Buscas salvas do usuário — alimenta o seletor "qual busca ver" abaixo. */
+  /** Buscas salvas do usuário — alimenta o seletor "quais catálogos ver" abaixo. */
   history?: CatalogUploadRecord[];
-  activeHistoryId?: string | null;
-  onSelectHistory?: (id: string) => void;
+  /**
+   * IDs do histórico atualmente selecionados — 0/1 item é o mesmo
+   * comportamento de sempre (resultado de uma busca só); 2+ mostra a
+   * UNIÃO dos resultados desses catálogos numa tabela só, cada linha
+   * carimbada com `sourceUpload` (ver MarginResult em types/index.ts) pra
+   * dar pra distinguir de qual catálogo veio cada oferta.
+   */
+  selectedHistoryIds?: string[];
+  onSelectHistoryMultiple?: (ids: string[]) => void;
   /** Configurações → Personalização: "Gráficos na tela de Resultados" — só a faixa de distribuição no topo; a barra de margem por linha (MarginBar) é sempre visível, não é opcional. */
   showCharts?: boolean;
   /** 2+ marketplaces buscados: mostra 1 linha por SKU com 1 coluna de preço por marketplace + diferença, em vez de 1 linha por oferta. */
   compareSideBySide?: boolean;
   /** 1 linha por SKU (melhor oferta em destaque), com as outras ofertas do mesmo SKU recolhidas — expande com o chevron. */
   groupBySku?: boolean;
+}
+
+/** Pequena legenda "de qual catálogo veio" — só aparece na visão combinada (2+ catálogos do histórico marcados, ver HistoryMultiSelect). */
+function SourceUploadTag({ sourceUpload }: { sourceUpload?: MarginResult["sourceUpload"] }) {
+  if (!sourceUpload) return null;
+  return (
+    <span className={styles.sourceUploadTag} title={`Veio do catálogo "${sourceUpload.fileName}"`}>
+      {sourceUpload.fileName}
+    </span>
+  );
+}
+
+/**
+ * Dropdown com checkbox (não `<select multiple>` nativo — UX ruim pra
+ * marcar/desmarcar vários itens) pra escolher quais catálogos do
+ * histórico combinar na tabela (ver selectedHistoryIds/onSelectHistoryMultiple
+ * acima e handleSelectHistoryMultiple em App.tsx).
+ */
+function HistoryMultiSelect({
+  history,
+  selectedIds,
+  onChange,
+}: {
+  history: CatalogUploadRecord[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  function toggle(id: string) {
+    if (selectedIds.includes(id)) onChange(selectedIds.filter((existing) => existing !== id));
+    else onChange([...selectedIds, id]);
+  }
+
+  const label =
+    selectedIds.length === 0
+      ? "Resultado atual desta sessão"
+      : selectedIds.length === 1
+        ? formatHistoryLabel(history.find((h) => h.id === selectedIds[0])!)
+        : `${selectedIds.length} catálogos combinados`;
+
+  return (
+    <div className={styles.historyMultiSelectWrap}>
+      <span className={styles.historySelectLabel}>ver busca</span>
+      <button
+        type="button"
+        className={styles.historyMultiSelectButton}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={styles.historyMultiSelectButtonLabel}>{label}</span>
+        {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      </button>
+      {open && (
+        <>
+          <div className={styles.historyMultiSelectBackdrop} onClick={() => setOpen(false)} />
+          <div className={styles.historyMultiSelectPanel}>
+            <button
+              type="button"
+              className={styles.historyMultiSelectClear}
+              onClick={() => {
+                onChange([]);
+                setOpen(false);
+              }}
+              disabled={selectedIds.length === 0}
+            >
+              Voltar pro resultado atual desta sessão
+            </button>
+            <ul className={styles.historyMultiSelectList}>
+              {history.map((record) => (
+                <li key={record.id}>
+                  <label className={styles.historyMultiSelectItem}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(record.id)}
+                      onChange={() => toggle(record.id)}
+                    />
+                    <span>{formatHistoryLabel(record)}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function formatHistoryLabel(record: CatalogUploadRecord): string {
@@ -419,8 +512,8 @@ export default function ResultsTable({
   targetMarginPct,
   source,
   history = [],
-  activeHistoryId = null,
-  onSelectHistory,
+  selectedHistoryIds = [],
+  onSelectHistoryMultiple,
   showCharts = true,
   compareSideBySide = false,
   groupBySku = false,
@@ -546,20 +639,29 @@ export default function ResultsTable({
     results.map((r) => r.marginPct).filter((v): v is number => v != null)
   );
 
+  // Número com vírgula decimal (padrão BR) — só faz sentido combinado com
+  // `;` como delimitador do CSV (ver handleExportCsv). Ponto decimal +
+  // vírgula delimitadora é a combinação que faz o Excel configurado em
+  // pt-BR (padrão de quem usa este app) abrir o arquivo com tudo numa
+  // coluna só — a causa mais comum de "a exportação saiu desorganizada".
+  function formatNumberBR(value: number, digits: number): string {
+    return value.toFixed(digits).replace(".", ",");
+  }
+
   function handleExportCsv() {
     const rows = filtered.map((r) => ({
       SKU: r.sku,
       Produto: r.name,
       Marketplace: MARKETPLACE_LABEL[r.marketplace],
-      "Custo (R$)": r.supplierPrice != null ? r.supplierPrice.toFixed(2) : "",
+      "Custo (R$)": r.supplierPrice != null ? formatNumberBR(r.supplierPrice, 2) : "",
       // Preço POR UNIDADE (ver MarketPrice acima) — as duas colunas
       // seguintes só vêm preenchidas quando o anúncio é lote, pra quem
       // analisa a planilha fora do app conseguir refazer a conta.
-      "Preço (R$)": r.marketplacePrice.toFixed(2),
+      "Preço (R$)": formatNumberBR(r.marketplacePrice, 2),
       "Lote (un.)": r.packQuantity ?? "",
-      "Preço do anúncio (R$)": r.listingPrice != null ? r.listingPrice.toFixed(2) : "",
-      "Margem (%)": r.marginPct != null ? (r.marginPct * 100).toFixed(1) : "",
-      "Confiança (%)": (r.confidence * 100).toFixed(0),
+      "Preço do anúncio (R$)": r.listingPrice != null ? formatNumberBR(r.listingPrice, 2) : "",
+      "Margem (%)": r.marginPct != null ? formatNumberBR(r.marginPct * 100, 1) : "",
+      "Confiança (%)": Math.round(r.confidence * 100).toString(),
       "Confiança veio de": r.confidenceSource === "visual" ? "foto" : r.confidenceSource === "texto" ? "nome" : "",
       Recomendação: BADGE_LABEL[r.recommendation],
       Concorrentes: r.competitorCount,
@@ -568,7 +670,7 @@ export default function ResultsTable({
       // Amazon é AVALIAÇÕES (ver PopularityBadge); o cabeçalho diz os
       // dois pra planilha não induzir a leitura errada fora do app.
       "Vendas/avaliações do anúncio": r.reviewCount ?? "",
-      "Nota do anúncio": r.rating != null ? r.rating.toFixed(1) : "",
+      "Nota do anúncio": r.rating != null ? formatNumberBR(r.rating, 1) : "",
       // Match aproximado precisa sobreviver à exportação — quem analisa
       // a planilha fora do app não pode confundir chute com match real.
       Aproximado: r.approximate ? "Sim" : "Não",
@@ -578,8 +680,15 @@ export default function ResultsTable({
 
     // Exporta o conjunto FILTRADO (respeita busca/status ativos na
     // tela), não paginado — quem exporta quer o recorte inteiro que
-    // está olhando, não só a página visível.
-    const csv = Papa.unparse(rows);
+    // está olhando, não só a página visível. Delimitador `;` (não `,`,
+    // o default do Papa) — Excel com Windows/config regional pt-BR
+    // (o caso comum de quem usa este app) reconhece `;` como separador
+    // de coluna nativamente ao abrir um .csv por duplo-clique; com `,`
+    // ele tratava o arquivo inteiro como uma coluna só, com os números
+    // decimais (que agora usam vírgula, ver formatNumberBR) picotando
+    // linhas no meio. BOM (﻿) já presente segue garantindo que
+    // acento/caractere especial abra certo no Excel também.
+    const csv = Papa.unparse(rows, { delimiter: ";" });
     const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -611,24 +720,12 @@ export default function ResultsTable({
             meta <b className={styles.headerCardStrong}>{(targetMarginPct * 100).toFixed(0)}%</b>
           </span>
         </div>
-        {history.length > 0 && onSelectHistory && (
-          <label className={styles.historySelectWrap}>
-            <span className={styles.historySelectLabel}>ver busca</span>
-            <select
-              className={styles.historySelect}
-              value={activeHistoryId ?? ""}
-              onChange={(e) => e.target.value && onSelectHistory(e.target.value)}
-            >
-              <option value="" disabled={activeHistoryId !== null}>
-                Resultado atual desta sessão
-              </option>
-              {history.map((record) => (
-                <option key={record.id} value={record.id}>
-                  {formatHistoryLabel(record)}
-                </option>
-              ))}
-            </select>
-          </label>
+        {history.length > 0 && onSelectHistoryMultiple && (
+          <HistoryMultiSelect
+            history={history}
+            selectedIds={selectedHistoryIds}
+            onChange={onSelectHistoryMultiple}
+          />
         )}
       </div>
 
@@ -797,6 +894,7 @@ export default function ResultsTable({
                           />
                         )}
                       </div>
+                      <SourceUploadTag sourceUpload={r.sourceUpload} />
                       {r.link ? (
                         <a
                           className={styles.productLink}
@@ -884,6 +982,7 @@ export default function ResultsTable({
                             />
                           )}
                         </div>
+                        <SourceUploadTag sourceUpload={best.sourceUpload} />
                       </td>
                       {marketplacesPresent.map((m) => {
                         const offer = byMarket.get(m);
@@ -989,6 +1088,7 @@ export default function ResultsTable({
                               />
                             )}
                           </div>
+                          <SourceUploadTag sourceUpload={best.sourceUpload} />
                           {best.link ? (
                             <a
                               className={styles.productLink}
@@ -1045,6 +1145,7 @@ export default function ResultsTable({
                             <td />
                             <td className={styles.productCell}>
                               <span className={styles.subRowHint}>outra oferta</span>
+                              <SourceUploadTag sourceUpload={r.sourceUpload} />
                               {r.link ? (
                                 <a
                                   className={styles.productLink}
