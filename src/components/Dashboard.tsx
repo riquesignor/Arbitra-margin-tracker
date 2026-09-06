@@ -678,12 +678,13 @@ export default function Dashboard({
   // VisionCandidateSource em ../types) — só tem efeito quando
   // `searchProvider` é "vision_internal"/"vision_mistral" (ver
   // SLOW_AI_VISION_PROVIDERS). Default "auto" preserva a cascata de
-  // sempre; escolhido no pop-up disparado por `selectProvider` sempre que
-  // o usuário ENTRA num dos dois motores internos vindo de outro provider.
+  // sempre. Corrigido (set/2026): o pop-up abria SOZINHO ao entrar num
+  // motor interno vindo de outro provider — o overlay cobria a grid bem
+  // no momento em que o usuário ainda queria escolher entre Gemini/
+  // Mistral, e fechar o modal sempre voltava pro primeiro do grupo. Agora
+  // só abre pelo botão "Mudar" (ver "API de apoio" no JSX da seção 01) —
+  // `selectProvider` nunca mais mexe nestes dois estados.
   const [candidateSource, setCandidateSource] = useState<VisionCandidateSource>("auto");
-  // Controla o pop-up (ver CandidateSourceModal, JSX mais abaixo) — o
-  // texto/opções não mudam entre vision_internal/vision_mistral, só
-  // precisa saber que está aberto.
   const [candidateSourcePromptOpen, setCandidateSourcePromptOpen] = useState(false);
 
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
@@ -982,18 +983,15 @@ export default function Dashboard({
    * subGroup na seção 01), não travam a seleção.
    */
   function selectProvider(id: SearchProviderId) {
-    // Pop-up de fonte terceira (set/2026, ver CandidateSourceModal) —
-    // dispara ao ENTRAR num motor interno vindo de outro provider (troca
-    // de vision_internal pra vision_mistral, ou o contrário, NÃO reabre —
-    // a fonte já escolhida continua valendo pro outro backend de IA,
-    // "sempre que selecionar" do pedido original é sobre entrar no grupo,
-    // não sobre alternar dentro dele). Fechar sem escolher mantém "auto"
-    // (default já é esse), então dispensa passar pelo motor sem intenção
-    // nenhuma quebra o mínimo possível.
-    if (SLOW_AI_VISION_PROVIDERS.has(id) && !SLOW_AI_VISION_PROVIDERS.has(searchProvider)) {
-      setCandidateSource("auto");
-      setCandidateSourcePromptOpen(true);
-    }
+    // Pop-up de fonte terceira (set/2026, ver CandidateSourceModal) — NÃO
+    // abre mais sozinho aqui (bug reportado: abria automaticamente ao
+    // ENTRAR num motor interno vindo de outro provider, sobrepondo a grid
+    // com um overlay bloqueante bem no momento em que o usuário ainda
+    // queria escolher entre Gemini/Mistral — trocar de motor com o modal
+    // aberto não dava, e fechar o modal voltava sempre pro primeiro do
+    // grupo). Agora só abre sob demanda, pelo botão "Mudar" (ver
+    // "API de apoio" na seção 01) — o candidateSource escolhido
+    // anteriormente continua valendo até o usuário abrir o modal de novo.
     setSearchProvider(id);
     const config = SEARCH_PROVIDERS.find((p) => p.id === id)!;
     const isMultiMarketplace = MULTI_MARKETPLACE_PROVIDERS.has(id);
@@ -1921,6 +1919,34 @@ export default function Dashboard({
                   }
                 )}
               </div>
+
+              {/* "API de apoio" (set/2026 — correção de bug: o pop-up de fonte
+                  terceira, ver CandidateSourceModal, antes abria SOZINHO ao
+                  entrar num motor interno vindo de outro provider. Problema
+                  reportado: o overlay do modal cobria a grid de motores bem
+                  no momento em que o usuário ainda queria trocar entre
+                  Gemini/Mistral, e fechar o modal voltava sempre pro primeiro
+                  do grupo (Gemini) — na prática, dava pra abrir o motor mas
+                  não pra escolher Mistral. Agora o modal só abre por este
+                  botão "Mudar", nunca sozinho — trocar de motor (Gemini ↔
+                  Mistral) na grid acima nunca dispara o pop-up. */}
+              {SLOW_AI_VISION_PROVIDERS.has(searchProvider) && (
+                <div className={styles.candidateSourceRow}>
+                  <span className={styles.candidateSourceLabel}>
+                    API de apoio:{" "}
+                    <b>
+                      {CANDIDATE_SOURCE_OPTIONS.find((o) => o.id === candidateSource)?.label ?? "Automático"}
+                    </b>
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.candidateSourceChangeButton}
+                    onClick={() => setCandidateSourcePromptOpen(true)}
+                  >
+                    Mudar
+                  </button>
+                </div>
+              )}
 
               {/* Onboarding do BYOK (set/2026, auditoria item 24): o aviso de
                   chave faltando só existia DEPOIS da busca falhar e mandava

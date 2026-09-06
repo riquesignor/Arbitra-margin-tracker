@@ -16,7 +16,12 @@ import { readXlsxSheet } from "./xlsxReader";
  */
 
 const SKU_ALIASES = ["sku", "codigo", "código", "cod"];
-const NAME_ALIASES = ["nome", "produto", "name", "descricao", "descrição"];
+// "titulo"/"título" (set/2026): nome de coluna comum em export de ERP/
+// marketplace (Bling, Tiny e afins) — catálogo real testado tinha só essa
+// coluna pro nome do produto, sem nenhuma das variações já cobertas, e
+// ficava com `name: ""` em toda linha (busca por texto sem nome nenhum
+// pra usar).
+const NAME_ALIASES = ["nome", "produto", "name", "descricao", "descrição", "titulo", "título"];
 const PRICE_ALIASES = ["custo", "preco", "preço", "price", "cost", "valor"];
 
 const DIACRITICS_REGEX = new RegExp("[\\u0300-\\u036f]", "g");
