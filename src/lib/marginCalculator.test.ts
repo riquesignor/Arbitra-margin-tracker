@@ -140,6 +140,81 @@ describe("calculateMargin", () => {
   });
 });
 
+describe("calculateMargin — suggestedPrice (preço sugerido pra bater a margem-alvo)", () => {
+  it("resolve o preço que bate exatamente a margem-alvo, dado custo + taxas + frete", () => {
+    const rules: PricingRules = {
+      marketplaceFees: [{ id: "f1", name: "Taxa", rate: 0.1, enabled: true }],
+      shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 10 }],
+      taxRates: [{ id: "tax1", state: "SP", label: "ICMS", rate: 0.05, enabled: true }],
+      targetMarginPct: 0.2,
+      priceFloor: 0,
+    };
+
+    // P = (100 * 1.2 + 10) / (1 - 0.15) = 130 / 0.85 = 152.94...
+    const result = calculateMargin(makeRow({ supplierPrice: 100 }), makePrice({ price: 999 }), rules);
+
+    expect(result.suggestedPrice).toBeCloseTo(152.94, 2);
+
+    // Conferência cruzada: recalculando a margem NESSE preço sugerido
+    // (em vez do preço de mercado de R$999 usado só pra popular a
+    // oferta) tem que bater exatamente a meta de 20%.
+    const atSuggested = calculateMargin(
+      makeRow({ supplierPrice: 100 }),
+      makePrice({ price: result.suggestedPrice }),
+      rules
+    );
+    expect(atSuggested.marginPct).toBeCloseTo(0.2, 2);
+  });
+
+  it("nunca fica abaixo do priceFloor configurado, mesmo quando a conta daria um preço menor", () => {
+    const rules: PricingRules = {
+      marketplaceFees: [],
+      shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 0 }],
+      taxRates: [],
+      targetMarginPct: 0, // P calculado = supplierPrice exato (100) — abaixo do floor de propósito
+      priceFloor: 250,
+    };
+
+    const result = calculateMargin(makeRow({ supplierPrice: 100 }), makePrice({ price: 500 }), rules);
+
+    expect(result.suggestedPrice).toBe(250);
+  });
+
+  it("undefined quando as taxas+impostos habilitados somam 100% ou mais do preço de venda (config inconsistente, sem preço finito que resolva)", () => {
+    const rules: PricingRules = {
+      marketplaceFees: [
+        { id: "f1", name: "Taxa 1", rate: 0.6, enabled: true },
+        { id: "f2", name: "Taxa 2", rate: 0.5, enabled: true },
+      ],
+      shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 0 }],
+      taxRates: [],
+      targetMarginPct: 0.2,
+      priceFloor: 0,
+    };
+
+    const result = calculateMargin(makeRow({ supplierPrice: 100 }), makePrice({ price: 500 }), rules);
+
+    expect(result.suggestedPrice).toBeUndefined();
+  });
+
+  it("ignora taxa/imposto desabilitado no cálculo do preço sugerido, igual já faz em feesCost/taxesCost", () => {
+    const rules: PricingRules = {
+      marketplaceFees: [{ id: "f1", name: "Taxa", rate: 0.9, enabled: false }],
+      shippingTiers: [{ id: "t1", label: "Único", maxPrice: Infinity, cost: 0 }],
+      taxRates: [],
+      targetMarginPct: 0.2,
+      priceFloor: 0,
+    };
+
+    // Taxa de 90% desabilitada não deveria contar — se contasse, rateSum
+    // ficaria 0.9 e o preço sugerido explodiria; com ela fora, é só
+    // supplierPrice * (1 + targetMarginPct) = 120.
+    const result = calculateMargin(makeRow({ supplierPrice: 100 }), makePrice({ price: 500 }), rules);
+
+    expect(result.suggestedPrice).toBe(120);
+  });
+});
+
 describe("calculateMargin — catálogo sem preço de custo (sem_custo)", () => {
   it("devolve recommendation 'sem_custo' e nenhum campo de custo/margem quando supplierPrice é undefined", () => {
     const row = makeRow({ supplierPrice: undefined });
@@ -154,6 +229,7 @@ describe("calculateMargin — catálogo sem preço de custo (sem_custo)", () => 
     expect(result.taxesCost).toBeUndefined();
     expect(result.totalCost).toBeUndefined();
     expect(result.marginPct).toBeUndefined();
+    expect(result.suggestedPrice).toBeUndefined();
     // Preço de mercado e o resto dos dados encontrados continuam presentes
     // — só falta o que depende de custo, não o produto inteiro.
     expect(result.marketplacePrice).toBe(199.9);

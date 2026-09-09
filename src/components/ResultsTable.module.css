@@ -815,6 +815,31 @@
   color: var(--color-text-dim);
 }
 
+/*
+ * Nota da coluna "Preço sugerido" (set/2026, ver SuggestedPriceCell em
+ * ResultsTable.tsx) — compara o preço sugerido (bate a margem-alvo) com o
+ * preço de mercado já encontrado. Mesmo peso visual de `.marginValue`,
+ * cor reaproveitada de `.diffUp`/`.diffDown` (mesmo vocabulário da coluna
+ * "Diferença" da visão lado-a-lado): verde quando dá pra bater a meta
+ * vendendo igual ou abaixo do mercado, vermelho quando a meta exige
+ * cobrar mais caro que a concorrência pratica hoje.
+ */
+.suggestedPriceNote {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.suggestedPriceOk {
+  color: var(--color-success);
+}
+
+.suggestedPriceHigh {
+  color: var(--color-danger);
+}
+
 .badge {
   font-family: var(--font-body);
   font-size: 0.75rem;

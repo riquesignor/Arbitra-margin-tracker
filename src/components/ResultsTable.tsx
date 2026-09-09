@@ -437,6 +437,59 @@ function CostCell({ value }: { value?: number }) {
   );
 }
 
+/**
+ * Coluna de preço sugerido (set/2026, ver `suggestedPrice` em types/index.ts
+ * e `resolveSuggestedPrice` em marginCalculator.ts): o preço de venda que
+ * bate exatamente a margem-alvo configurada em Precificação, dado o custo
+ * do fornecedor + taxas/impostos habilitados + frete. Até agora a tela só
+ * classificava o preço de MERCADO já encontrado (badge recomendado/
+ * revisar/evitar) — não existia um número dizendo POR QUANTO vender.
+ *
+ * A nota abaixo do valor compara com `marketplacePrice` (o preço já
+ * encontrado no anúncio): acima dele significa que bater a meta exigiria
+ * cobrar mais caro que a concorrência pratica hoje — é o motivo concreto
+ * por trás de um "revisar"/"evitar", não só o rótulo.
+ */
+function SuggestedPriceCell({
+  suggestedPrice,
+  marketplacePrice,
+}: {
+  suggestedPrice?: number;
+  marketplacePrice: number;
+}) {
+  if (suggestedPrice == null) {
+    return (
+      <td>
+        <span
+          className={styles.noLink}
+          title="Não deu pra calcular — as taxas e impostos habilitados em Precificação somam 100% ou mais do preço de venda. Revise as taxas em Precificação."
+        >
+          —
+        </span>
+      </td>
+    );
+  }
+
+  const diff = Number((suggestedPrice - marketplacePrice).toFixed(2));
+  const withinMarket = diff <= 0;
+
+  return (
+    <td>
+      R$ {suggestedPrice.toFixed(2)}
+      <span
+        className={`${styles.suggestedPriceNote} ${withinMarket ? styles.suggestedPriceOk : styles.suggestedPriceHigh}`}
+        title={
+          withinMarket
+            ? "Pra bater sua margem-alvo, dá pra vender igual ou abaixo do preço de mercado encontrado."
+            : `Pra bater sua margem-alvo, precisaria vender R$ ${diff.toFixed(2)} ACIMA do preço de mercado encontrado — acima da concorrência.`
+        }
+      >
+        {withinMarket ? "dentro do mercado" : `+R$ ${diff.toFixed(2)} vs. mercado`}
+      </span>
+    </td>
+  );
+}
+
 /** Coluna de margem — sem barra/percentual quando não há custo cadastrado pra calcular margem nenhuma (ver CostCell). */
 function MarginCell({
   marginPct,
@@ -495,12 +548,48 @@ export const MARKETPLACE_LABEL: Record<MarketplaceId, string> = {
   geral: "Lojas gerais",
 };
 
-const SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
+// Quebrado em dois grupos (em vez de um `SORTABLE_COLUMNS` só) porque a
+// coluna "Preço sugerido" (set/2026, ver SuggestedPriceCell) entra ENTRE
+// Preço e Margem no cabeçalho da visão flat, e ela não é sortável (não
+// tem `SortKey` — é derivada, não um dado bruto do resultado).
+const PRICE_SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "supplierPrice", label: "Custo" },
   { key: "marketplacePrice", label: "Preço" },
+];
+const QUALITY_SORTABLE_COLUMNS: { key: SortKey; label: string }[] = [
   { key: "marginPct", label: "Margem" },
   { key: "confidence", label: "Confiança" },
 ];
+
+/** Cabeçalho ordenável — extraído pra reaproveitar entre os dois grupos acima sem duplicar o JSX do botão/ícone de ordenação. */
+function SortableHeader({
+  col,
+  sortKey,
+  sortDir,
+  onSort,
+}: {
+  col: { key: SortKey; label: string };
+  sortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  return (
+    <th>
+      <button type="button" className={styles.sortButton} onClick={() => onSort(col.key)}>
+        {col.label}
+        {sortKey === col.key ? (
+          sortDir === "asc" ? (
+            <ArrowUp size={11} />
+          ) : (
+            <ArrowDown size={11} />
+          )
+        ) : (
+          <ArrowUpDown size={11} className={styles.sortIconIdle} />
+        )}
+      </button>
+    </th>
+  );
+}
 
 // Catálogos grandes (a motivação original do parser de PDF/CSV) passam
 // de 100-200 linhas fácil — renderizar tudo de uma vez deixa a tabela
@@ -660,6 +749,11 @@ export default function ResultsTable({
       "Preço (R$)": formatNumberBR(r.marketplacePrice, 2),
       "Lote (un.)": r.packQuantity ?? "",
       "Preço do anúncio (R$)": r.listingPrice != null ? formatNumberBR(r.listingPrice, 2) : "",
+      // Preço que bate a margem-alvo configurada — ver suggestedPrice em
+      // types/index.ts. Vazio nos mesmos casos que a coluna de margem
+      // (catálogo "sem_custo") ou quando a config de taxas é inconsistente
+      // (ver resolveSuggestedPrice, marginCalculator.ts).
+      "Preço sugerido (R$)": r.suggestedPrice != null ? formatNumberBR(r.suggestedPrice, 2) : "",
       "Margem (%)": r.marginPct != null ? formatNumberBR(r.marginPct * 100, 1) : "",
       "Confiança (%)": Math.round(r.confidence * 100).toString(),
       "Confiança veio de": r.confidenceSource === "visual" ? "foto" : r.confidenceSource === "texto" ? "nome" : "",
@@ -845,25 +939,12 @@ export default function ResultsTable({
                   <th>SKU</th>
                   <th className={styles.productHeader}>Produto</th>
                   <th>Marketplace</th>
-                  {SORTABLE_COLUMNS.map((col) => (
-                    <th key={col.key}>
-                      <button
-                        type="button"
-                        className={styles.sortButton}
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label}
-                        {sortKey === col.key ? (
-                          sortDir === "asc" ? (
-                            <ArrowUp size={11} />
-                          ) : (
-                            <ArrowDown size={11} />
-                          )
-                        ) : (
-                          <ArrowUpDown size={11} className={styles.sortIconIdle} />
-                        )}
-                      </button>
-                    </th>
+                  {PRICE_SORTABLE_COLUMNS.map((col) => (
+                    <SortableHeader key={col.key} col={col} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  ))}
+                  <th>Preço sugerido</th>
+                  {QUALITY_SORTABLE_COLUMNS.map((col) => (
+                    <SortableHeader key={col.key} col={col} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   ))}
                   <th>Status</th>
                 </tr>
@@ -916,6 +997,7 @@ export default function ResultsTable({
                     <td>
                       <MarketPrice result={r} />
                     </td>
+                    <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
                     <MarginCell
                       marginPct={r.marginPct}
                       targetMarginPct={targetMarginPct}
@@ -996,6 +1078,14 @@ export default function ResultsTable({
                                     ? `${(offer.marginPct * 100).toFixed(1)}% margem`
                                     : "sem custo"}
                                 </span>
+                                {offer.suggestedPrice != null && (
+                                  <span
+                                    className={styles.marginValue}
+                                    title="Preço de venda que bate exatamente sua margem-alvo (Precificação) neste marketplace."
+                                  >
+                                    sugerido: R$ {offer.suggestedPrice.toFixed(2)}
+                                  </span>
+                                )}
                                 {offer.link ? (
                                   <a
                                     className={styles.productLink}
@@ -1059,6 +1149,7 @@ export default function ResultsTable({
                   <th>Marketplace</th>
                   <th>Custo</th>
                   <th>Preço</th>
+                  <th>Preço sugerido</th>
                   <th>Margem</th>
                   <th>Status</th>
                 </tr>
@@ -1118,6 +1209,7 @@ export default function ResultsTable({
                         <td>
                           <MarketPrice result={best} />
                         </td>
+                        <SuggestedPriceCell suggestedPrice={best.suggestedPrice} marketplacePrice={best.marketplacePrice} />
                         <MarginCell
                           marginPct={best.marginPct}
                           targetMarginPct={targetMarginPct}
@@ -1165,6 +1257,7 @@ export default function ResultsTable({
                             <td>
                               <MarketPrice result={r} />
                             </td>
+                            <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
                             <td>
                               <span className={styles.marginValue}>
                                 {r.marginPct != null ? `${(r.marginPct * 100).toFixed(1)}%` : "sem custo"}

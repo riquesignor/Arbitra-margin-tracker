@@ -247,6 +247,18 @@ export interface MarginResult {
   taxesCost?: number;
   totalCost?: number;
   marginPct?: number;
+  /**
+   * Preço de venda que bate exatamente a margem-alvo configurada
+   * (Precificação → "Margem alvo"), já considerando o custo do
+   * fornecedor, taxas de marketplace/imposto habilitadas e o frete pela
+   * faixa do fornecedor — ver `calculateMargin` em marginCalculator.ts
+   * pra fórmula. `undefined` nos mesmos casos que os outros campos de
+   * custo (catálogo "sem_custo") OU quando a soma das taxas/impostos
+   * habilitados é >= 100% do preço de venda (configuração de
+   * Precificação inconsistente — não existe preço finito que resolva a
+   * equação). Nunca fica abaixo de `PricingRules.priceFloor`.
+   */
+  suggestedPrice?: number;
   confidence: number;
   recommendation: Recommendation;
   link?: string;

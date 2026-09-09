@@ -138,7 +138,44 @@ export function calculateMargin(
     totalCost: Number(totalCost.toFixed(2)),
     marginPct: Number(marginPct.toFixed(4)),
     recommendation: resolveRecommendation(marginPct, rules.targetMarginPct),
+    suggestedPrice: resolveSuggestedPrice(row.supplierPrice, shippingCost, rules),
   };
+}
+
+/**
+ * Preço de venda que bate EXATAMENTE a margem-alvo — ver doc de
+ * `suggestedPrice` em ../types (set/2026). `targetMarginPct` e
+ * `priceFloor` já existiam em PricingRules/PricingConfig.tsx ("Meta — o
+ * número que o sistema otimiza"), mas nada os usava pra sugerir um
+ * preço — só classificavam o preço de MERCADO já encontrado como
+ * recomendado/revisar/evitar. Isola P na mesma equação de `marginPct`
+ * acima:
+ *
+ *   targetMarginPct = (P - custoTotal(P)) / supplierPrice
+ *   custoTotal(P) = supplierPrice + P·taxaTotal + shippingCost
+ *   (taxaTotal = soma das taxas de marketplace + impostos HABILITADOS,
+ *   as duas aplicadas sobre o preço de venda — mesma base de feesCost/
+ *   taxesCost acima)
+ *
+ *   ⇒ P = (supplierPrice·(1 + targetMarginPct) + shippingCost) / (1 − taxaTotal)
+ *
+ * `taxaTotal >= 1` (taxas somadas cobririam 100%+ do preço de venda —
+ * config de Precificação inconsistente) não tem solução finita:
+ * `undefined` nesse caso, a UI mostra "—" com tooltip em vez de exibir
+ * um número negativo ou Infinity sem sentido.
+ */
+function resolveSuggestedPrice(
+  supplierPrice: number,
+  shippingCost: number,
+  rules: PricingRules
+): number | undefined {
+  const feeRateSum = rules.marketplaceFees.filter((f) => f.enabled).reduce((sum, f) => sum + f.rate, 0);
+  const taxRateSum = rules.taxRates.filter((t) => t.enabled).reduce((sum, t) => sum + t.rate, 0);
+  const rateSum = feeRateSum + taxRateSum;
+  if (rateSum >= 1) return undefined;
+
+  const raw = (supplierPrice * (1 + rules.targetMarginPct) + shippingCost) / (1 - rateSum);
+  return Number(Math.max(raw, rules.priceFloor).toFixed(2));
 }
 
 export function calculateMargins(
