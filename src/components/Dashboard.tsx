@@ -47,6 +47,7 @@ import {
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
   getUserMistralApiKey,
+  getUserNvidiaApiKey,
   getUserScraperApiKey,
 } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
@@ -137,8 +138,11 @@ const SEARCH_PROVIDERS: {
     | "searchApiKey"
     | "geminiApiKey"
     | "mistralApiKey"
+    | "nvidiaApiKey"
     | "scraperApiKey"
     | null;
+  /** Marca "Beta" no card do seletor (set/2026, ver betaTag em Dashboard.module.css) — opção A MAIS pra comparar, sem validação de acurácia/latência ainda. */
+  beta?: boolean;
 }[] = [
   {
     id: "serpapi",
@@ -212,6 +216,23 @@ const SEARCH_PROVIDERS: {
     icon: Camera,
     needsKey: "mistralApiKey",
   },
+  // 8ª opção (set/2026, BETA) — MESMA orquestração das duas acima,
+  // trocando o backend de IA pra NVIDIA (NIM, ver nvidiaVision.ts).
+  // Pedido explícito do usuário depois de pesquisa sobre APIs NVIDIA
+  // disponíveis — entra como Beta (`beta: true`, ver badge no card) até
+  // ter validação real de acurácia/latência num catálogo, mesmo cuidado
+  // que Mistral teve antes de virar opção "normal". Chave é BYOK igual
+  // Gemini/Mistral (build.nvidia.com, grátis, só email, sem cartão — sem
+  // login/OAuth na hora de usar a busca dentro do Arbitra).
+  {
+    id: "vision_nvidia",
+    label: "Motor interno + IA (NVIDIA)",
+    note: "Amazon + Mercado Livre · foto do catálogo, 3ª opção de IA em teste (beta)",
+    marketplaces: ["mercadolivre", "amazon"],
+    icon: Camera,
+    needsKey: "nvidiaApiKey",
+    beta: true,
+  },
   // ScraperAPI como busca de verdade (Structured Data Endpoints: Amazon
   // Search API + Google Shopping API), não só transporte — ver
   // scraperApiSearchProvider.ts. Virou o DEFAULT do seletor (ver
@@ -244,6 +265,7 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
   "searchapi_lens",
   "vision_internal",
   "vision_mistral",
+  "vision_nvidia",
 ]);
 
 /**
@@ -255,7 +277,7 @@ const IMAGE_MODE_PROVIDERS = new Set<SearchProviderId>([
  * pausa de cota) que este par precisa — daí um Set separado em vez de
  * reaproveitar IMAGE_MODE_PROVIDERS pra essas decisões.
  */
-const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_mistral"]);
+const SLOW_AI_VISION_PROVIDERS = new Set<SearchProviderId>(["vision_internal", "vision_mistral", "vision_nvidia"]);
 
 /**
  * Opções do pop-up de seleção de fonte pro motor interno + IA (set/2026,
@@ -311,6 +333,7 @@ const MULTI_MARKETPLACE_PROVIDERS = new Set<SearchProviderId>([
   "searchapi_lens",
   "vision_internal",
   "vision_mistral",
+  "vision_nvidia",
   "scraperapi",
 ]);
 
@@ -451,7 +474,7 @@ const PROVIDER_GROUPS: {
     id: "foto",
     label: "Busca por foto",
     hint: "usa a FOTO do produto (catálogo em .pdf com imagem) — mais lenta, mas confirma visualmente com IA antes de decidir o preço.",
-    providerIds: ["vision_internal", "vision_mistral"],
+    providerIds: ["vision_internal", "vision_mistral", "vision_nvidia"],
   },
 ];
 
@@ -746,6 +769,11 @@ export default function Dashboard({
   // Mesma lógica das chaves acima, campo separado (ver userSecrets.ts).
   const [mistralApiKey, setMistralApiKey] = useState<string | null>(null);
 
+  // BYOK — chave NVIDIA própria (BETA, motor interno + IA, provider
+  // "vision_nvidia", 3ª opção de backend). Mesma lógica das chaves acima,
+  // campo separado (ver userSecrets.ts).
+  const [nvidiaApiKey, setNvidiaApiKey] = useState<string | null>(null);
+
   // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
   // secret de servidor da plataforma). Mesma lógica das chaves acima;
   // usada pelo provider "scraperapi" E como fallback cross-cutting de
@@ -888,6 +916,14 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!userId) {
+      setNvidiaApiKey(null);
+      return;
+    }
+    getUserNvidiaApiKey(userId).then(setNvidiaApiKey);
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
       setScraperApiKey(null);
       return;
     }
@@ -952,9 +988,11 @@ export default function Dashboard({
             ? geminiApiKey
             : activeProvider.needsKey === "mistralApiKey"
               ? mistralApiKey
-              : activeProvider.needsKey === "scraperApiKey"
-                ? scraperApiKey
-                : null;
+              : activeProvider.needsKey === "nvidiaApiKey"
+                ? nvidiaApiKey
+                : activeProvider.needsKey === "scraperApiKey"
+                  ? scraperApiKey
+                  : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
@@ -1907,7 +1945,10 @@ export default function Dashboard({
                           <Icon size={15} />
                         </span>
                         <span className={styles.marketplaceCardText}>
-                          <span className={styles.marketplaceCardLabel}>{p.label}</span>
+                          <span className={styles.marketplaceCardLabel}>
+                            {p.label}
+                            {p.beta && <span className={styles.betaTag}>Beta</span>}
+                          </span>
                         </span>
                         {active && (
                           <span className={styles.marketplaceCardCheck}>
@@ -2354,9 +2395,11 @@ export default function Dashboard({
                           ? "Chave Gemini própria"
                           : activeProvider.needsKey === "mistralApiKey"
                             ? "Chave Mistral própria"
-                            : activeProvider.needsKey === "scraperApiKey"
-                              ? "Chave ScraperAPI própria"
-                              : "Chave de API"}
+                            : activeProvider.needsKey === "nvidiaApiKey"
+                              ? "Chave NVIDIA própria (beta)"
+                              : activeProvider.needsKey === "scraperApiKey"
+                                ? "Chave ScraperAPI própria"
+                                : "Chave de API"}
                 </span>
                 <span className={styles.prereqSub}>
                   {activeProvider.needsKey === null

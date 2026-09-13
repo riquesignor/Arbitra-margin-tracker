@@ -27,6 +27,7 @@ const IMAGE_REQUIRED_PROVIDERS = new Set<SearchProviderId>([
   "searchapi_lens",
   "vision_internal",
   "vision_mistral",
+  "vision_nvidia",
 ]);
 
 /**

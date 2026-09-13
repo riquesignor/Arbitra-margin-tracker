@@ -82,6 +82,12 @@ export type MarketplaceId = "amazon" | "shopee" | "mercadolivre" | "geral";
  *     da Mistral (500.000 tokens/minuto, 1 req/segundo) tem folga bem
  *     maior pro mesmo padrão de uso (várias comparações visuais por
  *     produto).
+ *   - "vision_nvidia" (set/2026, BETA) → MESMA orquestração acima, 3º
+ *     backend de IA (BYOK, campo próprio em Conta) ao lado de Gemini e
+ *     Mistral — ver nvidiaVision.ts. Servido via NVIDIA NIM
+ *     (build.nvidia.com), free tier sem cartão. Marcado "Beta" no
+ *     seletor (Dashboard.tsx) até validação real de acurácia/latência —
+ *     é opção A MAIS pro usuário comparar, não substitui as outras duas.
  *   - "scraperapi" → Structured Data Endpoints da ScraperAPI (Amazon
  *     Search API nativa + Google Shopping API), a própria ScraperAPI faz
  *     o parsing e devolve JSON pronto — papel equivalente ao de "serpapi"
@@ -101,6 +107,7 @@ export type SearchProviderId =
   | "searchapi_lens"
   | "vision_internal"
   | "vision_mistral"
+  | "vision_nvidia"
   | "scraperapi";
 
 /**

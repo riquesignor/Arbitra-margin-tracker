@@ -24,6 +24,7 @@ import {
   deleteUserUnwrangleApiKey,
   deleteUserGeminiApiKey,
   deleteUserMistralApiKey,
+  deleteUserNvidiaApiKey,
   deleteUserScraperApiKey,
   getUserSerpApiKey,
   getUserRapidApiKey,
@@ -31,6 +32,7 @@ import {
   getUserUnwrangleApiKey,
   getUserGeminiApiKey,
   getUserMistralApiKey,
+  getUserNvidiaApiKey,
   getUserScraperApiKey,
   saveUserSerpApiKey,
   saveUserRapidApiKey,
@@ -38,6 +40,7 @@ import {
   saveUserUnwrangleApiKey,
   saveUserGeminiApiKey,
   saveUserMistralApiKey,
+  saveUserNvidiaApiKey,
   saveUserScraperApiKey,
 } from "../lib/userSecrets";
 import { getTodayUsage } from "../lib/usageQuota";
@@ -218,6 +221,27 @@ const MISTRAL_INTRO = (
   </>
 );
 
+// 3ª opção de backend pro motor interno + IA (BETA, set/2026) — mesma
+// ideia dos cards Gemini/Mistral acima (busca por foto → descrição →
+// confirmação visual), servida via NVIDIA NIM (build.nvidia.com), catálogo
+// de 100+ modelos com free tier sem cartão. Entra marcada como Beta (ver
+// badge no header do card) até ter validação real de acurácia/latência
+// num catálogo — é uma 3ª opção pra comparar, não substitui as de cima.
+// Criar a chave NÃO exige login/OAuth na hora de USAR o Arbitra: é o
+// mesmo passo de criar conta na plataforma de origem (uma vez, fora do
+// app) que Gemini/Mistral já pedem hoje.
+const NVIDIA_INTRO = (
+  <>
+    Opcional, em teste (beta) — mesma ideia dos cards Gemini/Mistral acima (motor de busca por foto
+    sem SerpApi/SearchApi.io), via catálogo de modelos da NVIDIA.{" "}
+    <a href="https://build.nvidia.com" target="_blank" rel="noreferrer">
+      crie grátis em build.nvidia.com
+    </a>{" "}
+    (só email, sem cartão) e cole a API key abaixo. Resultado pode variar mais que Gemini/Mistral
+    enquanto está em teste — seu feedback ajuda a decidir se ela vira opção definitiva.
+  </>
+);
+
 // Sua própria chave (set/2026, BYOK — antes era secret da plataforma,
 // paga por TODO mundo; virou por usuário pra escalar pra "qualquer
 // pessoa comercializar" sem empurrar custo de infra pro operador). Três
@@ -357,6 +381,15 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [mistralKeyMsg, setMistralKeyMsg] = useState<string | null>(null);
   const [mistralKeyError, setMistralKeyError] = useState<string | null>(null);
 
+  // BYOK — chave NVIDIA própria (BETA, motor interno + IA, provider
+  // "vision_nvidia", ver NVIDIA_INTRO acima). Mesmo padrão de estado das
+  // chaves acima.
+  const [hasNvidiaKey, setHasNvidiaKey] = useState(false);
+  const [nvidiaKeyInput, setNvidiaKeyInput] = useState("");
+  const [savingNvidiaKey, setSavingNvidiaKey] = useState(false);
+  const [nvidiaKeyMsg, setNvidiaKeyMsg] = useState<string | null>(null);
+  const [nvidiaKeyError, setNvidiaKeyError] = useState<string | null>(null);
+
   // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
   // secret de servidor da plataforma, ver src/lib/userSecrets.ts). Usada
   // pelo mecanismo "ScraperAPI" em si E como fallback/proxy de outros
@@ -380,6 +413,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
     getUserGeminiApiKey(user.uid).then((key) => setHasGeminiKey(Boolean(key)));
     getUserMistralApiKey(user.uid).then((key) => setHasMistralKey(Boolean(key)));
+    getUserNvidiaApiKey(user.uid).then((key) => setHasNvidiaKey(Boolean(key)));
     getUserScraperApiKey(user.uid).then((key) => setHasScraperApiKey(Boolean(key)));
     getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
@@ -553,6 +587,40 @@ export default function Account({ user, profile, preferences, onUpdatePreference
       setMistralKeyError(err instanceof Error ? err.message : String(err));
     } finally {
       setSavingMistralKey(false);
+    }
+  }
+
+  async function handleSaveNvidiaKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user || !nvidiaKeyInput.trim()) return;
+    setSavingNvidiaKey(true);
+    setNvidiaKeyError(null);
+    setNvidiaKeyMsg(null);
+    try {
+      await saveUserNvidiaApiKey(user.uid, nvidiaKeyInput);
+      setHasNvidiaKey(true);
+      setNvidiaKeyInput("");
+      setNvidiaKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (NVIDIA, beta)\" como API de busca por imagem.");
+    } catch (err) {
+      setNvidiaKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingNvidiaKey(false);
+    }
+  }
+
+  async function handleRemoveNvidiaKey() {
+    if (!user) return;
+    setSavingNvidiaKey(true);
+    setNvidiaKeyError(null);
+    setNvidiaKeyMsg(null);
+    try {
+      await deleteUserNvidiaApiKey(user.uid);
+      setHasNvidiaKey(false);
+      setNvidiaKeyMsg("Chave removida.");
+    } catch (err) {
+      setNvidiaKeyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingNvidiaKey(false);
     }
   }
 
@@ -1030,6 +1098,54 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
               {mistralKeyMsg && <p className={styles.successText}>{mistralKeyMsg}</p>}
               {mistralKeyError && <p className={styles.errorText}>{mistralKeyError}</p>}
+            </form>
+          </section>
+
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <span className={styles.cardHeaderIcon}>
+                <KeyRound size={14} />
+              </span>
+              <h2 className={styles.cardHeaderTitle}>NVIDIA (motor interno + IA)</h2>
+              <span className={styles.betaBadge}>Beta</span>
+              <span className={hasNvidiaKey ? styles.statusPillOk : styles.statusPillWarning}>
+                {hasNvidiaKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
+                {hasNvidiaKey ? "configurada" : "não configurada"}
+              </span>
+            </div>
+
+            <form className={styles.compactKeyForm} onSubmit={handleSaveNvidiaKey}>
+              <p className={styles.cardIntro}>{NVIDIA_INTRO}</p>
+
+              <div className={styles.compactKeyRow}>
+                <KeyInput
+                  value={nvidiaKeyInput}
+                  onChange={setNvidiaKeyInput}
+                  placeholder={hasNvidiaKey ? "Substituir a chave atual…" : "Cole sua chave NVIDIA"}
+                  disabled={savingNvidiaKey}
+                />
+                <button
+                  className={styles.primaryButton}
+                  type="submit"
+                  disabled={savingNvidiaKey || !nvidiaKeyInput.trim()}
+                >
+                  {savingNvidiaKey ? "Salvando…" : "Salvar"}
+                </button>
+                {hasNvidiaKey && (
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    title="Remover chave"
+                    onClick={() => void handleRemoveNvidiaKey()}
+                    disabled={savingNvidiaKey}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {nvidiaKeyMsg && <p className={styles.successText}>{nvidiaKeyMsg}</p>}
+              {nvidiaKeyError && <p className={styles.errorText}>{nvidiaKeyError}</p>}
             </form>
           </section>
 

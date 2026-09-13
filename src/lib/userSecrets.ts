@@ -337,6 +337,57 @@ export async function deleteUserMistralApiKey(userId: string): Promise<void> {
 }
 
 /**
+ * Chave NVIDIA própria do usuário (BETA, set/2026) — 3ª opção de backend
+ * de IA pro motor interno + IA, ao lado de Gemini e Mistral (provider
+ * "vision_nvidia", ver api/_lib/providers/visionInternalSearchProvider.ts
+ * e nvidiaVision.ts). Campo SEPARADO (`nvidiaApiKey`) pelo mesmo motivo
+ * das outras duas: contas/vendors diferentes, o usuário pode ter as três
+ * cadastradas ao mesmo tempo e alternar entre os três no seletor sem
+ * recadastrar nada. Mesmo padrão BYOK e mesmo doc `users/{uid}/secrets/keys`.
+ *
+ * Chave vem de build.nvidia.com (NVIDIA NIM) — conta grátis, só email,
+ * sem cartão. Marcado como Beta na tela (Dashboard.tsx) até ter
+ * validação de acurácia/latência num catálogo real.
+ */
+export async function getUserNvidiaApiKey(userId: string | null): Promise<string | null> {
+  if (!userId || !firebaseConfigured) return null;
+
+  try {
+    const db = await getFirebaseDb();
+    const { doc, getDoc } = await import("firebase/firestore");
+    const snap = await getDoc(doc(db, ...secretsDocPath(userId)));
+    if (!snap.exists()) return null;
+    const key = snap.data().nvidiaApiKey as string | undefined;
+    return key?.trim() || null;
+  } catch (err) {
+    console.warn("Não consegui ler a chave NVIDIA do usuário:", err);
+    return null;
+  }
+}
+
+export async function saveUserNvidiaApiKey(userId: string, key: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, ...secretsDocPath(userId)),
+    { nvidiaApiKey: key.trim(), updatedAt: Date.now() },
+    { merge: true }
+  );
+  batch.set(doc(db, "users", userId), { hasNvidiaApiKey: true }, { merge: true });
+  await batch.commit();
+}
+
+export async function deleteUserNvidiaApiKey(userId: string): Promise<void> {
+  const db = await getFirebaseDb();
+  const { doc, writeBatch } = await import("firebase/firestore");
+  const batch = writeBatch(db);
+  batch.set(doc(db, ...secretsDocPath(userId)), { nvidiaApiKey: null }, { merge: true });
+  batch.set(doc(db, "users", userId), { hasNvidiaApiKey: false }, { merge: true });
+  await batch.commit();
+}
+
+/**
  * Chave ScraperAPI própria do usuário (BYOK — set/2026, virou igual às
  * demais). Antes era secret de SERVIDOR (`SCRAPERAPI_KEY`, variável de
  * ambiente da Vercel, uma só pra toda a plataforma) — decisão revertida

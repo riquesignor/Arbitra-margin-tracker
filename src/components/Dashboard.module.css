@@ -249,6 +249,24 @@
   color: var(--color-text-dim);
 }
 
+/* Badge "Beta" (set/2026) — ao lado do label do card de motor, mesmo
+   propósito do .betaBadge em Account.module.css (rótulo de maturidade,
+   não aviso de erro — por isso cor accent, não warning). */
+.betaTag {
+  margin-left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
 .marketplaceCardCheck {
   margin-left: auto;
   display: flex;

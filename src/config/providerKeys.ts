@@ -21,6 +21,7 @@ export type ProviderKeyId =
   | "searchApiKey"
   | "geminiApiKey"
   | "mistralApiKey"
+  | "nvidiaApiKey"
   | "scraperApiKey";
 
 export interface ProviderKeyGuide {
@@ -64,6 +65,12 @@ export const PROVIDER_KEY_GUIDE: Record<ProviderKeyId, ProviderKeyGuide> = {
     card: "Mistral (motor interno + IA)",
     url: "https://console.mistral.ai",
     cost: "grátis, sem cartão",
+  },
+  nvidiaApiKey: {
+    name: "NVIDIA",
+    card: "NVIDIA (motor interno + IA, beta)",
+    url: "https://build.nvidia.com",
+    cost: "grátis, sem cartão — beta",
   },
   scraperApiKey: {
     name: "ScraperAPI",

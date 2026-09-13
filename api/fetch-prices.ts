@@ -15,6 +15,7 @@ import {
   searchVisionInternalShared,
   GEMINI_BACKEND,
   MISTRAL_BACKEND,
+  NVIDIA_BACKEND,
 } from "./_lib/providers/visionInternalSearchProvider.js";
 import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvider.js";
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
@@ -49,6 +50,7 @@ const VALID_PROVIDERS: SearchProviderId[] = [
   "searchapi_lens",
   "vision_internal",
   "vision_mistral",
+  "vision_nvidia",
   "scraperapi",
 ];
 
@@ -185,6 +187,7 @@ const VISUAL_MATCH_PROVIDERS = new Set<SearchProviderId>([
   "searchapi_lens",
   "vision_internal",
   "vision_mistral",
+  "vision_nvidia",
 ]);
 
 /**
@@ -362,7 +365,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // "searchapi_lens" já usam como provider standalone (ver
   // PROVIDER_SECRET_FIELD, userSecrets.ts) — reaproveitado aqui, não é
   // uma chave nova.
-  const isVisionProvider = provider === "vision_internal" || provider === "vision_mistral";
+  const isVisionProvider =
+    provider === "vision_internal" || provider === "vision_mistral" || provider === "vision_nvidia";
   const serpApiKeyForVision =
     isVisionProvider && candidateSource === "serpapi"
       ? await getUserApiKeyForProvider(uid, "serpapi")
@@ -542,6 +546,22 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
             matchers,
             apiKey,
             MISTRAL_BACKEND,
+            scraperApiKey,
+            candidateSource,
+            serpApiKeyForVision,
+            searchApiKeyForVision
+          );
+          internalSearchWarning = outcome.warning;
+          fresh = outcome.results;
+        } else if (provider === "vision_nvidia") {
+          // Mesma orquestração de "vision_internal"/"vision_mistral" acima,
+          // backend NVIDIA (BETA, set/2026 — ver nvidiaVision.ts). `apiKey`
+          // aqui é a chave NVIDIA do usuário, campo próprio em Conta.
+          const outcome = await searchVisionInternalShared(
+            missItems,
+            matchers,
+            apiKey,
+            NVIDIA_BACKEND,
             scraperApiKey,
             candidateSource,
             serpApiKeyForVision,

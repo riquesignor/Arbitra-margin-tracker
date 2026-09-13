@@ -417,6 +417,25 @@
   color: var(--color-warning);
 }
 
+/* Badge "Beta" (set/2026) — ao lado do título do card, não substitui o
+   statusPill de "configurada/não configurada" (os dois convivem no
+   mesmo header). Cor accent (não warning) de propósito: não é um aviso
+   de problema, é só um rótulo de maturidade do recurso. */
+.betaBadge {
+  margin-left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
 /* Linha única de instrução dentro do card compacto de chave (ver
    .compactKeyForm) — o padding já vem do form pai, aqui só a tipografia. */
 .cardIntro {

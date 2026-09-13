@@ -60,6 +60,7 @@ const PROVIDER_SECRET_FIELD: Partial<Record<SearchProviderId, string>> = {
   mercadolivre_alt: "unwrangleApiKey",
   vision_internal: "geminiApiKey",
   vision_mistral: "mistralApiKey",
+  vision_nvidia: "nvidiaApiKey",
 };
 
 /**

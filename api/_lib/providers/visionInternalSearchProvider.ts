@@ -2,6 +2,7 @@ import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult, VisionCan
 import { mapWithConcurrency } from "../concurrency.js";
 import * as gemini from "../geminiVision.js";
 import * as mistral from "../mistralVision.js";
+import * as nvidia from "../nvidiaVision.js";
 import { getTopCandidates, popularityScore } from "../rankCandidates.js";
 import { fetchStoreOffers } from "./internalSearchProvider.js";
 import type { ScrapedOffer, StoreOffers } from "./internalSearchProvider.js";
@@ -377,6 +378,16 @@ export const MISTRAL_BACKEND: VisionBackend = {
   compareProductImagesBatch: mistral.compareProductImagesBatch,
   isQuotaExhaustedError: (err): boolean => err instanceof mistral.MistralQuotaExhaustedError,
   isVisionError: (err): boolean => err instanceof mistral.MistralVisionError,
+};
+
+/** Ver nvidiaVision.ts — 3º backend, BETA (set/2026). Mesmo contrato dos dois acima. */
+export const NVIDIA_BACKEND: VisionBackend = {
+  label: "NVIDIA",
+  describeProductImage: nvidia.describeProductImage,
+  compareProductImages: nvidia.compareProductImages,
+  compareProductImagesBatch: nvidia.compareProductImagesBatch,
+  isQuotaExhaustedError: (err): boolean => err instanceof nvidia.NvidiaQuotaExhaustedError,
+  isVisionError: (err): boolean => err instanceof nvidia.NvidiaVisionError,
 };
 
 /**
