@@ -5,7 +5,7 @@ Ferramenta de arbitragem de preço pra revendedores brasileiros: sobe um catálo
 ## O que faz
 
 - **Leitura de catálogo**: upload de PDF (extração heurística por posição de texto, com fallback por IA de visão) ou CSV.
-- **Busca de preço multi-fonte**: Amazon e Mercado Livre via raspagem interna + IA, ou через provedores plugáveis (SerpApi, RapidAPI, SearchApi.io, ScraperAPI, Google Lens/Amazon PA-API/Mercado Livre OAuth quando configurados) — cada usuário cadastra a própria chave (BYOK), sem chave compartilhada de servidor.
+- **Busca de preço multi-fonte**: Amazon e Mercado Livre via raspagem interna + IA, ou através de provedores plugáveis (SerpApi, RapidAPI, SearchApi.io, ScraperAPI, Google Lens/Amazon PA-API/Mercado Livre OAuth quando configurados) — cada usuário cadastra a própria chave (BYOK), sem chave compartilhada de servidor.
 - **Cálculo de margem**: taxas de marketplace, faixas de frete e impostos configuráveis por conta, com badge de recomendação (recomendado/revisar/evitar) por produto.
 - **Preço sugerido de revenda**: calcula o preço de venda que bate exatamente a margem-alvo configurada, comparando com o preço de mercado encontrado.
 - **Histórico de catálogos**, exportação CSV, biblioteca de catálogos administrável e painel de planos.
@@ -71,3 +71,17 @@ Abre em `http://localhost:3000`. Rodar só `npm run dev` (Vite puro, `http://loc
 | `npm run lint`        | ESLint                                                  |
 
 ## Estrutura
+
+```
+src/            # frontend (React + TS)
+  components/   # telas e componentes de UI
+  lib/          # lógica de negócio client-side (margem, parsing, etc.)
+  types/        # contratos compartilhados
+api/            # funções serverless (Vercel)
+  _lib/         # lógica compartilhada entre as funções
+docs/           # decisões de arquitetura e notas de projeto
+```
+
+## Licença
+
+Distribuído sob a licença MIT — veja [LICENSE](LICENSE).
