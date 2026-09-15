@@ -1,11 +1,19 @@
 node_modules
 dist
 dist-verify
+
+# Segredos locais — nunca commitar. `.env.example` é a exceção
+# proposital: é só a estrutura das variáveis, sem valor real.
 .env
 .env.local
 .env*
+!.env.example
+
 *.log
 .vercel
 .DS_Store
 
-.vercel
+# Arquivos temporários do carregador de config do Vite/Vitest
+# (recriados a cada `npm run dev`/`vitest run`, não têm valor versionado)
+vite.config.ts.timestamp-*.mjs
+vitest.config.ts.timestamp-*.mjs
