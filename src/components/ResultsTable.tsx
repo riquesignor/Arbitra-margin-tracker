@@ -24,6 +24,7 @@ import {
   Flame,
   Star,
   X,
+  RefreshCw,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -52,6 +53,16 @@ interface Props {
   compareSideBySide?: boolean;
   /** 1 linha por SKU (melhor oferta em destaque), com as outras ofertas do mesmo SKU recolhidas — expande com o chevron. */
   groupBySku?: boolean;
+  /**
+   * true quando a regra de Precificação (taxa de venda, margem-alvo etc)
+   * foi editada e AINDA NÃO foi aplicada a estes `results` (set/2026,
+   * pedido explícito do usuário — ver handleSyncPricing em App.tsx).
+   * Controla se o botão "Sincronizar com Precificação" abaixo fica
+   * clicável ou desabilitado.
+   */
+  isPricingDirty?: boolean;
+  /** Recalcula margem/preço sugerido/recomendação de TODAS as linhas com a regra atual de Precificação — ver handleSyncPricing em App.tsx. */
+  onSyncPricing?: () => void;
 }
 
 /** Pequena legenda "de qual catálogo veio" — só aparece na visão combinada (2+ catálogos do histórico marcados, ver HistoryMultiSelect). */
@@ -606,6 +617,8 @@ export default function ResultsTable({
   showCharts = true,
   compareSideBySide = false,
   groupBySku = false,
+  isPricingDirty = false,
+  onSyncPricing,
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>("todos");
@@ -822,6 +835,29 @@ export default function ResultsTable({
           />
         )}
       </div>
+
+      {onSyncPricing && (
+        <div className={isPricingDirty ? styles.syncBannerDirty : styles.syncBanner}>
+          <span className={styles.syncBannerText}>
+            {isPricingDirty
+              ? "Sua Precificação (taxa de venda, margem-alvo etc) mudou desde a última vez que esta tela foi calculada."
+              : "Margem, preço sugerido e recomendação já refletem sua Precificação atual."}
+          </span>
+          <button
+            type="button"
+            className={styles.syncButton}
+            onClick={onSyncPricing}
+            disabled={!isPricingDirty}
+            title={
+              isPricingDirty
+                ? "Recalcula margem, preço sugerido e recomendação de todas as linhas com a Precificação atual"
+                : "Nada pra sincronizar — já está atualizado"
+            }
+          >
+            <RefreshCw size={13} /> Sincronizar com Precificação
+          </button>
+        </div>
+      )}
 
       <div className={styles.summaryRow}>
         {[

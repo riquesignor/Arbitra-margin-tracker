@@ -34,6 +34,25 @@ import Admin from "./components/Admin";
 import Faq from "./components/Faq";
 import DoubtToast from "./components/DoubtToast";
 
+/**
+ * Recalcula margem pra um catálogo já buscado, cobrindo TODOS os
+ * marketplaces comparados na mesma busca (ver `pricesByMarket`,
+ * `Partial<Record<MarketplaceId, ...>>` — uma busca pode ter comparado
+ * Amazon + Mercado Livre ao mesmo tempo). Função de módulo (não depende
+ * de nenhum state do componente) — usada tanto no restauro de login
+ * quanto em `handleSyncPricing`/`handleSelectHistory*`, sempre com a
+ * MESMA regra (evita reimplementar o mesmo `flatMap` em cada callsite).
+ */
+function recalcMarginsForPriceMap(
+  rows: CatalogRow[],
+  pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>,
+  rules: PricingRules
+): MarginResult[] {
+  return Object.values(pricesByMarket).flatMap((priceMap) =>
+    priceMap ? calculateMargins(rows, priceMap, rules) : []
+  );
+}
+
 export default function App() {
   // "home" — tela de entrada (ver docs/design-critique-log.md, Session
   // 4): resumo do que já foi processado + atalho pra Nova busca (a
@@ -43,6 +62,21 @@ export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_PRICING_RULES);
+  /**
+   * Snapshot da regra que efetivamente gerou os `results` atualmente em
+   * tela (set/2026, pedido explícito do usuário: "se eu mudar a taxa de
+   * venda, o resultado não muda"). Antes, `handlePricingChange` já
+   * recalculava sozinho — mas em SILÊNCIO, sem indicar ao usuário se o
+   * que está na tela de Resultados já reflete a regra atual ou não, e
+   * com um bug real na multi-seleção de histórico (ver
+   * handleSelectHistoryMultiple): `pricesByMarket` global não era
+   * atualizado ao combinar 2+ catálogos, então um recálculo automático
+   * ali usaria o mapa de preço ERRADO. Agora o recálculo em si só
+   * acontece explicitamente (botão "Sincronizar" em Resultados, ver
+   * handleSyncPricing) — este snapshot é o que decide se esse botão fica
+   * clicável (`pricingRules` atual difere deste valor) ou não.
+   */
+  const [appliedPricingRules, setAppliedPricingRules] = useState<PricingRules>(DEFAULT_PRICING_RULES);
 
   const [catalogRows, setCatalogRows] = useState<CatalogRow[]>([]);
   const [pricesByMarket, setPricesByMarket] = useState<
@@ -121,9 +155,12 @@ export default function App() {
 
   useEffect(() => subscribeToAuth(setUser), []);
 
-  useEffect(() => {
-    loadPricingRules(user?.uid ?? null).then(setPricingRules);
-  }, [user]);
+  // Unificado com o efeito de restauro do histórico logo abaixo (set/2026)
+  // — precisa da MESMA regra carregada aqui pra recalcular o resultado
+  // restaurado corretamente (ver aquele efeito); dois `useEffect`
+  // separados disparando em paralelo não garantem qual resolve primeiro,
+  // e usar `pricingRules` do state ali arriscava pegar o DEFAULT (ainda
+  // não carregado) em vez da regra real salva do usuário.
 
   // Perfil (plano + isAdmin) — busca/cria junto com o login, não faz
   // parte do AuthUser do Firebase Auth (isso vem de `users/{uid}` no
@@ -151,19 +188,33 @@ export default function App() {
       setHistory([]);
       return;
     }
-    listCatalogUploads(user.uid).then((fetchedHistory) => {
-      setHistory(fetchedHistory);
-      if (skipRestoreRef.current) return;
-      const latest = fetchedHistory[0];
-      if (latest) {
-        setCatalogRows(latest.rows);
-        setPricesByMarket(latest.pricesByMarket);
-        setResults(latest.results);
-        setSource(latest.source);
-        setActiveHistoryId(latest.id);
-        setSelectedHistoryIds([latest.id]);
+    // `Promise.all` (não dois efeitos separados) — ver comentário acima
+    // de onde `loadPricingRules` costumava rodar sozinho: o restauro do
+    // histórico precisa da regra JÁ carregada (não do default) pra
+    // recalcular `results` com o número certo logo de cara.
+    Promise.all([loadPricingRules(user.uid), listCatalogUploads(user.uid)]).then(
+      ([rules, fetchedHistory]) => {
+        setPricingRules(rules);
+        setAppliedPricingRules(rules);
+        setHistory(fetchedHistory);
+        if (skipRestoreRef.current) return;
+        const latest = fetchedHistory[0];
+        if (latest) {
+          setCatalogRows(latest.rows);
+          setPricesByMarket(latest.pricesByMarket);
+          // Recalcula com a regra ATUAL em vez de usar `latest.results`
+          // cru — se o usuário mudou a taxa de venda numa sessão anterior
+          // e nunca sincronizou antes de sair, o registro salvo carrega
+          // números calculados com a regra ANTIGA. Recalcular aqui (custo
+          // desprezível, é só aritmética local) garante que o que aparece
+          // logo no login já bate com a Precificação salva mais recente.
+          setResults(recalcMarginsForPriceMap(latest.rows, latest.pricesByMarket, rules));
+          setSource(latest.source);
+          setActiveHistoryId(latest.id);
+          setSelectedHistoryIds([latest.id]);
+        }
       }
-    });
+    );
   }, [user]);
 
   function handleDashboardComplete(data: DashboardResult) {
@@ -174,6 +225,10 @@ export default function App() {
     setSource(data.source);
     setActiveHistoryId(null);
     setSelectedHistoryIds([]);
+    // `data.results` acabou de sair do Dashboard já calculado com
+    // `pricingRules` (prop passada pra ele, ver JSX abaixo) — bate com a
+    // regra vigente agora, então o snapshot "aplicado" é exatamente esta.
+    setAppliedPricingRules(pricingRules);
     setScreen("results");
   }
 
@@ -194,6 +249,8 @@ export default function App() {
     setPricesByMarket(data.pricesByMarket);
     setResults(data.results);
     setSource(data.source);
+    // Ver mesmo comentário em handleDashboardComplete.
+    setAppliedPricingRules(pricingRules);
   }
 
   /** Recarrega o histórico global após uma nova busca ser salva (Dashboard.tsx). */
@@ -217,8 +274,14 @@ export default function App() {
     setSelectedHistoryIds([id]);
     setCatalogRows(record.rows);
     setPricesByMarket(record.pricesByMarket);
-    setResults(record.results);
+    // Recalcula com a regra ATUAL em vez de `record.results` cru — mesmo
+    // raciocínio do restauro de login (ver recalcMarginsForPriceMap):
+    // troca de catálogo no seletor já é o momento natural de "sincronizar
+    // de graça" com a Precificação vigente, sem exigir um clique extra em
+    // "Sincronizar" logo depois de simplesmente trocar de catálogo.
+    setResults(recalcMarginsForPriceMap(record.rows, record.pricesByMarket, pricingRules));
     setSource(record.source);
+    setAppliedPricingRules(pricingRules);
   }
 
   /**
@@ -246,8 +309,21 @@ export default function App() {
       .map((id) => history.find((h) => h.id === id))
       .filter((r): r is CatalogUploadRecord => Boolean(r));
 
+    // Recalcula CADA registro com o `pricesByMarket` PRÓPRIO dele (não
+    // `r.results` cru) — bug real corrigido aqui (set/2026): antes, ao
+    // editar a Precificação com 2+ catálogos combinados na tela, o
+    // recálculo automático usava o `pricesByMarket` GLOBAL do último
+    // catálogo aberto via single-select, que não tem relação nenhuma com
+    // os catálogos combinados aqui — resultado silenciosamente errado
+    // pra qualquer catálogo do combo que não fosse esse último. Recalcular
+    // por registro, com o mapa de preço de CADA UM, evita isso — e evita
+    // de quebra colidir SKU entre catálogos diferentes (um merge ingênuo
+    // de `pricesByMarket` entre registros correria esse risco).
     const combinedResults = records.flatMap((r) =>
-      r.results.map((res) => ({ ...res, sourceUpload: { id: r.id, fileName: r.fileName } }))
+      recalcMarginsForPriceMap(r.rows, r.pricesByMarket, pricingRules).map((res) => ({
+        ...res,
+        sourceUpload: { id: r.id, fileName: r.fileName },
+      }))
     );
     const combinedRows = records.flatMap((r) => r.rows);
     // Prioriza "server" se qualquer um dos catálogos combinados for real
@@ -260,9 +336,13 @@ export default function App() {
     setCatalogRows(combinedRows);
     setResults(combinedResults);
     setSource(combinedSource);
+    setAppliedPricingRules(pricingRules);
     // `pricesByMarket` fica como está — só Precificação (PricingConfig)
     // consome esse mapa, e aquela tela continua usando o single-select
-    // de sempre (handleSelectHistory), nunca este handler.
+    // de sempre (handleSelectHistory), nunca este handler. Recálculo de
+    // margem pra este combo (Sincronizar/multi-seleção) sempre passa por
+    // `recalcMarginsForPriceMap` por REGISTRO (ver acima e
+    // handleSyncPricing), nunca por este estado global.
   }
 
   /** Abre um registro do histórico direto na tela de Resultados (Home > "Suas buscas" / "Ver último resultado"). */
@@ -271,23 +351,65 @@ export default function App() {
     setScreen("results");
   }
 
+  /**
+   * Comparação profunda simples (JSON.stringify — `PricingRules` é dado
+   * puro, sem função/Date/undefined dentro, então a comparação por texto
+   * é segura e mais barata que escrever um deep-equal à mão) — decide se
+   * o botão "Sincronizar" em Resultados fica clicável. `false` sempre que
+   * as duas apontam pro mesmo objeto (comparação começa aqui, mais
+   * rápida que montar a string toda pra confirmar igualdade óbvia).
+   */
+  const isPricingDirty =
+    pricingRules !== appliedPricingRules && JSON.stringify(pricingRules) !== JSON.stringify(appliedPricingRules);
+
   /** "usar" num catálogo da biblioteca (Home) — manda pra Nova busca já processando. */
   function handleUseSharedCatalog(catalog: SharedCatalog) {
     setPendingSharedCatalog(catalog);
     setScreen("dashboard");
   }
 
+  /**
+   * ⚠️ NÃO recalcula `results` mais (set/2026 — antes recalculava direto
+   * aqui). Pedido explícito do usuário: mudar a taxa/regra em
+   * Precificação deve deixar claro, na tela de Resultados, que há uma
+   * mudança PENDENTE — um botão "Sincronizar" (ver handleSyncPricing)
+   * que só fica clicável quando `pricingRules` diverge de
+   * `appliedPricingRules`. Aplicar na hora, em silêncio, escondia esse
+   * sinal (e tinha um bug real de dado errado na multi-seleção, ver
+   * handleSelectHistoryMultiple). A regra em si já é salva na hora — só
+   * o RECÁLCULO de margem que passou a ser explícito.
+   */
   function handlePricingChange(newRules: PricingRules) {
     setPricingRules(newRules);
     void savePricingRules(user?.uid ?? null, newRules);
+  }
 
-    if (catalogRows.length > 0) {
-      // Recalcula margem pra cada marketplace comparado, sem re-buscar preço.
-      const recalculated = Object.values(pricesByMarket).flatMap((priceMap) =>
-        priceMap ? calculateMargins(catalogRows, priceMap, newRules) : []
+  /**
+   * Aplica a regra ATUAL (`pricingRules`, já editada em Precificação) aos
+   * resultados em tela — botão "Sincronizar" em ResultsTable. Mesma
+   * ramificação de fonte que os handlers de seleção de histórico: 2+
+   * catálogos combinados recalculam CADA UM com o próprio `pricesByMarket`
+   * (ver handleSelectHistoryMultiple pro porquê); processamento novo ou
+   * 0/1 catálogo do histórico usa `catalogRows`/`pricesByMarket` diretos
+   * (já corretos nesses casos).
+   */
+  function handleSyncPricing() {
+    if (selectedHistoryIds.length > 1) {
+      const records = selectedHistoryIds
+        .map((id) => history.find((h) => h.id === id))
+        .filter((r): r is CatalogUploadRecord => Boolean(r));
+      setResults(
+        records.flatMap((r) =>
+          recalcMarginsForPriceMap(r.rows, r.pricesByMarket, pricingRules).map((res) => ({
+            ...res,
+            sourceUpload: { id: r.id, fileName: r.fileName },
+          }))
+        )
       );
-      setResults(recalculated);
+    } else {
+      setResults(recalcMarginsForPriceMap(catalogRows, pricesByMarket, pricingRules));
     }
+    setAppliedPricingRules(pricingRules);
   }
 
   return (
@@ -362,6 +484,8 @@ export default function App() {
                 showCharts={preferences.chartsResults}
                 compareSideBySide={preferences.compareEnginesSideBySide}
                 groupBySku={preferences.groupOffersBySku}
+                isPricingDirty={isPricingDirty}
+                onSyncPricing={handleSyncPricing}
               />
             )}
             {screen === "portfolio" && (
