@@ -9,6 +9,10 @@ import {
   GeminiCatalogQuotaExhaustedError,
   normalizeSkuForMatch,
 } from "./geminiCatalogVision";
+import {
+  extractCatalogPageProductsWithNvidia,
+  NvidiaCatalogQuotaExhaustedError,
+} from "./nvidiaCatalogVision";
 
 export class PdfParseError extends Error {}
 
@@ -1507,6 +1511,19 @@ export interface ParsePdfOptions {
    * aciona isso, zero custo/latência extra pro caso comum.
    */
   geminiApiKey?: string;
+  /**
+   * Chave NVIDIA própria do usuário (BYOK, BETA — mesma de Conta/motor
+   * interno + IA), usada SÓ na extração GENÉRICA de página inteira
+   * (`extractCatalogPageProductsWithNvidia`, ver nvidiaCatalogVision.ts),
+   * não na correção pontual de preço pós-OCR (essa continua exclusiva do
+   * Gemini, escopo menor por ora). Ordem de tentativa quando as duas
+   * chaves estão configuradas: Gemini primeiro (mais validado em
+   * catálogo real), NVIDIA como 2º fallback só se o Gemini não estiver
+   * configurado OU a cota dele já tiver esgotado nesta chamada — não
+   * concorrem entre si na mesma página, pra não gastar cota das duas à
+   * toa quando uma já resolve.
+   */
+  nvidiaApiKey?: string;
 }
 
 // Uploads de imagem em paralelo controlado — mesmo motivo de concorrência
@@ -1579,6 +1596,15 @@ export async function parsePdfCatalogFile(
   // cota já na primeira e ficaria martelando as próximas sem chance
   // nenhuma de sucesso — só timeout/erro repetido gastando tempo.
   let geminiQuotaExhausted = false;
+  // Mesmo papel de `geminiQuotaExhausted`, pro backend NVIDIA (BETA) —
+  // ver comentário em `nvidiaApiKey` (ParsePdfOptions) pro porquê de só
+  // entrar em ação quando o Gemini não está disponível/esgotou.
+  let nvidiaQuotaExhausted = false;
+  // true se a extração genérica de página usou NVIDIA em vez de Gemini
+  // nesta chamada — só pra log/observabilidade; a UI trata os dois como
+  // "leitura por IA" sem distinguir o vendor (ver uso de
+  // `geminiPageExtractionUsed` mais abaixo, reaproveitado pros dois).
+  let nvidiaPageExtractionUsed = false;
   // Páginas (número absoluto, 1-based) que não contribuíram NENHUM
   // produto — ver `pagesWithNoProducts` em ExtractResult pro porquê.
   const pagesWithNoProducts: number[] = [];
@@ -1873,7 +1899,10 @@ export async function parsePdfCatalogFile(
               }
             });
           }
-        } else if (options?.geminiApiKey && !geminiQuotaExhausted) {
+        } else if (
+          (options?.geminiApiKey && !geminiQuotaExhausted) ||
+          (options?.nvidiaApiKey && !nvidiaQuotaExhausted)
+        ) {
           // ÚLTIMO recurso de todos: NENHUMA heurística (grade com rótulo
           // conhecido, linha única, bloco sem preço) reconheceu produto
           // algum nesta página — em vez de desistir, manda a página
@@ -1881,9 +1910,9 @@ export async function parsePdfCatalogFile(
           // depender de rótulo/layout conhecido (ver
           // extractCatalogPageProductsWithGemini, geminiCatalogVision.ts,
           // e o comentário no topo daquele arquivo pro porquê). Opt-in
-          // (só roda com chave Gemini própria configurada, BYOK) e
-          // opt-out automático assim que a cota esgotar (ver
-          // geminiQuotaExhausted acima) — sem isso, um catálogo de
+          // (só roda com chave própria configurada, BYOK) e opt-out
+          // automático assim que a cota esgotar (ver geminiQuotaExhausted/
+          // nvidiaQuotaExhausted acima) — sem isso, um catálogo de
           // centenas de páginas com layout desconhecido bateria a cota
           // na primeira e ficaria martelando o resto sem chance nenhuma.
           //
@@ -1897,14 +1926,25 @@ export async function parsePdfCatalogFile(
           // acima. Continua best-effort: produto sem `box` (IA não
           // confiante o bastante) ainda entra pra busca por texto, só
           // sem imagem — nenhuma regressão pro comportamento antigo.
+          //
+          // Backend NVIDIA (set/2026, BETA — ver nvidiaCatalogVision.ts):
+          // Gemini é tentado PRIMEIRO quando configurado e com cota (mais
+          // validado em catálogo real até agora); NVIDIA entra só como
+          // fallback — sem Gemini configurado, ou depois que a cota dele
+          // esgotar nesta chamada. Não concorrem na mesma página, pra não
+          // gastar cota das duas à toa quando uma já resolve.
+          const useGemini = Boolean(options?.geminiApiKey && !geminiQuotaExhausted);
           try {
             const { canvas: c } = await ensureCanvas();
             const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
-            const geminiProducts = await extractCatalogPageProductsWithGemini(pageDataUrl, options.geminiApiKey);
+            const aiProducts = useGemini
+              ? await extractCatalogPageProductsWithGemini(pageDataUrl, options!.geminiApiKey!)
+              : await extractCatalogPageProductsWithNvidia(pageDataUrl, options!.nvidiaApiKey!);
 
-            if (geminiProducts.length > 0) {
-              geminiPageExtractionUsed = true;
-              const inStockProducts = geminiProducts.filter((p) => p.inStock);
+            if (aiProducts.length > 0) {
+              if (useGemini) geminiPageExtractionUsed = true;
+              else nvidiaPageExtractionUsed = true;
+              const inStockProducts = aiProducts.filter((p) => p.inStock);
               rows.push(
                 ...inStockProducts.map((p) =>
                   p.price != null
@@ -1927,11 +1967,15 @@ export async function parsePdfCatalogFile(
               }
             }
           } catch (err) {
-            if (err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;
+            if (useGemini && err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;
+            if (!useGemini && err instanceof NvidiaCatalogQuotaExhaustedError) nvidiaQuotaExhausted = true;
             // Mesma filosofia do resto do parser: falha numa página (rede,
             // chave inválida, cota) não derruba o catálogo inteiro — essa
             // página só fica sem produto, as outras seguem tentando.
-            console.warn(`Leitura genérica via IA falhou na página ${pageNum} (seguindo sem ela):`, err);
+            console.warn(
+              `Leitura genérica via IA (${useGemini ? "Gemini" : "NVIDIA"}) falhou na página ${pageNum} (seguindo sem ela):`,
+              err
+            );
           }
         }
       }
@@ -1953,16 +1997,21 @@ export async function parsePdfCatalogFile(
 
     if (rows.length === 0) {
       // Complementa a mensagem de sempre com o que aconteceu (ou não)
-      // com o fallback de IA — sem isso, quem já tem chave Gemini
-      // configurada não sabe se ela chegou a ser tentada.
-      const geminiHint = !options?.geminiApiKey
-        ? " Configure sua chave Gemini própria em Conta pra habilitar uma leitura genérica por IA " +
-          "como último recurso, útil quando o layout do catálogo é fora do padrão."
-        : geminiQuotaExhausted
-          ? " Tentamos ler via IA (Gemini) como último recurso, mas a cota gratuita esgotou antes de " +
-            "conseguir — tente de novo em alguns minutos ou reprocesse um intervalo de páginas menor."
-          : " Tentamos ler via IA (Gemini) como último recurso, mas ela também não conseguiu " +
-            "identificar produto nenhum nas páginas processadas.";
+      // com o fallback de IA — sem isso, quem já tem chave Gemini/NVIDIA
+      // configurada não sabe se ela chegou a ser tentada. NVIDIA (BETA)
+      // só é mencionada quando é a ÚNICA chave configurada ou a única
+      // que ainda não esgotou — Gemini continua o backend "principal" na
+      // mensagem quando as duas se aplicam, mesmo critério de prioridade
+      // usado na tentativa em si (ver bloco `useGemini` acima).
+      const hasAnyAiKey = Boolean(options?.geminiApiKey || options?.nvidiaApiKey);
+      const geminiHint = !hasAnyAiKey
+        ? " Configure sua chave Gemini ou NVIDIA (beta) própria em Conta pra habilitar uma leitura " +
+          "genérica por IA como último recurso, útil quando o layout do catálogo é fora do padrão."
+        : geminiQuotaExhausted && (!options?.nvidiaApiKey || nvidiaQuotaExhausted)
+          ? " Tentamos ler via IA como último recurso, mas a cota gratuita esgotou antes de conseguir " +
+            "— tente de novo em alguns minutos ou reprocesse um intervalo de páginas menor."
+          : " Tentamos ler via IA como último recurso, mas ela também não conseguiu identificar " +
+            "produto nenhum nas páginas processadas.";
 
       throw new PdfParseError(
         (ocrAttempted
@@ -1983,7 +2032,11 @@ export async function parsePdfCatalogFile(
       // páginas sem produto que caíram em OCR à toa não pode travar busca
       // por nome pro catálogo inteiro).
       usedOcr: ocrProducedUsableProduct,
-      usedGeminiPageExtraction: geminiPageExtractionUsed,
+      // Reaproveita o MESMO campo pros dois backends (Gemini/NVIDIA) — a
+      // UI trata isso como "parte do catálogo foi lida por IA de visão
+      // genérica", sem distinguir o vendor (ver comentário em
+      // `nvidiaPageExtractionUsed` acima).
+      usedGeminiPageExtraction: geminiPageExtractionUsed || nvidiaPageExtractionUsed,
       pagesWithNoProducts: pagesWithNoProducts.length > 0 ? pagesWithNoProducts : undefined,
       duplicateSkusRemoved: duplicateSkusRemoved > 0 ? duplicateSkusRemoved : undefined,
       ocrSkippedPages: ocrSkippedPages.length > 0 ? ocrSkippedPages : undefined,
