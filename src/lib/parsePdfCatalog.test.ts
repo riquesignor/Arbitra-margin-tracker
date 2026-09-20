@@ -454,7 +454,33 @@ describe("extractGridBlocks", () => {
 });
 
 describe("extractProductBlocksWithoutPrice", () => {
-  it("reconhece blocos empilhados (SKU sozinho na linha, nome + metadado depois) sem preço nenhum", () => {
+  it("reconhece blocos empilhados (SKU sozinho na linha, nome + metadado depois) sem preço nenhum reconhecível", () => {
+    const lines = [
+      "TOP2905",
+      "Kit Organizadores De Cozinha",
+      "CX MASTER: 20",
+      "NCM:39241000",
+      "CORES:",
+      "TOP2906",
+      "Outro Produto Qualquer",
+      "CX MASTER: 10",
+      "NCM:39241000",
+      "CORES:",
+    ];
+
+    const rows = extractProductBlocksWithoutPrice(lines);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toEqual({ sku: "TOP2905", name: "Kit Organizadores De Cozinha" });
+    expect(rows[1]).toEqual({ sku: "TOP2906", name: "Outro Produto Qualquer" });
+    // Sem "R$", sem decimal e sem nenhuma linha isolada de 6 dígitos (ver
+    // ENCODED_PRICE_LINE_PATTERN, teste dedicado logo abaixo) em lugar
+    // nenhum do bloco — nenhuma das duas linhas ganha supplierPrice.
+    expect(rows[0].supplierPrice).toBeUndefined();
+    expect(rows[1].supplierPrice).toBeUndefined();
+  });
+
+  it("decodifica o preço 'codificado' de 6 dígitos (convenção real do Catálogo TOPUTIL/DL Grupo: centavos, sem separador nem símbolo) quando não há preço em R$ no bloco", () => {
     const lines = [
       "TOP2905",
       "Kit Organizadores De Cozinha",
@@ -473,12 +499,26 @@ describe("extractProductBlocksWithoutPrice", () => {
     const rows = extractProductBlocksWithoutPrice(lines);
 
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toEqual({ sku: "TOP2905", name: "Kit Organizadores De Cozinha" });
-    expect(rows[1]).toEqual({ sku: "TOP2906", name: "Outro Produto Qualquer" });
-    // Sem "R$", sem decimal em lugar nenhum do bloco — nenhuma das duas
-    // linhas ganha supplierPrice.
-    expect(rows[0].supplierPrice).toBeUndefined();
-    expect(rows[1].supplierPrice).toBeUndefined();
+    expect(rows[0]).toMatchObject({ sku: "TOP2905", name: "Kit Organizadores De Cozinha", supplierPrice: 1827.34 });
+    expect(rows[1]).toMatchObject({ sku: "TOP2906", name: "Outro Produto Qualquer", supplierPrice: 1827.35 });
+  });
+
+  it("reconhece SKU com uma letra colada no fim (ex.: 'TOP2077A', variante de cor do mesmo produto — caso real da página 6 do Catálogo TOPUTIL/DL Grupo) como marcador válido", () => {
+    const rows = extractProductBlocksWithoutPrice([
+      "TOP2077A",
+      "Conjunto 6 taças de vidro âmbar p/ sobremesa 340ml",
+      "CX MASTER: 8",
+      "NCM:70132800",
+      "CORES:",
+      "005870",
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      sku: "TOP2077A",
+      name: "Conjunto 6 taças de vidro âmbar p/ sobremesa 340ml",
+      supplierPrice: 58.7,
+    });
   });
 
   it("aproveita um preço reconhecível no bloco quando ele existe (raro, mas não descarta o dado)", () => {
@@ -499,11 +539,11 @@ describe("extractProductBlocksWithoutPrice", () => {
     expect(rows[0].supplierPrice).toBeUndefined();
   });
 
-  it("cai pro próprio SKU como nome quando não sobra nenhuma linha de nome útil", () => {
+  it("cai pro próprio SKU como nome quando não sobra nenhuma linha de nome útil (mas ainda decodifica o preço codificado de 6 dígitos, se houver)", () => {
     const rows = extractProductBlocksWithoutPrice(["TOP2905", "CX MASTER: 20", "NCM:39241000", "182734"]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toEqual({ sku: "TOP2905", name: "TOP2905" });
+    expect(rows[0]).toEqual({ sku: "TOP2905", name: "TOP2905", supplierPrice: 1827.34 });
   });
 
   it("LIMITAÇÃO CONHECIDA: produtos lado a lado (2 SKUs mesclados na mesma linha) não são reconhecidos", () => {
@@ -637,10 +677,13 @@ describe("extractVitrineGridBlocks", () => {
       expect(bySku["TOP2905"].name).toBe("MESA PARA COMPUTADOR COLOR 60x40x1.2CM ALTURA AJUSTAVEL 69-80CM");
       expect(bySku["TOP2977"].name).toBe("MOLDURA P/ FOTO DUOLA FACE BASE MADEIRA C/ VIDRO 10.2x15.2CM");
       expect(bySku["TOP2978"].name).toBe("MOLDURA P/ FOTO DUOLA FACE BASE MADEIRA C/ VIDRO 12.7x17.8CM");
-      // Sem "R$" em lugar nenhum do catálogo — nenhum dos 3 ganha preço.
-      expect(bySku["TOP2905"].supplierPrice).toBeUndefined();
-      expect(bySku["TOP2977"].supplierPrice).toBeUndefined();
-      expect(bySku["TOP2978"].supplierPrice).toBeUndefined();
+      // Sem "R$" em lugar nenhum do catálogo, mas o código de 6 dígitos
+      // abaixo de cada produto é o preço em CENTAVOS (convenção real do
+      // Catálogo TOPUTIL/DL Grupo, confirmada pelo próprio fornecedor):
+      // "017208" -> R$172,08, "002918" -> R$29,18, "003430" -> R$34,30.
+      expect(bySku["TOP2905"].supplierPrice).toBe(172.08);
+      expect(bySku["TOP2977"].supplierPrice).toBe(29.18);
+      expect(bySku["TOP2978"].supplierPrice).toBe(34.3);
     }
   );
 
@@ -733,7 +776,7 @@ describe("extractVitrineGridBlocks", () => {
     { text: "ÇÃO!", x: 523.410, y: 200.682, width: 25.287 },
   ];
 
-  it("recupera os 4 produtos de uma grade de 2 colunas repetida a página inteira, sem contaminar nome entre colunas nem com o banner de promoção", () => {
+  it("recupera os 4 produtos de uma grade de 2 colunas repetida a página inteira, sem contaminar nome entre colunas nem com o banner de promoção, e decodifica o preço promocional com '*' de cada um", () => {
     const result = extractVitrineGridBlocks(TOPUTIL_PAGE_5_ITEMS, PAGE_WIDTH);
 
     expect(result).not.toBeNull();
@@ -744,6 +787,13 @@ describe("extractVitrineGridBlocks", () => {
     expect(bySku["TOP2038"].name).toBe("Conjunto 6 copos de vidro 310ml");
     expect(bySku["TOP2039"].name).toBe("Conjunto 6 copos de vidro 420ml");
     expect(bySku["TOP2041"].name).toBe("Conjunto 6 taças de vidro 340ml");
+    // "001109*" -> R$11,09 é literalmente o exemplo usado pelo usuário/dono
+    // do catálogo pra explicar a convenção — o "*" (item promocional) é
+    // ignorado na decodificação, só marca a regra de desconto.
+    expect(bySku["TOP2036"].supplierPrice).toBe(11.09);
+    expect(bySku["TOP2038"].supplierPrice).toBe(18.31);
+    expect(bySku["TOP2039"].supplierPrice).toBe(25.83);
+    expect(bySku["TOP2041"].supplierPrice).toBe(28.66);
   });
 
   it("é no-op (devolve null) quando a página não tem nenhuma linha com 2+ marcadores lado a lado — catálogo de coluna única cai pro modo empilhado de sempre, sem mudança de comportamento", () => {

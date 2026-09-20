@@ -710,8 +710,26 @@ const CONCURRENCY = 1;
  * equilíbrio: cobre variação razoável de ranking de texto sem estourar o
  * orçamento de chamadas por item (ver custo total no comentário do
  * topo).
+ *
+ * ── ⚠️ TESTE TEMPORÁRIO (set/2026) — 3 → 5 ──────────────────────────────
+ * Pedido explícito do usuário: depois da remoção da FAST LANE (motor
+ * interno + IA voltou a validar TODO candidateSource por foto, ver
+ * comentário grande no topo do arquivo), relato real foi "gemini + serp
+ * ficou preciso, mas não trouxe todos os produtos da página" — ou seja,
+ * itens sendo descartados porque nenhum dos 3 candidatos top-ranqueados
+ * por TEXTO bateu na comparação visual, não porque o piso de aceite
+ * (`MIN_APPROXIMATE_SCORE`) esteja alto demais (esse já foi calibrado
+ * antes, ver comentário dele — baixar mais aceitaria candidato que a
+ * própria IA marcou como "provavelmente produto diferente", pior que não
+ * mostrar nada). Testando 5 em vez de 3: mais chance de o candidato
+ * certo aparecer no lote comparado, mas até +4 chamadas Gemini por item
+ * (2 candidatos extras × até 2 lojas) — mais risco de bater cota mais
+ * cedo num catálogo grande (ver `quotaExhausted`). Combinado explícito:
+ * SE piorar (cota estourando mais cedo, catálogo grande processando
+ * menos itens no total), REVERTER pra 3 — é só voltar este número, nada
+ * mais depende dele.
  */
-const CANDIDATES_PER_STORE = 3;
+const CANDIDATES_PER_STORE = 5;
 
 /**
  * Corte antecipado na comparação SEQUENCIAL (set/2026, Gemini — Mistral

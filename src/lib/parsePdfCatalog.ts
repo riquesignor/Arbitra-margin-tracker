@@ -694,8 +694,20 @@ export function extractRows(lines: string[]): ExtractResult {
 // como está — mais simples, testada, e correta pro caso empilhado — só
 // não é mais o único caminho.
 
-/** Linha que é SÓ um código de SKU (ex.: "TOP2905"), sem mais nada — marca o INÍCIO de um novo produto neste layout. Mais restrito que SKU_PATTERN (que casa um SKU embutido em qualquer lugar da linha): aqui a linha inteira precisa ser o código, senão qualquer medida/quantidade no meio de uma frase viraria marcador por engano. */
-const STANDALONE_SKU_LINE_PATTERN = /^[A-Z]{2,6}-?\d{3,6}$/;
+/**
+ * Linha que é SÓ um código de SKU (ex.: "TOP2905"), sem mais nada — marca
+ * o INÍCIO de um novo produto neste layout. Mais restrito que SKU_PATTERN
+ * (que casa um SKU embutido em qualquer lugar da linha): aqui a linha
+ * inteira precisa ser o código, senão qualquer medida/quantidade no meio
+ * de uma frase viraria marcador por engano.
+ *
+ * `[A-Z]?` final: catálogo real (Catálogo TOPUTIL/DL Grupo, página 6) tem
+ * variante de cor do mesmo produto com uma letra colada no fim do código
+ * ("TOP2077A", ao lado de "TOP2040" sem sufixo) — sem essa permissão o
+ * produto inteiro ficava fora da extração (linha não batia em nenhum
+ * marcador, virava corpo órfão de outro produto).
+ */
+const STANDALONE_SKU_LINE_PATTERN = /^[A-Z]{2,6}-?\d{3,6}[A-Z]?$/;
 
 /** Linhas de metadado deste tipo de catálogo — nunca fazem parte do NOME do produto, mesmo dentro do bloco. */
 // "CX\.?\s*MASTER": alguns catálogos usam "CX MASTER:" (sem ponto), outros
@@ -731,6 +743,32 @@ const PROMO_BANNER_FRAGMENT_PATTERN = /^(PROMO(Ç[AÃ]O)?!?|PRO|MO|Ç[AÃ]O!?)$/
  * produto (dígito não é filtrado por `isNoiseToken`, ver comentário lá).
  */
 const STANDALONE_DIGITS_LINE_PATTERN = /^\d+\*?$/;
+
+/**
+ * Preço "codificado" sem separador decimal nem símbolo de moeda —
+ * convenção específica de alguns catálogos (confirmado: Catálogo
+ * TOPUTIL/DL Grupo, pedido explícito do usuário/dono do catálogo).
+ * Quando o bloco do produto NÃO tem nenhum preço no formato normal
+ * (`PRICE_PATTERN`, "R$"/decimal com vírgula), mas tem exatamente UMA
+ * linha isolada de 6 dígitos — opcionalmente com "*" no fim, marcando
+ * item promocional (mesma legenda "*ITENS PROMOCIONAIS NÃO SE APLICAM
+ * DESCONTO" do rodapé que motivou o `\*?` em STANDALONE_DIGITS_LINE_PATTERN
+ * acima) — esses 6 dígitos são o preço em CENTAVOS, sem ponto nem
+ * vírgula: "017208" -> R$172,08; "002918" -> R$29,18. Não colide com
+ * NCM (código fiscal, sempre 8 dígitos e sempre prefixado por "NCM:",
+ * já filtrado antes por BOILERPLATE_LINE_PATTERN) nem com quantidade de
+ * "CX MASTER" (também prefixada, nunca uma linha solta).
+ */
+const ENCODED_PRICE_LINE_PATTERN = /^\d{6}\*?$/;
+
+/** Acha, num conjunto de linhas de corpo já sem o marcador de SKU, o preço "codificado" (ver ENCODED_PRICE_LINE_PATTERN) quando existir exatamente uma linha candidata — ambíguo demais decidir com 2+, então nesse caso não arrisca. */
+function extractEncodedPrice(bodyLines: string[]): number | undefined {
+  const encodedPriceLines = bodyLines.filter((l) => ENCODED_PRICE_LINE_PATTERN.test(l.trim()));
+  if (encodedPriceLines.length !== 1) return undefined;
+  const digits = encodedPriceLines[0].trim().replace(/\*$/, "");
+  const cents = parseInt(digits, 10);
+  return Number.isFinite(cents) && cents > 0 ? cents / 100 : undefined;
+}
 
 /**
  * Extrai produtos de um layout em BLOCO MULTI-LINHA sem preço (ver
@@ -780,6 +818,7 @@ export function extractProductBlocksWithoutPriceIndexed(lines: string[]): (Catal
       const price = priceMatch ? parseCurrency(extractPriceGroup(priceMatch)) : 0;
       if (price > 0) supplierPrice = price;
     }
+    if (supplierPrice == null) supplierPrice = extractEncodedPrice(bodyLines);
 
     const nameLines = bodyLines.filter((l) => {
       const t = l.trim();
@@ -1203,6 +1242,7 @@ export function extractVitrineGridBlocks(items: PositionedText[], pageWidth: num
         const price = priceMatch ? parseCurrency(extractPriceGroup(priceMatch)) : 0;
         if (price > 0) supplierPrice = price;
       }
+      if (supplierPrice == null) supplierPrice = extractEncodedPrice(bodyLines);
 
       const nameLines = bodyLines.filter((l) => {
         const t = l.trim();
