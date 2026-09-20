@@ -28,6 +28,7 @@ import type {
 } from "../types";
 import { parseCatalogFile } from "../lib/parseCatalog";
 import { getPdfPageCount, parsePdfCatalogFile, type PageRange } from "../lib/parsePdfCatalog";
+import { downloadCatalogRowsAsCsv } from "../lib/csvExport";
 import { fetchMultipleMarketplacePrices, MISS_REASON_LABEL, type MissReason } from "../lib/priceApi";
 import { missingKeyMessage, PROVIDER_KEY_GUIDE } from "../config/providerKeys";
 import { calculateMargins } from "../lib/marginCalculator";
@@ -729,6 +730,12 @@ export default function Dashboard({
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
   const [pageFrom, setPageFrom] = useState(1);
   const [pageTo, setPageTo] = useState(1);
+  // Conversor PDF → planilha (set/2026, pedido explícito do usuário): só
+  // extrai (mesmo parser, com reforço de OCR/EAN etc.) e baixa um .csv no
+  // formato de ENTRADA do site — não dispara busca de preço nenhuma. Ver
+  // handleConvertPdfToSpreadsheet mais abaixo e src/lib/csvExport.ts.
+  const [convertingToSpreadsheet, setConvertingToSpreadsheet] = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
 
   const [lastUpload, setLastUpload] = useState<LastUpload | null>(null);
   const [uploadHistory, setUploadHistory] = useState<CatalogUploadRecord[]>([]);
@@ -1870,6 +1877,44 @@ export default function Dashboard({
     );
   }
 
+  /**
+   * Conversor PDF → planilha (set/2026, pedido explícito do usuário: "a
+   * ideia do mecanismo pegar o pdf e fazer uma planilha é pro usuario
+   * fazer essa planilha e depois jogar na busca por texto"). Roda o MESMO
+   * parser de PDF (mesmo reforço de OCR por qualidade, mesma leitura de
+   * EAN quando o layout permitir), mas com `withImages: false` — não faz
+   * sentido gastar tempo recortando foto pra um fluxo cujo destino é uma
+   * planilha de TEXTO — e sem nenhuma chamada às APIs de busca de preço:
+   * só extrai e baixa o .csv. O usuário decide depois, fora daqui, se e
+   * quando re-sobe essa planilha escolhendo um motor de busca por texto.
+   */
+  async function handleConvertPdfToSpreadsheet() {
+    if (!pendingPdf) return;
+    const file = pendingPdf;
+    const pageRange: PageRange = { from: pageFrom, to: pageTo };
+    setConvertError(null);
+    setConvertingToSpreadsheet(true);
+    try {
+      const { rows } = await parsePdfCatalogFile(file, pageRange, {
+        withImages: false,
+        userId: userId ?? undefined,
+        geminiApiKey: geminiApiKey ?? undefined,
+        nvidiaApiKey: nvidiaApiKey ?? undefined,
+      });
+      if (rows.length === 0) {
+        setConvertError("Nenhum produto reconhecido nesse intervalo de páginas — nada pra exportar.");
+        return;
+      }
+      downloadCatalogRowsAsCsv(rows, "arbitra-catalogo");
+      setPendingPdf(null);
+      setPdfPageCount(null);
+    } catch (err) {
+      setConvertError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConvertingToSpreadsheet(false);
+    }
+  }
+
   function handleFile(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase();
     if (extension === "pdf") void handlePdfSelected(file);
@@ -2155,6 +2200,31 @@ export default function Dashboard({
                       Cancelar
                     </button>
                   </div>
+
+                  {/* Conversor PDF → planilha (set/2026) — só faz sentido
+                      junto do grupo "texto": quem tá no motor de FOTO já
+                      processa a foto direto, não precisa de planilha
+                      intermediária nenhuma. */}
+                  {activeProviderGroup === "texto" && (
+                    <div className={styles.pageRangeConvertPanel}>
+                      <p className={styles.warningNote}>
+                        <AlertCircle size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                        Sem foto do produto, a busca por texto sozinha tem mais chance de confundir
+                        produtos parecidos — revise a planilha antes de usar.
+                      </p>
+                      <button
+                        className={styles.linkButton}
+                        type="button"
+                        disabled={convertingToSpreadsheet}
+                        onClick={() => void handleConvertPdfToSpreadsheet()}
+                      >
+                        {convertingToSpreadsheet
+                          ? "Convertendo…"
+                          : `Só converter em planilha (páginas ${pageFrom}–${pageTo}, sem buscar preço)`}
+                      </button>
+                      {convertError && <p className={styles.errorNote}>{convertError}</p>}
+                    </div>
+                  )}
                 </motion.div>
               ) : (
                 <label
