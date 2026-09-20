@@ -44,11 +44,114 @@ function normalizeHeader(header: string): string {
     .replace(DIACRITICS_REGEX, ""); // remove acentos
 }
 
-function findColumn(headers: string[], aliases: string[]): string | undefined {
+function findColumnExact(headers: string[], aliases: string[]): string | undefined {
   const normalized = headers.map((h) => ({ original: h, normalized: normalizeHeader(h) }));
   const normalizedAliases = aliases.map(normalizeHeader);
   const match = normalized.find((h) => normalizedAliases.includes(h.normalized));
   return match?.original;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 2º passo, só quando NENHUM header bateu no match exato acima pra essa
+ * categoria — caso real (set/2026): planilha de fornecedor com cabeçalho
+ * "Custo (R$)" em vez de só "Custo", `findColumnExact` não achava (exige
+ * o header inteiro ser igual ao alias) e o app recusava um catálogo com
+ * as colunas certas na cara do usuário. Aceita o alias como PALAVRA
+ * inteira dentro de um header decorado ("Custo (R$)", "Nome do Produto"),
+ * não como substring solta — evita, por ex., "cod" (alias de SKU) casando
+ * dentro de "código" sem fronteira de palavra.
+ *
+ * `usedHeaders`: colunas já resolvidas por OUTRA categoria ficam de fora
+ * da busca — sem isso, o alias curto e genérico de uma categoria (ex.:
+ * "cod" de SKU) podia roubar a coluna de uma categoria mais específica
+ * já resolvida (ex.: "Cód. Barras" já batido como EAN por
+ * `findColumnExact`) — mesma preocupação já documentada no comentário de
+ * EAN_ALIASES acima, agora também válida pro fallback fuzzy.
+ */
+function findColumnFuzzy(headers: string[], aliases: string[], usedHeaders: Set<string>): string | undefined {
+  const candidates = headers.filter((h) => h && !usedHeaders.has(h));
+  // Alias mais longo primeiro: "codigo de barras" tem que ganhar de
+  // "codigo" quando os dois batem no mesmo header.
+  const sortedAliases = [...aliases].sort((a, b) => b.length - a.length);
+
+  for (const alias of sortedAliases) {
+    const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizeHeader(alias))}([^a-z0-9]|$)`);
+    const match = candidates.find((h) => pattern.test(normalizeHeader(h)));
+    if (match) return match;
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolve as 4 colunas tentando match EXATO primeiro pra cada categoria
+ * (comportamento de sempre — zero regressão em catálogo que já funciona)
+ * e só cai pro fuzzy (`findColumnFuzzy`) pra quem ainda ficou sem coluna.
+ * Ordem do fallback — EAN, custo, nome, SKU — é dos aliases mais
+ * específicos/compridos pros mais genéricos/curtos ("cod" de SKU é o
+ * caso mais arriscado de colisão, ver comentário de `findColumnFuzzy`,
+ * por isso roda por último).
+ */
+function resolveColumns(headers: string[]): {
+  skuCol?: string;
+  nameCol?: string;
+  priceCol?: string;
+  eanCol?: string;
+} {
+  const exact = {
+    skuCol: findColumnExact(headers, SKU_ALIASES),
+    nameCol: findColumnExact(headers, NAME_ALIASES),
+    priceCol: findColumnExact(headers, PRICE_ALIASES),
+    eanCol: findColumnExact(headers, EAN_ALIASES),
+  };
+
+  const used = new Set<string>([exact.skuCol, exact.nameCol, exact.priceCol, exact.eanCol].filter((h): h is string => !!h));
+
+  const eanCol = exact.eanCol ?? findColumnFuzzy(headers, EAN_ALIASES, used);
+  if (eanCol) used.add(eanCol);
+  const priceCol = exact.priceCol ?? findColumnFuzzy(headers, PRICE_ALIASES, used);
+  if (priceCol) used.add(priceCol);
+  const nameCol = exact.nameCol ?? findColumnFuzzy(headers, NAME_ALIASES, used);
+  if (nameCol) used.add(nameCol);
+  const skuCol = exact.skuCol ?? findColumnFuzzy(headers, SKU_ALIASES, used);
+
+  return { skuCol, nameCol, priceCol, eanCol };
+}
+
+/**
+ * Quantas linhas do topo tentamos como candidata a cabeçalho antes de
+ * desistir e usar a linha 0 (comportamento de sempre). Cobre catálogo com
+ * linha de TÍTULO/instrução antes do cabeçalho de verdade — regressão
+ * real (set/2026) pega no PRÓPRIO modelo-catalogo.xlsx que este app
+ * distribui: linha 1 era um texto de instrução mesclado ("Modelo de
+ * catálogo — preencha uma linha por produto..."), "SKU/Nome/Custo/EAN"
+ * só aparecia na linha 2 — o usuário baixava NOSSO modelo oficial,
+ * preenchia, subia, e caía no erro "não encontrei colunas de SKU e/ou
+ * custo" olhando pras colunas certinhas na tela do Excel.
+ */
+const MAX_HEADER_SCAN_ROWS = 5;
+
+/**
+ * Acha a linha de cabeçalho de verdade dentro das primeiras
+ * `MAX_HEADER_SCAN_ROWS` linhas — a primeira que resolve SKU E custo (ver
+ * `resolveColumns`). Não achando nenhuma na janela, devolve 0 (mesmo
+ * comportamento de sempre): o erro final continua saindo e reportando a
+ * linha 0, sem fingir que sabe qual seria "a linha certa" quando a
+ * planilha realmente não tem cabeçalho reconhecível em lugar nenhum.
+ */
+function findHeaderRowIndex(matrix: string[][]): number {
+  const scanLimit = Math.min(matrix.length, MAX_HEADER_SCAN_ROWS);
+
+  for (let i = 0; i < scanLimit; i++) {
+    const { skuCol, priceCol } = resolveColumns(matrix[i] ?? []);
+    if (skuCol && priceCol) return i;
+  }
+
+  return 0;
 }
 
 /** Converte formatos BR ("R$ 1.234,56") e US ("1234.56") pra number. */
@@ -73,10 +176,7 @@ export class CatalogParseError extends Error {}
  * uma fonte silenciosa de "no CSV funciona, no Excel não".
  */
 function rowsFromMatrix(headers: string[], dataRows: string[][]): CatalogRow[] {
-  const skuCol = findColumn(headers, SKU_ALIASES);
-  const nameCol = findColumn(headers, NAME_ALIASES);
-  const priceCol = findColumn(headers, PRICE_ALIASES);
-  const eanCol = findColumn(headers, EAN_ALIASES);
+  const { skuCol, nameCol, priceCol, eanCol } = resolveColumns(headers);
 
   if (!skuCol || !priceCol) {
     throw new CatalogParseError(
@@ -117,7 +217,10 @@ export async function parseCatalogFile(file: File): Promise<CatalogRow[]> {
   // CSV antes de conseguir usar o app. Lido sem dependência nova (o
   // pacote `xlsx` do npm tem CVEs abertas, ver nota no topo).
   if (extension === "xlsx" || extension === "xlsm") {
-    const [headerRow = [], ...dataRows] = await readXlsxSheet(await file.arrayBuffer());
+    const matrix = await readXlsxSheet(await file.arrayBuffer());
+    const headerIndex = findHeaderRowIndex(matrix);
+    const headerRow = matrix[headerIndex] ?? [];
+    const dataRows = matrix.slice(headerIndex + 1);
 
     if (headerRow.length === 0) {
       throw new CatalogParseError("A primeira planilha do arquivo está vazia.");
@@ -142,10 +245,15 @@ export async function parseCatalogFile(file: File): Promise<CatalogRow[]> {
 
   // `header: false` + primeira linha como cabeçalho (em vez do modo
   // `header: true` do Papa) pra usar exatamente o mesmo caminho do XLSX
-  // — ver rowsFromMatrix acima.
-  const [headerRow = [], ...dataRows] = parsed.data;
+  // — ver rowsFromMatrix acima. `findHeaderRowIndex` (mesma lógica do
+  // XLSX) cobre CSV com linha de título antes do cabeçalho de verdade —
+  // menos comum aqui (skipEmptyLines já tira linha em branco sozinho),
+  // mas nada garante que um CSV exportado de outro sistema não tenha uma
+  // linha assim também.
+  const headerIndex = findHeaderRowIndex(parsed.data);
+  const dataRows = parsed.data.slice(headerIndex + 1);
   const rows = rowsFromMatrix(
-    headerRow.map((h) => h?.trim() ?? ""),
+    (parsed.data[headerIndex] ?? []).map((h) => h?.trim() ?? ""),
     dataRows
   );
 

@@ -132,9 +132,11 @@ const FAQ_GROUPS: FaqGroup[] = [
         question: "Deu erro \"Não encontrei colunas de SKU e/ou custo\" — o que fazer?",
         answer:
           "O app tenta reconhecer a coluna de código (sku, código, cod) e a de custo (custo, preço, valor, price, cost) " +
-          "pelo nome do cabeçalho, aceitando variações comuns em português e inglês. Se a mensagem aparecer, renomeie " +
-          "a primeira linha da planilha pra um desses nomes, ou confirme que a primeira linha realmente é o cabeçalho " +
-          "(não uma linha de título/logo antes dela).",
+          "pelo nome do cabeçalho, aceitando variações comuns em português e inglês — inclusive quando o nome vem " +
+          "decorado, tipo \"Custo (R$)\" ou \"Nome do Produto\". Se a primeira linha da planilha for um título/instrução " +
+          "(não o cabeçalho de verdade), o app já procura automaticamente nas próximas linhas. Se a mensagem ainda " +
+          "assim aparecer, é porque nenhuma das primeiras linhas tem uma coluna reconhecível de código OU de custo — " +
+          "renomeie o cabeçalho pra um dos nomes aceitos acima.",
       },
       {
         question: "Posso subir um PDF de catálogo com fotos, sem tabela?",
