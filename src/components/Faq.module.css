@@ -118,3 +118,95 @@
   font-size: 0.85rem;
   line-height: 1.6;
 }
+
+/* Guia de catálogo ideal (set/2026) — resposta rica com imagens de
+   exemplo + prompt copiável, dentro do mesmo formato de accordion do
+   resto do FAQ (ver CatalogGuideAnswer em Faq.tsx). */
+.guideAnswer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.guideAnswer p {
+  margin: 0;
+}
+
+.guideImages {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+@media (max-width: 560px) {
+  .guideImages {
+    grid-template-columns: 1fr;
+  }
+}
+
+.guideFigure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.guideImage {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-soft);
+  display: block;
+}
+
+.guideFigure figcaption {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+.guideDownloadLink {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.promptBox {
+  position: relative;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.promptText {
+  margin: 0;
+  padding-right: 100px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text);
+}
+
+.copyButton {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.78rem;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.copyButton:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}

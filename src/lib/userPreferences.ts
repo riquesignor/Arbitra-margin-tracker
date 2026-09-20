@@ -49,7 +49,12 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   chartsPricing: true,
   chartsResults: true,
   compareEnginesSideBySide: false,
-  groupOffersBySku: false,
+  // Default true (set/2026, pedido explícito do usuário: "deixa igual
+  // antes" — mesmo produto em 2 lojas aparecia numa linha só, com o
+  // mini-expandir pra ver a segunda oferta). Antes vinha desligado por
+  // padrão — usuário só via isso se soubesse que a opção existia em
+  // Conta → Configurações.
+  groupOffersBySku: true,
 
   onlyOwnKey: false,
   warnAt80PercentQuota: true,

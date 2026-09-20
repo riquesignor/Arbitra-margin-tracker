@@ -459,6 +459,7 @@ export default function App() {
                 warnAt80PercentQuota={preferences.warnAt80PercentQuota}
                 pendingSharedCatalog={pendingSharedCatalog}
                 onPendingSharedCatalogConsumed={() => setPendingSharedCatalog(null)}
+                onNavigateToFaq={() => setScreen("faq")}
               />
             )}
             {screen === "pricing" && (

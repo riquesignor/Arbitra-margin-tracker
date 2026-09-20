@@ -26,8 +26,8 @@ import type {
   SearchProviderId,
   VisionCandidateSource,
 } from "../types";
-import { parseCatalogFile } from "../lib/parseCatalog";
-import { getPdfPageCount, parsePdfCatalogFile, type PageRange } from "../lib/parsePdfCatalog";
+import { CatalogParseError, parseCatalogFile } from "../lib/parseCatalog";
+import { getPdfPageCount, parsePdfCatalogFile, PdfParseError, type PageRange } from "../lib/parsePdfCatalog";
 import { downloadCatalogRowsAsCsv } from "../lib/csvExport";
 import { fetchMultipleMarketplacePrices, MISS_REASON_LABEL, type MissReason } from "../lib/priceApi";
 import { missingKeyMessage, PROVIDER_KEY_GUIDE } from "../config/providerKeys";
@@ -76,6 +76,8 @@ interface ParseOutcome {
   ocrSkippedPages?: number[];
   /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas onde o OCR entrou como reforço de qualidade (<85% de aproveitamento). */
   qualityBoostPages?: number[];
+  /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas em grade onde o nome do produto foi recuperado via Gemini (nome gravado na foto, não em texto). */
+  nameCorrectedPages?: number[];
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -367,7 +369,8 @@ function buildParseInfoMessage(
   pagesWithNoProducts?: number[],
   duplicateSkusRemoved?: number,
   ocrSkippedPages?: number[],
-  qualityBoostPages?: number[]
+  qualityBoostPages?: number[],
+  nameCorrectedPages?: number[]
 ): string | null {
   const parts: string[] = [];
   if (skippedAmbiguous > 0) {
@@ -431,6 +434,19 @@ function buildParseInfoMessage(
     parts.push(
       `Reforço de leitura (OCR) aplicado na(s) página(s) ${qualityBoostPages.join(", ")} — o texto do PDF ` +
         "estava difícil de reconhecer nessas páginas e o OCR ajudou a resgatar produto(s) extra."
+    );
+  }
+  // Correção de nome via IA (set/2026, caso real: catálogo "Bmax") — ver
+  // nameCorrectedPages em ExtractResult (parsePdfCatalog.ts). Sinal
+  // POSITIVO como o reforço de OCR acima (o catálogo voltou mais
+  // completo/correto), mas pede uma conferência: a IA pode não ter
+  // acertado 100% dos casos em que o nome real do produto estava gravado
+  // só na foto do cartão.
+  if (nameCorrectedPages && nameCorrectedPages.length > 0) {
+    parts.push(
+      `Nome de produto recuperado via IA (Gemini) na(s) página(s) ${nameCorrectedPages.join(", ")} — ` +
+        "esses cartões traziam o nome gravado só na imagem (não como texto), então o código (SKU) era " +
+        "usado como nome. Confira se o nome recuperado bate com a foto antes de decidir compra."
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;
@@ -586,6 +602,13 @@ interface Props {
   pendingSharedCatalog?: SharedCatalog | null;
   /** Avisa o App que o catálogo pendente acima já foi consumido (evita reprocessar em loop). */
   onPendingSharedCatalogConsumed?: () => void;
+  /**
+   * Navega pra Central de dúvidas (set/2026) — usado só pelo aviso de erro
+   * de LEITURA do catálogo (CatalogParseError/PdfParseError), que aponta
+   * pra seção com o exemplo de catálogo recomendado e o prompt de
+   * padronização (ver `isParseError` mais abaixo e Faq.tsx).
+   */
+  onNavigateToFaq?: () => void;
 }
 
 interface LastUpload {
@@ -688,8 +711,14 @@ export default function Dashboard({
   warnAt80PercentQuota = true,
   pendingSharedCatalog,
   onPendingSharedCatalogConsumed,
+  onNavigateToFaq,
 }: Props) {
   const [state, setState] = useState<UploadState>("idle");
+  // true quando o erro atual em `error` veio de CatalogParseError/PdfParseError
+  // (formato do arquivo não reconhecido) — diferencia de erro de rede/cota/
+  // permissão, que não tem nada a ver com "seu catálogo está no formato
+  // errado" e não deve linkar pro guia de exemplo (ver render do erro mais abaixo).
+  const [isParseError, setIsParseError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [historyInfo, setHistoryInfo] = useState<string | null>(null);
   const [skippedInfo, setSkippedInfo] = useState<string | null>(null);
@@ -1627,6 +1656,7 @@ export default function Dashboard({
     }
 
     setError(null);
+    setIsParseError(false);
     setHistoryInfo(null);
     setSkippedInfo(null);
     setLastUpload({ file, sourceType, pageRange });
@@ -1654,6 +1684,7 @@ export default function Dashboard({
         duplicateSkusRemoved,
         ocrSkippedPages,
         qualityBoostPages,
+        nameCorrectedPages,
       } = await parse();
       setSkippedInfo(
         buildParseInfoMessage(
@@ -1663,7 +1694,8 @@ export default function Dashboard({
           pagesWithNoProducts,
           duplicateSkusRemoved,
           ocrSkippedPages,
-          qualityBoostPages
+          qualityBoostPages,
+          nameCorrectedPages
         )
       );
       await finishWithRows(
@@ -1680,6 +1712,12 @@ export default function Dashboard({
       );
     } catch (err) {
       setState("error");
+      // CatalogParseError/PdfParseError = formato do arquivo não bateu com
+      // nenhuma heurística de leitura — é exatamente o caso que o guia de
+      // catálogo ideal (Central de dúvidas) existe pra resolver. Erro de
+      // rede/permissão/cota não tem nada a ver com o FORMATO do arquivo,
+      // então não linka pra lá (evitaria confundir a causa real).
+      setIsParseError(err instanceof CatalogParseError || err instanceof PdfParseError);
       setError(err instanceof Error ? err.message : String(err));
     }
   }
@@ -1687,6 +1725,7 @@ export default function Dashboard({
   async function handleForceReprocess() {
     if (!lastUpload) return;
     setError(null);
+    setIsParseError(false);
     setHistoryInfo(null);
     setSkippedInfo(null);
 
@@ -1714,6 +1753,7 @@ export default function Dashboard({
         duplicateSkusRemoved,
         ocrSkippedPages,
         qualityBoostPages,
+        nameCorrectedPages,
       } = await parse();
       setSkippedInfo(
         buildParseInfoMessage(
@@ -1723,7 +1763,8 @@ export default function Dashboard({
           pagesWithNoProducts,
           duplicateSkusRemoved,
           ocrSkippedPages,
-          qualityBoostPages
+          qualityBoostPages,
+          nameCorrectedPages
         )
       );
       await finishWithRows(
@@ -1740,6 +1781,7 @@ export default function Dashboard({
       );
     } catch (err) {
       setState("error");
+      setIsParseError(err instanceof CatalogParseError || err instanceof PdfParseError);
       setError(err instanceof Error ? err.message : String(err));
     }
   }
@@ -2312,6 +2354,21 @@ export default function Dashboard({
                         onClick={() => void handleForceReprocess()}
                       >
                         Reprocessar agora
+                      </button>
+                    )}
+                    {/* Só quando o erro é de FORMATO (CatalogParseError/PdfParseError,
+                        ver isParseError) — erro de rede/cota não tem a ver com o
+                        catálogo estar fora do padrão, não faz sentido linkar pra lá. */}
+                    {isParseError && onNavigateToFaq && (
+                      <button
+                        className={styles.linkButton}
+                        type="button"
+                        onClick={() => {
+                          window.location.hash = "catalogo-ideal";
+                          onNavigateToFaq();
+                        }}
+                      >
+                        Ver exemplo de catálogo recomendado
                       </button>
                     )}
                   </p>

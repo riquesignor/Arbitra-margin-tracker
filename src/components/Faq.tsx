@@ -1,16 +1,110 @@
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, HelpCircle } from "lucide-react";
+import { ChevronDown, Copy, Check as CheckIcon, HelpCircle } from "lucide-react";
 import styles from "./Faq.module.css";
 
 interface FaqItem {
   question: string;
-  answer: string;
+  /** Aceita JSX (ver CatalogGuideAnswer) pra itens que precisam de imagem/botão, não só texto corrido. */
+  answer: string | ReactNode;
+  /**
+   * Âncora estável pra abrir esta pergunta direto de outra tela (ver aviso
+   * de erro de parsing em Dashboard.tsx, `/faq#<anchor>`) — diferente da
+   * key `grupo-índice` usada internamente pro accordion, que muda se a
+   * ordem dos itens mudar.
+   */
+  anchor?: string;
 }
 
 interface FaqGroup {
   title: string;
   items: FaqItem[];
+}
+
+/**
+ * Prompt de base (set/2026, pedido explícito do usuário) pra quem tem um
+ * catálogo bagunçado colar num agente de IA de sua preferência (ChatGPT,
+ * Claude, etc.) e pedir pra reformatar no padrão que o Arbitra reconhece
+ * de forma confiável. Pede saída em CSV, não em PDF novo — um agente de
+ * texto não controla bem layout visual de PDF, mas acerta uma tabela CSV
+ * de primeira, e o parser do site lê CSV sem depender de heurística de
+ * layout nenhuma (ver parseCatalog.ts). A instrução "não invente dado" é
+ * a parte mais importante: sem ela, IA generativa tende a completar
+ * lacuna com estimativa plausível, contaminando o catálogo em silêncio.
+ */
+const CATALOG_PROMPT = `Tenho um catálogo de produtos de fornecedor (anexo) com formato bagunçado. Preciso que você reorganize essas informações em uma tabela CSV limpa, com exatamente estas colunas, nesta ordem:
+
+SKU;Nome;Custo;EAN
+
+Regras:
+- Use ; (ponto e vírgula) como separador de coluna.
+- SKU: código/referência do produto no catálogo original. Se não existir, deixe em branco — não invente um código.
+- Nome: nome/descrição do produto, sem código de referência interno, sem medida de embalagem (ex: "9x10cm") misturados no texto.
+- Custo: preço de custo do fornecedor, em formato 1234,56 (vírgula decimal) ou 1234.56. Se o produto não tiver preço, deixe em branco.
+- EAN: código de barras (EAN/GTIN), só se existir no catálogo original. Se não tiver essa informação, deixe a coluna vazia — não invente.
+- Uma linha por produto. Não crie linhas de categoria, título de seção ou subtotal.
+- Não invente, estime ou complete nenhum dado que não esteja claramente presente no arquivo original — se uma informação estiver ilegível ou ausente, deixe o campo vazio.
+- Devolva só a tabela final em CSV (não em markdown, não em texto explicativo) pronta pra eu baixar como arquivo .csv.`;
+
+function CatalogGuideAnswer() {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(CATALOG_PROMPT);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard pode falhar por permissão do navegador (raro, mas
+      // acontece em iframe/contexto restrito) — sem isso o clique parecia
+      // não fazer nada, sem nenhuma pista do porquê.
+      window.prompt("Não consegui copiar automaticamente — copie o texto abaixo:", CATALOG_PROMPT);
+    }
+  }
+
+  return (
+    <div className={styles.guideAnswer}>
+      <p>
+        Estas imagens são <b>ilustrativas</b> — o layout do seu catálogo pode ser em grade (3×3, 4×4,
+        qualquer tamanho), lista de linha única, ou outro arranjo. O que realmente importa é que cada
+        produto tenha <b>foto, nome, código e preço</b> identificáveis, não o desenho exato da imagem
+        abaixo.
+      </p>
+      <div className={styles.guideImages}>
+        <figure className={styles.guideFigure}>
+          <img
+            src="/exemplo-catalogo-pdf.png"
+            alt="Exemplo ilustrativo de catálogo em PDF com foto, nome, código e preço de cada produto"
+            className={styles.guideImage}
+          />
+          <figcaption>Exemplo ilustrativo — catálogo em PDF</figcaption>
+        </figure>
+        <figure className={styles.guideFigure}>
+          <img
+            src="/exemplo-planilha.png"
+            alt="Exemplo ilustrativo de planilha com colunas SKU, Nome, Custo e EAN"
+            className={styles.guideImage}
+          />
+          <figcaption>Exemplo ilustrativo — planilha (CSV/XLSX)</figcaption>
+        </figure>
+      </div>
+      <p>
+        Já tem um catálogo bagunçado? Baixe nosso <b>modelo de planilha</b> pra ver o formato exato
+        esperado, ou cole o prompt abaixo num agente de IA (ChatGPT, Claude, etc.) junto com o seu
+        arquivo — ele reorganiza tudo no padrão certo pra você.
+      </p>
+      <a href="/modelo-catalogo.xlsx" download className={styles.guideDownloadLink}>
+        Baixar planilha modelo (.xlsx)
+      </a>
+      <div className={styles.promptBox}>
+        <pre className={styles.promptText}>{CATALOG_PROMPT}</pre>
+        <button type="button" className={styles.copyButton} onClick={() => void handleCopy()}>
+          {copied ? <CheckIcon size={13} /> : <Copy size={13} />}
+          {copied ? "Copiado!" : "Copiar prompt"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Conteúdo baseado no que o app realmente faz hoje (mensagens de erro,
@@ -22,6 +116,11 @@ const FAQ_GROUPS: FaqGroup[] = [
   {
     title: "Cadastro e arquivo",
     items: [
+      {
+        question: "Qual formato de catálogo dá o melhor resultado? (com exemplo e prompt pronto)",
+        answer: <CatalogGuideAnswer />,
+        anchor: "catalogo-ideal",
+      },
       {
         question: "Quais formatos de catálogo o Arbitra aceita?",
         answer:
@@ -159,6 +258,27 @@ export default function Faq() {
     });
   }
 
+  // Abre e rola até a pergunta certa quando a tela chega via link com
+  // âncora (ex: aviso de erro de parsing em Dashboard.tsx apontando pra
+  // "/faq#catalogo-ideal") — sem isso, o usuário caía na Central de
+  // dúvidas mas precisava procurar manualmente qual pergunta abrir.
+  useEffect(() => {
+    const anchor = window.location.hash.replace("#", "");
+    if (!anchor) return;
+
+    for (const group of FAQ_GROUPS) {
+      const i = group.items.findIndex((item) => item.anchor === anchor);
+      if (i === -1) continue;
+      const key = `${group.title}-${i}`;
+      setOpenKeys((prev) => new Set(prev).add(key));
+      // Espera o accordion renderizar aberto antes de rolar até ele.
+      requestAnimationFrame(() => {
+        document.getElementById(`faq-${anchor}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      break;
+    }
+  }, []);
+
   return (
     <motion.div className={styles.container} {...cardMotion}>
       <div className={styles.header}>
@@ -178,7 +298,7 @@ export default function Faq() {
               const key = `${group.title}-${i}`;
               const open = openKeys.has(key);
               return (
-                <div key={key} className={styles.item}>
+                <div key={key} id={item.anchor ? `faq-${item.anchor}` : undefined} className={styles.item}>
                   <button
                     type="button"
                     className={styles.itemQuestion}
@@ -194,7 +314,7 @@ export default function Faq() {
                       className={open ? styles.itemChevronOpen : styles.itemChevron}
                     />
                   </button>
-                  {open && <p className={styles.itemAnswer}>{item.answer}</p>}
+                  {open && <div className={styles.itemAnswer}>{item.answer}</div>}
                 </div>
               );
             })}

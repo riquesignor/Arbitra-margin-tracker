@@ -476,6 +476,20 @@ export interface ExtractResult {
    * isso). Ver Dashboard.tsx pra onde isso vira mensagem visível.
    */
   qualityBoostPages?: number[];
+  /**
+   * Páginas (1-based) em GRADE (ver extractGridBlocks) onde pelo menos 1
+   * produto teve o NOME recuperado via Gemini (set/2026) — caso do
+   * catálogo "Bmax": nome/descrição do produto gravado dentro da própria
+   * foto do cartão (gráfico), não como texto selecionável nem OCR-ável,
+   * então `extractGridBlocks` cai no fallback `name = sku` (ver
+   * comentário ali). Diferente de `qualityBoostPages`/correção de preço:
+   * não depende de a página ter passado por OCR — catálogos desse tipo
+   * costumam ter código/preço em texto real (por isso nunca acionam
+   * OCR), só o nome é que vem gravado na imagem. `undefined`/vazio =
+   * nenhuma página precisou dessa correção. Ver Dashboard.tsx pra onde
+   * isso vira mensagem visível.
+   */
+  nameCorrectedPages?: number[];
 }
 
 /**
@@ -1633,6 +1647,10 @@ export async function parsePdfCatalogFile(
   // `ocrProducedUsableProduct`; aqui o nome ainda vem majoritariamente
   // de texto real, só um reforço pontual).
   const qualityBoostPages: number[] = [];
+  // Páginas (1-based) em GRADE onde pelo menos 1 nome foi recuperado via
+  // Gemini (ver `nameCorrectedPages` em ExtractResult pro porquê e
+  // `badNameBlocks` mais abaixo pra detecção).
+  const nameCorrectedPages: number[] = [];
 
   // try/finally garante que o worker do Tesseract (WASM + dado de
   // idioma, alguns MB) é liberado ao final do processamento — mesmo se
@@ -1796,6 +1814,76 @@ export async function parsePdfCatalogFile(
             // o catálogo inteiro — os produtos ficam como ambíguos, mesmo
             // comportamento de antes dessa correção existir.
             console.warn(`Correção de preço via Gemini falhou na página ${pageNum} (seguindo sem ela):`, err);
+          }
+        }
+
+        // Correção de NOME via Gemini (set/2026, caso real: catálogo
+        // "Bmax") — independente da correção de preço acima e SEM o gate
+        // de `pageUsedOcr`: esse tipo de catálogo tem código/preço em
+        // texto real (nunca aciona OCR), só o NOME/descrição do produto
+        // vem gravado dentro da própria foto do cartão (gráfico, não
+        // texto selecionável) — extractGridBlocks já cobre esse caso com
+        // o fallback `if (!name) name = sku;`, mas até aqui isso deixava
+        // o produto pra sempre com o SKU como "nome", prejudicando tanto
+        // a exibição quanto qualquer busca de preço por TEXTO (buscar
+        // "BM-A06" no Google/marketplace não acha nada útil, buscar o
+        // nome real do produto acha).
+        //
+        // Detecção: nome IDÊNTICO ao próprio SKU (comparado via
+        // normalizeSkuForMatch, mesma tolerância a espaço/caixa da
+        // correção de preço) — nunca dispara em falso positivo porque um
+        // nome de produto de verdade nunca é igual ao código dele.
+        // Roda só sobre `gridBlocks` FINAL (depois da correção de preço
+        // acima, incluindo cartões promovidos de `priceless`): um
+        // cartão que nunca ganhou preço nunca chega em `rows` de
+        // qualquer forma, então corrigir o nome dele seria trabalho
+        // perdido.
+        const badNameBlocks = gridBlocks.filter(
+          (b) => normalizeSkuForMatch(b.name) === normalizeSkuForMatch(b.sku)
+        );
+
+        if (badNameBlocks.length > 0 && options?.geminiApiKey && !geminiQuotaExhausted) {
+          try {
+            const { canvas: c } = await ensureCanvas();
+            const pageDataUrl = canvasToDownscaledJpegDataUrl(c, GEMINI_PAGE_MAX_WIDTH, 0.85);
+            // Reaproveita a extração GENÉRICA de página inteira (mesma
+            // usada como último recurso quando nenhuma heurística
+            // reconhece produto algum) em vez de criar um 3º prompt
+            // quase-duplicado: ela já pede sku+name+price numa chamada
+            // só, e "name" é obrigatório na resposta dela (ver
+            // parseCatalogPageFullResponse) — exatamente o dado que falta
+            // aqui.
+            const geminiProducts = await extractCatalogPageProductsWithGemini(pageDataUrl, options.geminiApiKey);
+            const nameBySku = new Map(
+              geminiProducts
+                // O Gemini também pode não conseguir ler o nome real (foto
+                // ruim, produto sem nome visível) — nesse caso ele às
+                // vezes ecoa o próprio SKU como nome. Não teria sentido
+                // "corrigir" SKU por SKU, então esses casos ficam de fora
+                // do mapa e o cartão mantém o fallback anterior.
+                .filter((p) => normalizeSkuForMatch(p.name) !== normalizeSkuForMatch(p.sku))
+                .map((p) => [normalizeSkuForMatch(p.sku), p.name])
+            );
+
+            let correctedAny = false;
+            for (const b of badNameBlocks) {
+              const realName = nameBySku.get(normalizeSkuForMatch(b.sku));
+              // Nunca sobrescreve um nome que já veio de texto real com
+              // confiança — só entra aqui quem já bateu o critério
+              // `name === sku` acima, então este `if` é redundante por
+              // segurança (defesa em profundidade), não por necessidade.
+              if (realName && normalizeSkuForMatch(b.name) === normalizeSkuForMatch(b.sku)) {
+                b.name = realName;
+                correctedAny = true;
+              }
+            }
+            if (correctedAny) nameCorrectedPages.push(pageNum);
+          } catch (err) {
+            if (err instanceof GeminiCatalogQuotaExhaustedError) geminiQuotaExhausted = true;
+            // Falha na correção (chave inválida, rede, cota) não derruba
+            // o catálogo inteiro — o produto fica com o SKU como nome,
+            // mesmo comportamento de antes dessa correção existir.
+            console.warn(`Correção de nome via Gemini falhou na página ${pageNum} (seguindo com SKU como nome):`, err);
           }
         }
 
@@ -2098,6 +2186,7 @@ export async function parsePdfCatalogFile(
       duplicateSkusRemoved: duplicateSkusRemoved > 0 ? duplicateSkusRemoved : undefined,
       ocrSkippedPages: ocrSkippedPages.length > 0 ? ocrSkippedPages : undefined,
       qualityBoostPages: qualityBoostPages.length > 0 ? qualityBoostPages : undefined,
+      nameCorrectedPages: nameCorrectedPages.length > 0 ? nameCorrectedPages : undefined,
     };
   } finally {
     // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB
