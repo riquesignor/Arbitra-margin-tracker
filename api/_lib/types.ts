@@ -125,24 +125,28 @@ export type SearchProviderId =
  *     ScraperAPI quando há chave) → API oficial grátis (PA-API Amazon /
  *     OAuth Mercado Livre) → ScraperAPI estruturado. Continua passando
  *     pela comparação visual do backend de IA escolhido.
- *   - "scraperapi" — pula os dois primeiros degraus (raspagem + oficial)
- *     e vai direto pro Structured Data Endpoint da ScraperAPI, evitando de
- *     propósito o risco de bloqueio 403 da raspagem direta. Ainda passa
- *     pela comparação visual do backend de IA — troca só a FONTE de
- *     candidato, não o pipeline de confirmação. Mais lento (uma chamada de
- *     IA por candidato), mais preciso (confirmação visual de verdade).
- *   - "serpapi" / "searchapi" — BYPASSA o pipeline de IA de visão inteiro:
- *     delega a busca pro provider standalone já existente
- *     (`searchGoogleShoppingShared`/`searchSearchApiLensShared`) e usa o
- *     resultado dele direto, sem chamar Gemini/Mistral. Mais rápido (1
- *     chamada por produto, sem loop de comparação por candidato), porém
- *     mais parcial: "serpapi" decide por similaridade de TEXTO (não usa a
- *     foto do catálogo pra nada); "searchapi" usa o Google Lens dele
- *     (foto de verdade, mesma fonte que `searchapi_lens` já usa como
- *     provider standalone). Nenhum dos dois usa o backend de IA escolhido
- *     no seletor — a chave Gemini/Mistral continua sendo exigida mesmo
- *     assim (trade-off aceito pra não complicar o `needsKey` estático por
- *     provider em Dashboard.tsx com uma sub-escolha condicional).
+ *   - "scraperapi" / "serpapi" / "searchapi" — pula os dois primeiros
+ *     degraus (raspagem + oficial) e vai direto pra fonte fixada pelo
+ *     usuário: Structured Data Endpoint da ScraperAPI, Google Shopping da
+ *     SerpApi, ou Google Lens do SearchApi.io (este com foto de verdade,
+ *     os outros dois por texto). Nos três casos, quem decide o vencedor
+ *     final continua sendo SEMPRE a comparação visual do backend de IA
+ *     escolhido (Gemini/Mistral) — as três opções só trocam a FONTE de
+ *     candidato, nunca o pipeline de confirmação. Mais lento que "auto"
+ *     (uma chamada de IA por candidato), mais resistente a nome de
+ *     catálogo ruim (a foto sempre entra na decisão final).
+ *
+ *     ⚠️ HISTÓRICO — até set/2026, "serpapi"/"searchapi" tinham um FAST
+ *     LANE que BYPASSAVA o pipeline de IA inteiro, delegando pro provider
+ *     standalone (`searchGoogleShoppingShared`/`searchSearchApiLensShared`)
+ *     e usando o resultado dele direto — mais rápido (1 chamada por
+ *     produto), mas sem NENHUMA confirmação visual do motor de IA
+ *     escolhido. Removido a pedido explícito do usuário depois de um
+ *     relato real (catálogo com nome de produto ruim/igual ao SKU): sem a
+ *     IA confirmando a foto, um nome ruim virava resultado de categoria
+ *     errada (ex.: "aparecia monitor, celular, nada a ver com o
+ *     catálogo"). Ver `fetchCandidateOffers`
+ *     (visionInternalSearchProvider.ts) pro comportamento atual.
  */
 export type VisionCandidateSource = "auto" | "scraperapi" | "serpapi" | "searchapi";
 

@@ -202,3 +202,68 @@ export async function searchSearchApiLensShared(
 
   return results;
 }
+
+/** Candidato cru do SearchApi.io Lens — mesmo papel de `SerpApiShoppingCandidate` (googleShoppingProvider.ts), sem `rating`/`reviews` porque esse engine não os documenta (ver comentário em `SearchApiLensMatch` no topo do arquivo). */
+export interface SearchApiLensCandidate {
+  title: string;
+  price?: number;
+  thumbnail?: string;
+  source?: string;
+  link?: string;
+}
+
+/**
+ * Candidatos CRUS (lista, não resolvida) do SearchApi.io Lens (set/2026) —
+ * irmã de `fetchSerpApiShoppingCandidatesForQuery` (googleShoppingProvider.ts),
+ * mesma motivação: alimentar o motor interno + IA com candidatos de VERDADE
+ * (foto + título) em vez de deixar o próprio SearchApi.io decidir o
+ * vencedor sozinho (FAST LANE antigo). Precisa de `imageUrl` (busca por
+ * FOTO, não por texto) — `name` é só reforço textual opcional, mesma regra
+ * de `isUsableSearchTerm` já usada em `searchSearchApiLensShared` acima.
+ *
+ * Devolve `[]` (não lança) sem chave/imagem ou em qualquer falha — mesma
+ * convenção das demais fontes de candidato cru deste pipeline.
+ */
+export async function fetchSearchApiLensCandidatesForQuery(
+  imageUrl: string | undefined,
+  name: string | undefined,
+  searchApiKey: string | undefined
+): Promise<SearchApiLensCandidate[]> {
+  const apiKey = searchApiKey?.trim();
+  if (!apiKey || !imageUrl) return [];
+
+  try {
+    const url = new URL(ENDPOINT);
+    url.searchParams.set("engine", "google_lens");
+    url.searchParams.set("search_type", "products");
+    url.searchParams.set("url", imageUrl);
+    if (isUsableSearchTerm(name)) url.searchParams.set("q", name!.trim());
+    url.searchParams.set("hl", "pt-br");
+    url.searchParams.set("country", "br");
+    url.searchParams.set("api_key", apiKey);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      console.warn(`SearchApi.io Lens (candidatos crus) retornou ${response.status}`);
+      return [];
+    }
+    const data = (await response.json()) as SearchApiLensResponse;
+    if (data.error) {
+      console.warn(`SearchApi.io Lens (candidatos crus): ${data.error}`);
+      return [];
+    }
+
+    return (data.visual_matches ?? [])
+      .filter((m) => m.extracted_price != null)
+      .map((m) => ({
+        title: m.title ?? "",
+        price: m.extracted_price,
+        thumbnail: m.thumbnail,
+        source: m.source,
+        link: m.link,
+      }));
+  } catch (err) {
+    console.warn("SearchApi.io Lens (candidatos crus) falhou:", err);
+    return [];
+  }
+}

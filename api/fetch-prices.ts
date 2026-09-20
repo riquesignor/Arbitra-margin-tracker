@@ -197,16 +197,19 @@ const VISUAL_MATCH_PROVIDERS = new Set<SearchProviderId>([
  * teriam que repetir a mesma constante — um ponto só evita divergência
  * quando um mecanismo novo entrar.
  *
- * ⚠️ NÃO sobrescreve `confidenceSource` já preenchido (set/2026) — a FAST
- * LANE do motor interno + IA (candidateSource "serpapi"/"searchapi", ver
- * visionInternalSearchProvider.ts) delega pra `searchGoogleShoppingShared`/
- * `searchSearchApiLensShared`, que devolvem resultado SEM `confidenceSource`
- * (não é responsabilidade deles marcar isso quando usados como provider
- * standalone). Sem esta guarda, "vision_internal"/"vision_mistral" sempre
- * carimbariam "visual" mesmo quando a fast lane "serpapi" decidiu por
- * similaridade de TEXTO — o valor certo por resultado individual é
- * calculado ali dentro antes de devolver, não aqui (esta função só serve
- * de default pro resto dos providers, que nunca preenchem o campo sozinhos).
+ * ⚠️ NÃO sobrescreve `confidenceSource` já preenchido (set/2026) —
+ * histórico: até set/2026 o motor interno + IA tinha um FAST LANE
+ * (candidateSource "serpapi"/"searchapi") que delegava pra
+ * `searchGoogleShoppingShared`/`searchSearchApiLensShared` como provider
+ * standalone e o resultado vinha SEM `confidenceSource`, então esta guarda
+ * existia pra não carimbar "visual" por engano quando a fast lane
+ * "serpapi" tinha decidido por texto. O FAST LANE foi removido (ver
+ * VisionCandidateSource em ../api/_lib/types.ts) — hoje "vision_internal"/
+ * "vision_mistral" sempre passam pela comparação visual de verdade,
+ * então sempre caem no default "visual" abaixo, correto pros 3 (auto/
+ * scraperapi/serpapi/searchapi). A guarda em si continua útil (defesa em
+ * profundidade caso algum provider volte a preencher o campo sozinho no
+ * futuro), só o motivo histórico de existir mudou.
  */
 function annotateConfidenceSource(
   byMarketplace: Record<string, Record<string, MarketplacePriceResult>>,

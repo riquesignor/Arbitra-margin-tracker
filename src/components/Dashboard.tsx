@@ -314,13 +314,13 @@ const CANDIDATE_SOURCE_OPTIONS: {
   {
     id: "serpapi",
     label: "SerpApi",
-    recommendation: "maior velocidade — pula a IA de visão e decide por nome do produto, então o dado vem mais parcial (sem confirmação por foto).",
+    recommendation: "busca candidatos no Google Shopping deles, mas quem confirma o produto certo continua sendo a IA de visão do motor escolhido — mais lento que Automático, mais resistente a nome de catálogo ruim/genérico.",
     needsKey: "serpApiKey",
   },
   {
     id: "searchapi",
     label: "SearchApi.io",
-    recommendation: "maior velocidade — pula a IA de visão e usa o Google Lens deles direto (ainda por foto, mas sem a segunda confirmação visual do motor interno).",
+    recommendation: "busca candidatos por foto no Google Lens deles, e a IA de visão do motor escolhido ainda confirma cada um — mais lento que Automático, útil como 2ª fonte quando a Amazon/Mercado Livre bloqueiam a raspagem direta.",
     needsKey: "searchApiKey",
   },
 ];

@@ -267,3 +267,77 @@ export async function searchGoogleShoppingShared(
 
   return results;
 }
+
+/** Candidato cru da SerpApi (Google Shopping) — mesmo formato de `GoogleShoppingCandidate` (scraperApiSearchProvider.ts), com `link`/`rating`/`reviews` a mais porque o engine da SerpApi documenta os três (ver comentário de `searchGoogleShoppingShared` acima). */
+export interface SerpApiShoppingCandidate {
+  title: string;
+  price?: number;
+  thumbnail?: string;
+  source?: string;
+  link?: string;
+  rating?: number;
+  reviews?: number;
+}
+
+/**
+ * Candidatos CRUS (lista, não resolvida) da SerpApi (set/2026) — irmã de
+ * `searchGoogleShoppingShared` acima, mas devolve TODOS os candidatos com
+ * preço em vez de já escolher o melhor por similaridade de TEXTO. Existe
+ * pra alimentar o motor interno + IA (`fetchCandidateOffers`,
+ * visionInternalSearchProvider.ts) quando o usuário fixa "SerpApi" como
+ * fonte de apoio: antes disso existir, escolher "SerpApi" como apoio
+ * pulava o Gemini/Mistral inteiro (FAST LANE, ver histórico) — o motor de
+ * IA nunca chegava a comparar imagem nenhuma, só a própria decisão por
+ * texto da SerpApi valia. Com esta função, a SerpApi vira só FONTE de
+ * candidato (foto + título), e quem decide o vencedor continua sendo a
+ * comparação visual do backend escolhido (Gemini/Mistral) — mesmo papel
+ * que `fetchGoogleShoppingCandidatesForQuery` (ScraperAPI) já tem nesse
+ * pipeline.
+ *
+ * Devolve `[]` (não lança) sem chave ou em qualquer falha — é uma FONTE
+ * entre outras dentro de `fetchCandidateOffers`, mesma convenção das
+ * demais funções de candidato cru deste arquivo/scraperApiSearchProvider.ts.
+ */
+export async function fetchSerpApiShoppingCandidatesForQuery(
+  query: string,
+  serpApiKey: string | undefined
+): Promise<SerpApiShoppingCandidate[]> {
+  const apiKey = serpApiKey?.trim();
+  if (!apiKey) return [];
+
+  try {
+    const url = new URL(ENDPOINT);
+    url.searchParams.set("engine", "google_shopping");
+    url.searchParams.set("q", query);
+    url.searchParams.set("google_domain", "google.com.br");
+    url.searchParams.set("gl", "br");
+    url.searchParams.set("hl", "pt-br");
+    url.searchParams.set("api_key", apiKey);
+
+    const response = await fetch(url.toString());
+    if (!response.ok) {
+      console.warn(`SerpApi (Google Shopping, candidatos crus) "${query}" retornou ${response.status}`);
+      return [];
+    }
+    const data = (await response.json()) as SerpShoppingResponse;
+    if (data.error) {
+      console.warn(`SerpApi (Google Shopping, candidatos crus) "${query}": ${data.error}`);
+      return [];
+    }
+
+    return (data.shopping_results ?? [])
+      .filter((r) => r.extracted_price != null)
+      .map((r) => ({
+        title: r.title,
+        price: r.extracted_price,
+        thumbnail: r.thumbnail,
+        source: r.source,
+        link: r.product_link ?? r.link,
+        rating: r.rating,
+        reviews: r.reviews,
+      }));
+  } catch (err) {
+    console.warn(`SerpApi (Google Shopping, candidatos crus) falhou pra "${query}":`, err);
+    return [];
+  }
+}
