@@ -766,6 +766,19 @@ export default function Dashboard({
   const [convertingToSpreadsheet, setConvertingToSpreadsheet] = useState(false);
   const [convertError, setConvertError] = useState<string | null>(null);
 
+  // ⚠️ TEMPORÁRIO/DIAGNÓSTICO (set/2026, pedido explícito do usuário pra
+  // isolar uma hipótese de regressão de qualidade de busca no motor
+  // interno + IA): quando marcado, `processFile` pula o check de
+  // histórico (`findExistingUpload`) e reprocessa do zero mesmo que o
+  // MESMO arquivo + intervalo de página + lojas já tenha um resultado
+  // salvo. Existe só pra permitir comparar motor A vs motor B no mesmo
+  // catálogo sem precisar mudar o intervalo de página como workaround
+  // manual. Se o teste mostrar que o histórico nunca era a causa da
+  // inconsistência reportada, remover esta flag e a checkbox associada
+  // (ver JSX do painel de PDF pendente) — não é feature planejada pro
+  // produto final.
+  const [forceFreshSearch, setForceFreshSearch] = useState(false);
+
   const [lastUpload, setLastUpload] = useState<LastUpload | null>(null);
   const [uploadHistory, setUploadHistory] = useState<CatalogUploadRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -1664,7 +1677,14 @@ export default function Dashboard({
     try {
       setState("parsing");
       const fileHash = await computeFileHash(file);
-      const existing = await findExistingUpload(userId, fileHash, pageRange, selectedMarketplaces);
+      // Ver `forceFreshSearch` (declaração do state) — bypass de
+      // diagnóstico temporário, `existing` fica sempre null quando
+      // marcado, então o restante desta função sempre reparseia e
+      // rebusca do zero, como se fosse a 1ª vez que este arquivo é
+      // enviado.
+      const existing = forceFreshSearch
+        ? null
+        : await findExistingUpload(userId, fileHash, pageRange, selectedMarketplaces);
 
       if (existing) {
         setState("idle");
@@ -2220,6 +2240,17 @@ export default function Dashboard({
                       antes de buscar. Mais lento que busca por texto.
                     </p>
                   )}
+                  {/* ⚠️ TEMPORÁRIO/DIAGNÓSTICO — ver forceFreshSearch (declaração
+                      do state). Remover junto com a flag se o teste não
+                      mudar nada. */}
+                  <label className={styles.warningNote} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={forceFreshSearch}
+                      onChange={(e) => setForceFreshSearch(e.target.checked)}
+                    />
+                    Ignorar histórico (forçar nova busca) — teste de diagnóstico
+                  </label>
                   <div className={styles.pageRangeActions}>
                     <button
                       className={styles.button}
