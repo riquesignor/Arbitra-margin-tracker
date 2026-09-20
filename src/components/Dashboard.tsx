@@ -1698,7 +1698,6 @@ export default function Dashboard({
             withImages,
             userId: userId ?? undefined,
             geminiApiKey: geminiApiKey ?? undefined,
-            nvidiaApiKey: nvidiaApiKey ?? undefined,
           })
         : parseCatalogFile(file).then((rows) => ({ rows, skippedAmbiguous: 0 }));
 
@@ -1870,7 +1869,6 @@ export default function Dashboard({
           withImages,
           userId: userId ?? undefined,
           geminiApiKey: geminiApiKey ?? undefined,
-          nvidiaApiKey: nvidiaApiKey ?? undefined,
         }),
       "pdf",
       pageRange
@@ -1899,7 +1897,6 @@ export default function Dashboard({
         withImages: false,
         userId: userId ?? undefined,
         geminiApiKey: geminiApiKey ?? undefined,
-        nvidiaApiKey: nvidiaApiKey ?? undefined,
       });
       if (rows.length === 0) {
         setConvertError("Nenhum produto reconhecido nesse intervalo de páginas — nada pra exportar.");
