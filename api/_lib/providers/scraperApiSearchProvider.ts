@@ -2,7 +2,7 @@ import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "..
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
+import { resolveSearchQuery } from "../searchQuery.js";
 import { type MarketplaceMatcher } from "./googleShoppingProvider.js";
 
 /**
@@ -340,9 +340,12 @@ export async function searchScraperApiShared(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
+  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name, ean }) => {
     try {
-      const query = buildSearchQuery(name);
+      // EAN/GTIN quando o catálogo trouxe um válido (ver searchQuery.ts)
+      // — fallback pro nome limpo no resto dos casos, mesmo raciocínio já
+      // documentado ali.
+      const query = resolveSearchQuery({ name, ean });
 
       // Candidatos comuns pro ranking — cada um carrega a própria origem
       // (`__source`) só pra diagnóstico/logs, não usado no matching.

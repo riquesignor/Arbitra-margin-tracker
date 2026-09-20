@@ -467,6 +467,19 @@ export interface ExtractResult {
    * mensagem com o intervalo EXATO que ficou de fora.
    */
   ocrSkippedPages?: number[];
+  /**
+   * Páginas (1-based) onde o OCR entrou como REFORÇO de qualidade (set/2026,
+   * ver MIN_TEXT_EXTRACTION_QUALITY) — a página tinha texto vetorial real
+   * (não é a mesma coisa que `ocrSkippedPages`/OCR "de página sem texto
+   * nenhum"), mas a taxa de aproveitamento (produtos reconhecidos vs.
+   * total de candidatos, incluindo os descartados como ambíguos) ficou
+   * abaixo do piso de 85% — o OCR rodou como fonte ADICIONAL nessa página
+   * e resgatou pelo menos 1 produto que o texto vetorial sozinho tinha
+   * perdido. `undefined`/vazio = nenhuma página precisou de reforço
+   * (comum — a maioria dos catálogos com texto vetorial bom nunca aciona
+   * isso). Ver Dashboard.tsx pra onde isso vira mensagem visível.
+   */
+  qualityBoostPages?: number[];
 }
 
 /**
@@ -1442,6 +1455,30 @@ const isMobileDevice =
 // pode reprocessar em intervalos menores pra cobrir o restante.
 const MAX_OCR_PAGES_PER_CALL = isMobileDevice ? 10 : 25;
 
+/**
+ * Piso de "taxa de extração limpa" (set/2026, ideia validada de uma spec
+ * externa revisada com o usuário) — antes disso, o único gatilho pra
+ * tentar OCR era `items.length === 0` (pdfjs não achou NENHUM texto na
+ * página). Isso deixava de fora um caso real: página COM texto vetorial,
+ * mas RUIM (fonte corrompida, PDF gerado por scanner com camada de texto
+ * porcaria por cima da imagem, etc.) — o heurístico de linha única
+ * (`extractRowsIndexed`) reconhece alguns produtos, mas descarta uma
+ * fatia grande como `skippedAmbiguous`, e o catálogo volta incompleto
+ * SEM nenhum sinal de "tem mais coisa aqui, só não deu pra ler direito".
+ *
+ * Quando a proporção de produtos RECONHECIDOS numa página cai abaixo
+ * deste piso (produtos_reconhecidos / (produtos_reconhecidos +
+ * descartados_ambíguos) < 85%), o parser tenta OCR como fonte ADICIONAL
+ * pra essa página específica (ver uso mais abaixo) — nunca no lugar da
+ * extração de texto vetorial, só como reforço: só entram produtos cujo
+ * SKU o texto vetorial NÃO tinha achado, o que já foi reconhecido com
+ * texto real (mais confiável) nunca é substituído por uma leitura de OCR.
+ * 85% é um piso deliberadamente alto — só dispara reforço em página
+ * visivelmente ruim, não em qualquer catálogo com uma ou outra linha
+ * ambígua normal (todo catálogo tem alguma).
+ */
+const MIN_TEXT_EXTRACTION_QUALITY = 0.85;
+
 let tesseractWorkerPromise: Promise<TesseractWorker> | null = null;
 async function getTesseractWorker(): Promise<TesseractWorker> {
   if (!tesseractWorkerPromise) {
@@ -1612,6 +1649,16 @@ export async function parsePdfCatalogFile(
   // teto de páginas por processamento (MAX_OCR_PAGES_PER_CALL) já tinha
   // sido atingido — ver `ocrSkippedPages` em ExtractResult.
   const ocrSkippedPages: number[] = [];
+  // Páginas (1-based) onde o OCR entrou como REFORÇO de qualidade (ver
+  // MIN_TEXT_EXTRACTION_QUALITY) — a página tinha texto vetorial real,
+  // mas a taxa de aproveitamento ficou baixa demais, e o OCR conseguiu
+  // resgatar produto(s) extra que o texto vetorial tinha descartado como
+  // ambíguo. Só pra relatório/observabilidade (ExtractResult) — não
+  // muda `usedOcr` (esse continua reservado pra "o NOME que foi pra
+  // busca veio inteiramente de OCR", ver comentário na declaração de
+  // `ocrProducedUsableProduct`; aqui o nome ainda vem majoritariamente
+  // de texto real, só um reforço pontual).
+  const qualityBoostPages: number[] = [];
 
   // try/finally garante que o worker do Tesseract (WASM + dado de
   // idioma, alguns MB) é liberado ao final do processamento — mesmo se
@@ -1808,12 +1855,64 @@ export async function parsePdfCatalogFile(
       );
       skippedAmbiguous += pageSkipped;
 
-      if (pageRows.length > 0) {
-        rows.push(...pageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
+      // Reforço de qualidade (set/2026, ver MIN_TEXT_EXTRACTION_QUALITY) —
+      // a página TEM texto vetorial real (`!pageUsedOcr`: o bloco "sem
+      // texto nenhum" lá em cima nunca chega aqui com essa flag true) mas
+      // uma fatia grande do que devia ser produto foi descartada como
+      // ambígua. Tenta OCR NESTA página como fonte ADICIONAL — só entram
+      // produtos cujo SKU o texto vetorial não achou (comparação por
+      // `normalizeSkuForMatch`, mesma usada pra cruzar SKU entre OCR e
+      // Gemini na correção de preço); o que já foi lido do texto real
+      // NUNCA é substituído por uma leitura de OCR (menos confiável).
+      let boostedPageRows = pageRows;
+      const candidatesThisPage = pageRows.length + pageSkipped;
+      const qualityRatio = candidatesThisPage > 0 ? pageRows.length / candidatesThisPage : 1;
+      if (
+        !pageUsedOcr &&
+        candidatesThisPage > 0 &&
+        qualityRatio < MIN_TEXT_EXTRACTION_QUALITY &&
+        ocrPagesUsed < MAX_OCR_PAGES_PER_CALL
+      ) {
+        ocrPagesUsed++;
+        try {
+          const { canvas: c, viewport: v } = await ensureCanvas();
+          const ocrItems = await ocrPageToPositionedText(c, v, IMAGE_RENDER_SCALE);
+          if (ocrItems.length > 0) {
+            const ocrLines = groupIntoLinesWithY(ocrItems);
+            const { rows: ocrRows } = extractRowsIndexed(ocrLines.map((l) => l.text), seenSyntheticSkus);
+            const knownSkus = new Set(pageRows.map((r) => normalizeSkuForMatch(r.sku)));
+            const rescued = ocrRows.filter((r) => !knownSkus.has(normalizeSkuForMatch(r.sku)));
+            if (rescued.length > 0) {
+              boostedPageRows = [...pageRows, ...rescued];
+              qualityBoostPages.push(pageNum);
+              ocrAttempted = true;
+              console.warn(
+                `[parsePdfCatalog] página ${pageNum}: taxa de extração ${(qualityRatio * 100).toFixed(0)}% ` +
+                  `(abaixo do piso de ${MIN_TEXT_EXTRACTION_QUALITY * 100}%) — OCR de reforço resgatou ` +
+                  `${rescued.length} produto(s) extra.`
+              );
+            }
+          }
+        } catch (err) {
+          console.warn(
+            `Reforço de OCR (qualidade baixa) falhou na página ${pageNum} (seguindo só com o texto vetorial):`,
+            err
+          );
+        }
+      }
+
+      if (boostedPageRows.length > 0) {
+        rows.push(...boostedPageRows.map(({ lineIndex: _lineIndex, ...row }) => row));
 
         if (withImages) {
           const { canvas: c, viewport: v } = await ensureCanvas();
 
+          // `pageLines`/`row.lineIndex` só existe pra linhas vindas do
+          // texto vetorial (`pageRows`) — produto resgatado pelo OCR de
+          // reforço (`rescued`, sem `lineIndex` válido neste array) fica
+          // sem recorte de imagem por banda de linha aqui (mesmo
+          // comportamento de "sem imagem, com texto" que já existe pro
+          // resto do parser — busca por nome continua funcionando).
           await mapWithConcurrency(pageRows, IMAGE_UPLOAD_CONCURRENCY, async (row) => {
             try {
               const prevY = row.lineIndex > 0 ? pageLines[row.lineIndex - 1].y : null;
@@ -2040,6 +2139,7 @@ export async function parsePdfCatalogFile(
       pagesWithNoProducts: pagesWithNoProducts.length > 0 ? pagesWithNoProducts : undefined,
       duplicateSkusRemoved: duplicateSkusRemoved > 0 ? duplicateSkusRemoved : undefined,
       ocrSkippedPages: ocrSkippedPages.length > 0 ? ocrSkippedPages : undefined,
+      qualityBoostPages: qualityBoostPages.length > 0 ? qualityBoostPages : undefined,
     };
   } finally {
     // Libera o worker do Tesseract (WASM + dado de idioma "por", alguns MB

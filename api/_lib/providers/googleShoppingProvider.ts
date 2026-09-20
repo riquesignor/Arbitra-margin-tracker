@@ -2,7 +2,7 @@ import type { CatalogItemQuery, MarketplaceId, MarketplacePriceResult } from "..
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
+import { resolveSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de
@@ -134,13 +134,14 @@ export async function searchGoogleShoppingShared(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
+  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name, ean }) => {
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("engine", "google_shopping");
-      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
-      // `name` original, só a busca em si usa a versão sem ruído.
-      url.searchParams.set("q", buildSearchQuery(name));
+      // EAN/GTIN quando disponível e válido, senão nome limpo (ver
+      // searchQuery.ts) — ranking abaixo compara contra `name` original
+      // sempre, só a busca em si usa EAN/versão sem ruído.
+      url.searchParams.set("q", resolveSearchQuery({ name, ean }));
       url.searchParams.set("google_domain", "google.com.br");
       url.searchParams.set("gl", "br");
       url.searchParams.set("hl", "pt-br");

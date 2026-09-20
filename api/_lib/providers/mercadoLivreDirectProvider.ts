@@ -2,7 +2,7 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
+import { resolveSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://api.mercadolibre.com/sites/MLB/search";
 const CONCURRENCY = 3;
@@ -49,12 +49,13 @@ export async function fetchMercadoLivreDirectPrices(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
+  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name, ean }) => {
     try {
       const url = new URL(ENDPOINT);
-      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
-      // `name` original, só a busca em si usa a versão sem ruído.
-      url.searchParams.set("q", buildSearchQuery(name));
+      // EAN/GTIN quando disponível e válido, senão nome limpo (ver
+      // searchQuery.ts) — ranking abaixo compara contra `name` original
+      // sempre, só a busca em si usa EAN/versão sem ruído.
+      url.searchParams.set("q", resolveSearchQuery({ name, ean }));
 
       const response = await fetch(url.toString());
 

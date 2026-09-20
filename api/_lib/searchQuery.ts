@@ -88,3 +88,63 @@ export function buildSearchQuery(rawName: string): string {
 
   return capped;
 }
+
+/**
+ * EAN/GTIN válido pra usar como termo de busca — só dígitos, 8 a 14
+ * caracteres (cobre EAN-8, UPC-12, EAN-13 e GTIN-14, os formatos reais
+ * de código de barras de varejo). Fora desse formato não é código de
+ * barras de verdade (typo de digitação, célula da planilha com outra
+ * coisa tipo NCM ou SKU numérico) — cair pro nome evita mandar lixo pra
+ * busca.
+ */
+const EAN_PATTERN = /^\d{8,14}$/;
+
+function isValidEan(ean: string | undefined): ean is string {
+  return !!ean && EAN_PATTERN.test(ean.trim());
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * BUSCA POR EAN/GTIN (set/2026, ideia validada de uma spec externa
+ * revisada com o usuário — ver docs/architecture-review.md)
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Query final pra um item do catálogo: usa o EAN/GTIN quando o catálogo
+ * trouxe um e ele tem formato válido (ver `isValidEan`), com fallback pro
+ * nome limpo (`buildSearchQuery`) no resto dos casos — sem EAN, coluna
+ * ausente do catálogo, ou valor que não parece código de barras de
+ * verdade.
+ *
+ * Por que ajuda: EAN é busca EXATA — os marketplaces indexam o código de
+ * barras do produto, então buscar por ele elimina praticamente toda
+ * ambiguidade que a busca por NOME carrega (nome do fornecedor
+ * divergente do título do anúncio, sinônimo, variação de cor/tamanho no
+ * meio do nome, ruído sintático que `buildSearchQuery` só consegue
+ * atenuar, não eliminar). Efeito prático só aparece em catálogos que já
+ * trazem essa coluna — a maioria hoje não traz, então isso é um MELHOR
+ * CASO, não uma mudança de comportamento pro catálogo comum sem EAN.
+ *
+ * Decisão POR ITEM, sem retry: se o EAN não achar nenhum anúncio (código
+ * não cadastrado naquele marketplace, ou fornecedor errou o dígito na
+ * planilha), a chamada volta vazia — não tenta de novo pelo nome na
+ * MESMA requisição. Um retry automático dobraria o custo de cota
+ * (SerpApi/RapidAPI/ScraperAPI, todos com limite apertado, ver
+ * comentários nesses providers) em TODO item com EAN, mesmo nos casos
+ * (maioria esperada) em que o EAN já resolve de primeira. O produto sem
+ * match por EAN cai no mesmo tratamento de "zero resultado" que já existe
+ * pra busca por nome (ver searchMissReasons.ts) — usuário pode reprocessar
+ * removendo a coluna de EAN se desconfiar que ela está errada no
+ * catálogo.
+ *
+ * Ranking (`pickBestCandidate`/similaridade em rankCandidates.ts) SEMPRE
+ * compara contra `name`, nunca contra o EAN — o EAN só decide o termo
+ * ENVIADO pra busca, não como o candidato retornado é avaliado (mesmo
+ * princípio já usado por `buildSearchQuery`, ver comentário no topo deste
+ * arquivo).
+ *
+ * Exportado pra teste unitário direto (função pura) — ver searchQuery.test.ts.
+ */
+export function resolveSearchQuery(item: { name: string; ean?: string }): string {
+  if (isValidEan(item.ean)) return item.ean.trim();
+  return buildSearchQuery(item.name);
+}

@@ -73,6 +73,8 @@ interface ParseOutcome {
   duplicateSkusRemoved?: number;
   /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas sem texto que não couberam no teto de OCR. */
   ocrSkippedPages?: number[];
+  /** Ver mesmo campo em ExtractResult (parsePdfCatalog.ts) — páginas onde o OCR entrou como reforço de qualidade (<85% de aproveitamento). */
+  qualityBoostPages?: number[];
 }
 
 // Marketplaces disponíveis pra seleção. Shopee entra aqui quando tiver
@@ -363,7 +365,8 @@ function buildParseInfoMessage(
   usedGeminiPageExtraction?: boolean,
   pagesWithNoProducts?: number[],
   duplicateSkusRemoved?: number,
-  ocrSkippedPages?: number[]
+  ocrSkippedPages?: number[],
+  qualityBoostPages?: number[]
 ): string | null {
   const parts: string[] = [];
   if (skippedAmbiguous > 0) {
@@ -415,6 +418,18 @@ function buildParseInfoMessage(
       `Este PDF não tem texto (é imagem), e o limite de páginas de OCR por processamento foi atingido — ` +
         `as páginas ${first}–${last} ficaram de fora. Processe de novo escolhendo o intervalo ` +
         `${first}–${last} pra cobrir o restante.`
+    );
+  }
+  // Reforço de qualidade (set/2026, ver MIN_TEXT_EXTRACTION_QUALITY em
+  // parsePdfCatalog.ts): página TINHA texto real, mas uma fatia grande do
+  // que devia ser produto foi descartada como ambígua — o OCR entrou como
+  // fonte adicional e resgatou produto extra. É um sinal POSITIVO (o
+  // catálogo voltou mais completo), por isso a mensagem não soa como aviso
+  // de problema, diferente das outras acima.
+  if (qualityBoostPages && qualityBoostPages.length > 0) {
+    parts.push(
+      `Reforço de leitura (OCR) aplicado na(s) página(s) ${qualityBoostPages.join(", ")} — o texto do PDF ` +
+        "estava difícil de reconhecer nessas páginas e o OCR ajudou a resgatar produto(s) extra."
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;
@@ -1353,6 +1368,11 @@ export default function Dashboard({
           // sendo calculada aqui no cliente. Catálogo "vitrine" (sem custo)
           // manda `undefined` e a checagem simplesmente não roda.
           supplierPrice: r.supplierPrice,
+          // EAN/GTIN (set/2026, ver EAN_ALIASES em parseCatalog.ts e
+          // resolveSearchQuery em api/_lib/searchQuery.ts) — `undefined`
+          // na maioria dos catálogos hoje (coluna rara), sem mudança de
+          // comportamento nesse caso.
+          ean: r.ean,
         }));
         const chunkStartedAt = performance.now();
 
@@ -1626,6 +1646,7 @@ export default function Dashboard({
         pagesWithNoProducts,
         duplicateSkusRemoved,
         ocrSkippedPages,
+        qualityBoostPages,
       } = await parse();
       setSkippedInfo(
         buildParseInfoMessage(
@@ -1634,7 +1655,8 @@ export default function Dashboard({
           usedGeminiPageExtraction,
           pagesWithNoProducts,
           duplicateSkusRemoved,
-          ocrSkippedPages
+          ocrSkippedPages,
+          qualityBoostPages
         )
       );
       await finishWithRows(
@@ -1685,6 +1707,7 @@ export default function Dashboard({
         pagesWithNoProducts,
         duplicateSkusRemoved,
         ocrSkippedPages,
+        qualityBoostPages,
       } = await parse();
       setSkippedInfo(
         buildParseInfoMessage(
@@ -1693,7 +1716,8 @@ export default function Dashboard({
           usedGeminiPageExtraction,
           pagesWithNoProducts,
           duplicateSkusRemoved,
-          ocrSkippedPages
+          ocrSkippedPages,
+          qualityBoostPages
         )
       );
       await finishWithRows(

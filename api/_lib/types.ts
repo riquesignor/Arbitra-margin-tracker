@@ -165,6 +165,14 @@ export interface CatalogItemQuery {
    * custo), e nesse caso a checagem simplesmente não roda.
    */
   supplierPrice?: number;
+  /**
+   * EAN/GTIN do produto (set/2026, ideia validada de uma spec externa
+   * revisada com o usuário) — ver mesmo campo em src/types/index.ts.
+   * Usado por `resolveSearchQuery` (searchQuery.ts) como termo de busca
+   * PRIORITÁRIO sobre o nome quando presente e com formato válido (só
+   * dígitos, 8-14 caracteres) — cai pro nome limpo no resto dos casos.
+   */
+  ean?: string;
 }
 
 export interface MarketplacePriceResult {

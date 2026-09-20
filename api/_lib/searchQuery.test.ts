@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchQuery } from "./searchQuery";
+import { buildSearchQuery, resolveSearchQuery } from "./searchQuery";
 
 describe("buildSearchQuery", () => {
   it("remove rótulo de referência/código + valor", () => {
@@ -49,5 +49,33 @@ describe("buildSearchQuery", () => {
   it("lida com entrada vazia/nula sem lançar exceção", () => {
     expect(buildSearchQuery("")).toBe("");
     expect(buildSearchQuery("   ")).toBe("");
+  });
+});
+
+describe("resolveSearchQuery", () => {
+  it("usa o EAN-13 quando presente e válido, ignorando o nome", () => {
+    expect(resolveSearchQuery({ name: "Fone Bluetooth JBL ref 12345", ean: "7891234567895" })).toBe(
+      "7891234567895"
+    );
+  });
+
+  it("aceita EAN-8, UPC-12 e GTIN-14 (todos os formatos reais de código de barras)", () => {
+    expect(resolveSearchQuery({ name: "x", ean: "12345678" })).toBe("12345678");
+    expect(resolveSearchQuery({ name: "x", ean: "123456789012" })).toBe("123456789012");
+    expect(resolveSearchQuery({ name: "x", ean: "12345678901234" })).toBe("12345678901234");
+  });
+
+  it("cai pro nome limpo quando não tem EAN", () => {
+    expect(resolveSearchQuery({ name: "Maozinha latex azul ref 790862" })).toBe("Maozinha latex azul");
+  });
+
+  it("cai pro nome limpo quando o EAN tem formato inválido (curto, longo, ou com letra)", () => {
+    expect(resolveSearchQuery({ name: "Caneta Azul BIC", ean: "123" })).toBe("Caneta Azul BIC");
+    expect(resolveSearchQuery({ name: "Caneta Azul BIC", ean: "123456789012345" })).toBe("Caneta Azul BIC");
+    expect(resolveSearchQuery({ name: "Caneta Azul BIC", ean: "12AB5678" })).toBe("Caneta Azul BIC");
+  });
+
+  it("normaliza espaço em volta do EAN antes de validar", () => {
+    expect(resolveSearchQuery({ name: "x", ean: "  7891234567895  " })).toBe("7891234567895");
   });
 });

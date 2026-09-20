@@ -23,6 +23,16 @@ const SKU_ALIASES = ["sku", "codigo", "código", "cod"];
 // pra usar).
 const NAME_ALIASES = ["nome", "produto", "name", "descricao", "descrição", "titulo", "título"];
 const PRICE_ALIASES = ["custo", "preco", "preço", "price", "cost", "valor"];
+// EAN/GTIN (set/2026, ideia validada de uma spec externa revisada com o
+// usuário): coluna OPCIONAL — a maioria dos catálogos de fornecedor hoje
+// não traz isso, e sem ela o comportamento é idêntico a antes (busca por
+// nome). Quando presente, vira prioridade de busca (ver resolveSearchQuery
+// em api/_lib/searchQuery.ts) por ser busca EXATA de código de barras.
+// `findColumn` compara o header NORMALIZADO INTEIRO (não substring) — uma
+// coluna chamada só "Código" ainda bate primeiro em SKU_ALIASES (é
+// procurado antes), então não há colisão real com "código de barras"/
+// "cod barras" aqui, mesmo os dois compartilhando a palavra "código".
+const EAN_ALIASES = ["ean", "gtin", "codigo de barras", "código de barras", "cod barras", "cód barras", "barcode"];
 
 const DIACRITICS_REGEX = new RegExp("[\\u0300-\\u036f]", "g");
 
@@ -66,6 +76,7 @@ function rowsFromMatrix(headers: string[], dataRows: string[][]): CatalogRow[] {
   const skuCol = findColumn(headers, SKU_ALIASES);
   const nameCol = findColumn(headers, NAME_ALIASES);
   const priceCol = findColumn(headers, PRICE_ALIASES);
+  const eanCol = findColumn(headers, EAN_ALIASES);
 
   if (!skuCol || !priceCol) {
     throw new CatalogParseError(
@@ -76,14 +87,26 @@ function rowsFromMatrix(headers: string[], dataRows: string[][]): CatalogRow[] {
   const skuIndex = headers.indexOf(skuCol);
   const nameIndex = nameCol ? headers.indexOf(nameCol) : -1;
   const priceIndex = headers.indexOf(priceCol);
+  const eanIndex = eanCol ? headers.indexOf(eanCol) : -1;
 
   return dataRows
     .filter((row) => row[skuIndex]?.trim())
-    .map((row) => ({
-      sku: row[skuIndex].trim(),
-      name: nameIndex >= 0 ? row[nameIndex]?.trim() ?? "" : "",
-      supplierPrice: parseCurrency(row[priceIndex] ?? "0"),
-    }));
+    .map((row) => {
+      // Célula de EAN em planilha às vezes vem com ".0" (Excel tratando o
+      // código como número) ou espaço/hífen de formatação — normaliza pra
+      // só dígitos antes de decidir se é válido (a validação de formato
+      // em si, 8-14 dígitos, fica em resolveSearchQuery/searchQuery.ts, o
+      // parser aqui só limpa e repassa o que achou).
+      const eanRaw = eanIndex >= 0 ? row[eanIndex]?.trim() : undefined;
+      const ean = eanRaw ? eanRaw.replace(/\.0$/, "").replace(/[^\d]/g, "") : undefined;
+
+      return {
+        sku: row[skuIndex].trim(),
+        name: nameIndex >= 0 ? row[nameIndex]?.trim() ?? "" : "",
+        supplierPrice: parseCurrency(row[priceIndex] ?? "0"),
+        ...(ean ? { ean } : {}),
+      };
+    });
 }
 
 export async function parseCatalogFile(file: File): Promise<CatalogRow[]> {

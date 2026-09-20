@@ -2,7 +2,7 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
+import { resolveSearchQuery } from "../searchQuery.js";
 
 const ENDPOINT = "https://data.unwrangle.com/api/getter/";
 /** Abaixo disso o match entra marcado como aproximado — mesmo critério usado nos demais providers de busca por texto. Faltava aqui antes (ago/2026). */
@@ -67,13 +67,14 @@ export async function fetchUnwrangleMercadoLivrePrices(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
+  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name, ean }) => {
     try {
       const url = new URL(ENDPOINT);
       url.searchParams.set("platform", "mercado_search");
-      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
-      // `name` original, só a busca em si usa a versão sem ruído.
-      url.searchParams.set("search", buildSearchQuery(name));
+      // EAN/GTIN quando disponível e válido, senão nome limpo (ver
+      // searchQuery.ts) — ranking abaixo compara contra `name` original
+      // sempre, só a busca em si usa EAN/versão sem ruído.
+      url.searchParams.set("search", resolveSearchQuery({ name, ean }));
       url.searchParams.set("api_key", apiKey);
 
       const response = await fetch(url.toString());

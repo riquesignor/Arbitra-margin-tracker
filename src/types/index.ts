@@ -144,6 +144,16 @@ export interface CatalogRow {
    * a tela de Resultados trata isso com fallback pra ícone genérico.
    */
   imageUrl?: string;
+  /**
+   * EAN/GTIN do produto (set/2026, ideia validada de uma spec externa
+   * revisada com o usuário) — código de barras de varejo (EAN-8, UPC-12,
+   * EAN-13 ou GTIN-14), quando o catálogo do fornecedor traz essa coluna
+   * (ver EAN_ALIASES em parseCatalog.ts). `undefined` na maioria dos
+   * catálogos hoje (coluna rara) — nesse caso a busca cai pro nome, sem
+   * nenhuma mudança de comportamento. Ver `resolveSearchQuery` em
+   * api/_lib/searchQuery.ts pra como isso vira prioridade na busca.
+   */
+  ean?: string;
 }
 
 /**
@@ -160,6 +170,8 @@ export interface CatalogItemQuery {
   imageUrl?: string;
   /** Ver mesmo campo em api/_lib/types.ts — custo do catálogo, usado no servidor só como âncora de sanidade de preço. */
   supplierPrice?: number;
+  /** Ver mesmo campo em api/_lib/types.ts — EAN/GTIN do catálogo, usado como prioridade na busca por texto quando presente e válido. */
+  ean?: string;
 }
 
 export interface MarketplacePriceResult {

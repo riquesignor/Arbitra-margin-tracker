@@ -2,7 +2,7 @@ import type { CatalogItemQuery, MarketplacePriceResult } from "../types.js";
 import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
-import { buildSearchQuery } from "../searchQuery.js";
+import { resolveSearchQuery } from "../searchQuery.js";
 
 const HOST = "real-time-amazon-data.p.rapidapi.com";
 const ENDPOINT = `https://${HOST}/search`;
@@ -96,12 +96,13 @@ export async function fetchRapidApiAmazonPrices(
   let lastApiError: string | null = null;
   let errorCount = 0;
 
-  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name }) => {
+  await mapWithConcurrency(items, CONCURRENCY, async ({ sku, name, ean }) => {
     try {
       const url = new URL(ENDPOINT);
-      // Query limpa (ver searchQuery.ts) — ranking abaixo compara contra
-      // `name` original, só a busca em si usa a versão sem ruído.
-      url.searchParams.set("query", buildSearchQuery(name));
+      // EAN/GTIN quando disponível e válido, senão nome limpo (ver
+      // searchQuery.ts) — ranking abaixo compara contra `name` original
+      // sempre, só a busca em si usa EAN/versão sem ruído.
+      url.searchParams.set("query", resolveSearchQuery({ name, ean }));
       url.searchParams.set("page", "1");
       url.searchParams.set("country", "BR");
       url.searchParams.set("sort_by", "RELEVANCE");
