@@ -33,6 +33,7 @@ import Settings from "./components/Settings";
 import Admin from "./components/Admin";
 import Faq from "./components/Faq";
 import DoubtToast from "./components/DoubtToast";
+import VerifyEmailGate from "./components/VerifyEmailGate";
 
 /**
  * Recalcula margem pra um catálogo já buscado, cobrindo TODOS os
@@ -410,6 +411,14 @@ export default function App() {
       setResults(recalcMarginsForPriceMap(catalogRows, pricesByMarket, pricingRules));
     }
     setAppliedPricingRules(pricingRules);
+  }
+
+  // Login por email/senha sem confirmar: bloqueia o app inteiro (evita
+  // "conta fantasma" — cadastro nunca verificado usando busca/dados como
+  // se fosse conta de verdade). Contas Google não passam por aqui —
+  // `emailVerified` já nasce `true` (ver toAuthUser em lib/auth.ts).
+  if (user && !user.emailVerified && user.hasPassword) {
+    return <VerifyEmailGate user={user} onUserUpdate={setUser} />;
   }
 
   return (

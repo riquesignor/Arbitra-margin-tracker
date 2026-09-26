@@ -419,7 +419,7 @@ function ContaSection({ user }: { user: AuthUser | null }) {
     setEmailMsg(null);
     setSavingEmail(true);
     try {
-      await changeEmail(emailPassword, newEmail);
+      await changeEmail(user?.hasPassword ? emailPassword : undefined, newEmail);
       setEmailMsg(`Link de confirmação enviado pra ${newEmail} — o email só muda depois que você confirmar.`);
       setNewEmail("");
       setEmailPassword("");
@@ -436,7 +436,7 @@ function ContaSection({ user }: { user: AuthUser | null }) {
     setDeleteError(null);
     setDeleting(true);
     try {
-      await deleteAccount(deletePassword);
+      await deleteAccount(user?.hasPassword ? deletePassword : undefined);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : String(err));
       setDeleting(false);
@@ -445,6 +445,7 @@ function ContaSection({ user }: { user: AuthUser | null }) {
 
   return (
     <>
+      {user?.hasPassword ? (
       <section className={styles.card}>
         <div className={styles.cardHeader}>
           <h2 className={styles.cardHeaderTitle}>Trocar senha</h2>
@@ -491,6 +492,18 @@ function ContaSection({ user }: { user: AuthUser | null }) {
           {passwordError && <p className={styles.errorText}>{passwordError}</p>}
         </form>
       </section>
+      ) : (
+      <section className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2 className={styles.cardHeaderTitle}>Senha</h2>
+        </div>
+        <div className={styles.cardBody}>
+          <p className={styles.cardIntro}>
+            Sua conta usa login do Google — não há senha cadastrada aqui pra trocar.
+          </p>
+        </div>
+      </section>
+      )}
 
       <section className={styles.card}>
         <div className={styles.cardHeader}>
@@ -517,17 +530,23 @@ function ContaSection({ user }: { user: AuthUser | null }) {
                   required
                 />
               </label>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>senha atual (confirmação)</span>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={emailPassword}
-                  onChange={(e) => setEmailPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+              {user?.hasPassword ? (
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>senha atual (confirmação)</span>
+                  <input
+                    className={styles.input}
+                    type="password"
+                    value={emailPassword}
+                    onChange={(e) => setEmailPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+              ) : (
+                <p className={styles.cardIntro}>
+                  Vamos pedir pra você confirmar de novo com o Google antes de trocar.
+                </p>
+              )}
               <div className={styles.inlineFormActions}>
                 <button className={styles.primaryButton} type="submit" disabled={savingEmail}>
                   {savingEmail ? "Enviando…" : "Enviar confirmação"}
@@ -564,17 +583,23 @@ function ContaSection({ user }: { user: AuthUser | null }) {
             </button>
           ) : (
             <form className={styles.inlineForm} onSubmit={handleDeleteAccount}>
-              <label className={styles.field}>
-                <span className={styles.fieldLabel}>confirme sua senha</span>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-              </label>
+              {user?.hasPassword ? (
+                <label className={styles.field}>
+                  <span className={styles.fieldLabel}>confirme sua senha</span>
+                  <input
+                    className={styles.input}
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+              ) : (
+                <p className={styles.cardIntro}>
+                  Vamos pedir pra você confirmar de novo com o Google antes de excluir.
+                </p>
+              )}
               <div className={styles.inlineFormActions}>
                 <button className={styles.dangerButton} type="submit" disabled={deleting}>
                   {deleting ? "Excluindo…" : "Confirmar exclusão"}

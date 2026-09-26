@@ -21,7 +21,7 @@ import { searchScraperApiShared } from "./_lib/providers/scraperApiSearchProvide
 import { fetchRapidApiAmazonPrices } from "./_lib/providers/rapidApiAmazonProvider.js";
 import { fetchMercadoLivreDirectPrices } from "./_lib/providers/mercadoLivreDirectProvider.js";
 import { fetchUnwrangleMercadoLivrePrices } from "./_lib/providers/unwrangleMercadoLivreProvider.js";
-import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
+import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
 import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
 import { getUserApiKeyForProvider, getUserScraperApiKey } from "./_lib/userSecrets.js";
 import { detectPackQuantity, unitPriceFromPack } from "./_lib/packQuantity.js";
@@ -275,10 +275,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   // Autenticação obrigatória — ver docs/architecture-review.md > Segurança.
   let uid: string;
   try {
-    uid = await requireAuth(req);
+    uid = await requireVerifiedAuth(req);
   } catch (err) {
     if (err instanceof UnauthorizedError) {
       res.status(401).json({ error: err.message });
+      return;
+    }
+    if (err instanceof EmailNotVerifiedError) {
+      res.status(403).json({ error: err.message });
       return;
     }
     throw err;

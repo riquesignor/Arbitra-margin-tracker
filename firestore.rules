@@ -16,6 +16,20 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
+    // Login por email/senha só vira `true` depois de clicar no link de
+    // sendEmailVerification (ver src/lib/auth.ts); contas Google chegam
+    // aqui sempre `true` (o Google já garante a posse do email). Aplicado
+    // só nas coleções que representam "usar a conta de verdade" (chave de
+    // busca, regras de margem) — defesa em profundidade: o bloqueio real
+    // de busca é em api/_lib/verifyAuth.ts > requireVerifiedAuth, e a UI
+    // nem deixa a conta não confirmada chegar nessas telas (App.tsx >
+    // VerifyEmailGate). Não aplicado em `users/{userId}` (perfil precisa
+    // existir ANTES da confirmação, é o que sustenta a própria tela de
+    // gate) nem em `preferences` (cosmético, sem risco de abuso).
+    function isVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
     // Cada usuário só lê/escreve o próprio perfil. Admin também pode ler
     // e atualizar qualquer perfil — é o que sustenta a tela Admin (lista
     // de usuários + troca de plano), sem precisar de Admin SDK/Cloud
@@ -79,7 +93,8 @@ service cloud.firestore {
 
       // Regras de precificação — era `pricing_rules/{userId}`.
       match /pricing_rules/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isVerified();
       }
 
       // Preferências de UI (Configurações → Aparência/Personalização, ver
@@ -96,7 +111,8 @@ service cloud.firestore {
       // é credencial do usuário, não dado de gestão de plano (diferente
       // do doc de perfil acima).
       match /secrets/{docId} {
-        allow read, write: if isOwner(userId);
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId) && isVerified();
       }
 
       // Histórico de uploads (PDF/CSV processados) — era
