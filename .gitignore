@@ -13,6 +13,10 @@ dist-verify
 .vercel
 .DS_Store
 
+# Notas locais de ambiente/fluxo de trabalho — não fazem parte do projeto
+# público, ficam só na máquina de cada um.
+CLAUDE.md
+
 # Arquivos temporários do carregador de config do Vite/Vitest
 # (recriados a cada `npm run dev`/`vitest run`, não têm valor versionado)
 vite.config.ts.timestamp-*.mjs
