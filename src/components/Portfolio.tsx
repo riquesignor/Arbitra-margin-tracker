@@ -12,6 +12,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Clock,
+  X,
 } from "lucide-react";
 import type { MarketplaceId, PlanId, Recommendation } from "../types";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
@@ -253,6 +255,21 @@ export default function Portfolio({ history, onNavigateToDashboard, userId = nul
 
   const portfolio = useMemo(() => buildPortfolio(history), [history]);
 
+  // Aviso "faz tempo que você não busca" (out/2026) — empurrão pontual pra
+  // reprocessar, sem automação nenhuma por trás (decisão explícita do
+  // usuário: só a Fase A do monitoramento, sem cron). Olha a busca MAIS
+  // recente de todo o portfólio — se até ela já é velha, o portfólio
+  // inteiro está desatualizado. Dispensa igual DoubtToast.tsx: só nesta
+  // sessão/tela, reaparece normalmente na próxima visita.
+  const STALE_DAYS = 7;
+  const [staleDismissed, setStaleDismissed] = useState(false);
+  const daysSinceLastSearch = useMemo(() => {
+    if (portfolio.length === 0) return null;
+    const mostRecent = Math.max(...portfolio.map((i) => i.lastSearchedAt));
+    return Math.floor((Date.now() - mostRecent) / (24 * 60 * 60 * 1000));
+  }, [portfolio]);
+  const showStaleNotice = !staleDismissed && daysSinceLastSearch != null && daysSinceLastSearch >= STALE_DAYS;
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     const rows = portfolio.filter(
@@ -303,6 +320,24 @@ export default function Portfolio({ history, onNavigateToDashboard, userId = nul
           </p>
         </div>
       </div>
+
+      {showStaleNotice && (
+        <div className={styles.staleNotice}>
+          <Clock size={14} />
+          <span>
+            Já faz {daysSinceLastSearch} dias desde sua última busca — os preços podem ter mudado
+            desde então.
+          </span>
+          <button
+            type="button"
+            className={styles.staleNoticeClose}
+            onClick={() => setStaleDismissed(true)}
+            aria-label="Fechar aviso"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
 
       <WatchPanel userId={userId} watches={watches} onRefresh={() => void reloadWatches()} />
 
