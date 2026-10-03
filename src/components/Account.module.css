@@ -630,62 +630,6 @@
   color: var(--color-text-muted);
 }
 
-.usageChart {
-  display: grid;
-  grid-template-columns: repeat(14, 1fr);
-  gap: 6px;
-  align-items: end;
-  height: 140px;
-}
-
-.usageBarCol {
-  display: grid;
-  grid-template-rows: 1fr 16px;
-  gap: var(--space-2);
-  height: 100%;
-  justify-items: center;
-}
-
-.usageBarTrack {
-  display: flex;
-  align-items: flex-end;
-  width: 100%;
-  height: 100%;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-
-.usageBarTrackToday {
-  composes: usageBarTrack;
-  border-color: var(--color-accent);
-}
-
-.usageBarFill {
-  display: block;
-  width: 100%;
-  background: var(--color-bg-hover);
-  border-top: 2px solid var(--color-text-dim);
-}
-
-.usageBarFillToday {
-  composes: usageBarFill;
-  background: var(--color-accent-dim);
-  border-top: 2px solid var(--color-accent);
-}
-
-.usageBarLabel {
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  color: var(--color-text-dim);
-}
-
-.usageBarLabelToday {
-  composes: usageBarLabel;
-  color: var(--color-accent);
-}
-
 .usageCaption {
   margin: 0;
   font-size: 0.78rem;
@@ -843,4 +787,49 @@
 .switchOn .switchThumb {
   transform: translateX(16px);
   background: var(--color-on-accent);
+}
+
+/* Chave já configurada, recolhida: só o aviso + botão de trocar. */
+.keyStoredHint {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.secondaryKeyButton {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.secondaryKeyButton:hover {
+  border-color: var(--color-accent);
+}
+
+.usageMeter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.usageMeterFill,
+.usageMeterFillWarning {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--color-accent);
+  transition: width var(--duration-base, 200ms) var(--ease-out);
+}
+
+.usageMeterFillWarning {
+  background: var(--color-warning);
 }

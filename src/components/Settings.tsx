@@ -14,6 +14,10 @@ import { changeEmail, changePassword, deleteAccount, signOutUser } from "../lib/
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import { createSubscriptionCheckout } from "../lib/billingApi";
+import { brl, pct } from "../lib/format";
+import type { Recommendation } from "../types";
+import MarginBar from "./MarginBar";
+import { BADGE_CLASS, BADGE_LABEL } from "./ResultsTable";
 import type {
   AccentPalette,
   FontSizePreset,
@@ -27,9 +31,10 @@ interface Props {
   onUpdatePreferences: (partial: Partial<UserPreferences>) => void;
   user: AuthUser | null;
   profile: UserProfile | null;
+  initialSection?: Section;
 }
 
-type Section = "aparencia" | "personalizacao" | "pagamento" | "conta";
+export type Section = "aparencia" | "personalizacao" | "pagamento" | "conta";
 
 const SECTIONS: { id: Section; label: string; icon: typeof Palette }[] = [
   { id: "aparencia", label: "Aparência", icon: Palette },
@@ -115,8 +120,14 @@ function Switch({ on, onToggle, label }: { on: boolean; onToggle: () => void; la
   );
 }
 
-export default function Settings({ preferences, onUpdatePreferences, user, profile }: Props) {
-  const [section, setSection] = useState<Section>("aparencia");
+export default function Settings({
+  preferences,
+  onUpdatePreferences,
+  user,
+  profile,
+  initialSection = "aparencia",
+}: Props) {
+  const [section, setSection] = useState<Section>(initialSection);
   const plan = getPlan(profile?.plan);
 
   return (
@@ -164,8 +175,77 @@ export default function Settings({ preferences, onUpdatePreferences, user, profi
           )}
           {section === "conta" && <ContaSection user={user} />}
         </div>
+
+        <aside className={styles.previewCol}>
+          <ThemePreview />
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardHeaderTitle}>Seu plano</h2>
+            </div>
+            <div className={styles.cardBody}>
+              <div className={styles.planSummary}>
+                <span className={styles.planSummaryName}>{plan.name}</span>
+                <span className={styles.planSummaryPrice}>{plan.priceLabel}</span>
+              </div>
+              {section !== "pagamento" && (
+                <button type="button" className={styles.linkButton} onClick={() => setSection("pagamento")}>
+                  ver pagamento e planos
+                </button>
+              )}
+            </div>
+          </section>
+        </aside>
       </div>
     </motion.div>
+  );
+}
+
+const PREVIEW_ROWS: { name: string; price: number; marginPct: number; recommendation: Recommendation }[] = [
+  { name: "Cortador de Legumes 6 em 1", price: 62.9, marginPct: 0.483, recommendation: "recomendado" },
+  { name: "Fone de Ouvido Gamer", price: 65.69, marginPct: 0.12, recommendation: "revisar" },
+  { name: "Luminária de Mesa", price: 75.9, marginPct: -0.2, recommendation: "evitar" },
+];
+const PREVIEW_TARGET = 0.25;
+
+/**
+ * Tema/paleta/tamanho já se aplicam ao vivo no app inteiro (ver
+ * applyAccent/applyTheme/applyFontSize em App.tsx), mas a tela de
+ * Configurações não tem nenhum dos componentes mais usados — barra de
+ * margem, badge de status, linha de produto. Este card mostra eles com as
+ * preferências atuais, sem precisar sair daqui pra conferir.
+ */
+function ThemePreview() {
+  return (
+    <section className={styles.card}>
+      <div className={styles.cardHeader}>
+        <h2 className={styles.cardHeaderTitle}>Preview</h2>
+        <span className={styles.cardHeaderMeta}>telas de produto</span>
+      </div>
+      <div className={styles.previewBody}>
+        <div className={styles.previewStat}>
+          <span className={styles.previewStatLabel}>margem mediana</span>
+          <span className={styles.previewStatValue}>{pct(0.214)}</span>
+        </div>
+        {PREVIEW_ROWS.map((row) => (
+          <div key={row.name} className={styles.previewRow}>
+            <div className={styles.previewRowTop}>
+              <span className={styles.previewRowName}>{row.name}</span>
+              <span className={styles.previewRowPrice}>{brl(row.price)}</span>
+            </div>
+            <MarginBar marginPct={row.marginPct} targetMarginPct={PREVIEW_TARGET} recommendation={row.recommendation} />
+            <div className={styles.previewRowBottom}>
+              <span className={styles.previewRowMargin}>{pct(row.marginPct)}</span>
+              <span className={`${styles.previewBadge} ${BADGE_CLASS[row.recommendation]}`}>
+                {BADGE_LABEL[row.recommendation]}
+              </span>
+            </div>
+          </div>
+        ))}
+        <span className={styles.previewButton} aria-hidden="true">
+          Nova busca
+        </span>
+      </div>
+    </section>
   );
 }
 

@@ -13,6 +13,8 @@ import {
 import type { CatalogRow, MarketplaceId, MarketplacePriceResult, PricingRules } from "../types";
 import { calculateMargin, calculateMargins, DEFAULT_PRICING_RULES, median } from "../lib/marginCalculator";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
+import { brl, marginTone, pct } from "../lib/format";
+import type { Recommendation } from "../types";
 import styles from "./PricingConfig.module.css";
 
 interface Props {
@@ -26,6 +28,8 @@ interface Props {
   onSelectHistory?: (id: string) => void;
   /** Configurações → Personalização: "Gráficos na tela de Precificação". Some só a curva de sensibilidade e o histograma — Preview ao vivo (números + barra de custo) fica sempre visível, não é opcional. */
   showCharts?: boolean;
+  /** Abre Resultados já filtrado — usado pelo card "Impacto no catálogo". */
+  onViewResults?: (filter: Recommendation) => void;
 }
 
 function formatHistoryLabel(record: CatalogUploadRecord): string {
@@ -67,6 +71,20 @@ const CURVE_FROM = -0.3;
 const CURVE_TO = 0.4;
 const CURVE_STEPS = 13;
 
+interface StatCard {
+  label: string;
+  value: string;
+  of: string;
+  foot: string;
+  tone?: "good" | "warn" | "bad";
+}
+
+const TONE_CLASS: Record<NonNullable<StatCard["tone"]>, string> = {
+  good: styles.toneGood,
+  warn: styles.toneWarn,
+  bad: styles.toneBad,
+};
+
 function pctToInput(rate: number): string {
   return String(Math.round(rate * 1000) / 10);
 }
@@ -74,10 +92,6 @@ function inputToPct(value: string): number {
   const n = Number(value);
   return Number.isFinite(n) ? n / 100 : 0;
 }
-function brl(value: number): string {
-  return `R$ ${value.toFixed(2).replace(".", ",")}`;
-}
-
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className={styles.switch}>
@@ -102,6 +116,7 @@ export default function PricingConfig({
   activeHistoryId = null,
   onSelectHistory,
   showCharts = true,
+  onViewResults,
 }: Props) {
   function updateFee(id: string, patch: Partial<PricingRules["marketplaceFees"][number]>) {
     onChange({
@@ -179,7 +194,7 @@ export default function PricingConfig({
     return (sorted.find((t) => previewSupplierPrice <= t.maxPrice) ?? sorted[sorted.length - 1])?.id;
   }, [rules.shippingTiers, previewRow.supplierPrice]);
 
-  const stats = useMemo(() => {
+  const stats = useMemo((): StatCard[] => {
     const total = results.length;
     if (total === 0) {
       return [
@@ -213,9 +228,10 @@ export default function PricingConfig({
     return [
       {
         label: "margem mediana",
-        value: `${(medianMargin * 100).toFixed(1).replace(".", ",")}%`,
+        value: pct(medianMargin),
         of: "",
-        foot: `meta ${(rules.targetMarginPct * 100).toFixed(0)}%`,
+        foot: `mediana de ${withCost.length} produto(s) · meta ${(rules.targetMarginPct * 100).toFixed(0)}%`,
+        tone: withCost.length > 0 ? marginTone(medianMargin, rules.targetMarginPct) : undefined,
       },
       {
         label: "recomendados",
@@ -343,7 +359,7 @@ export default function PricingConfig({
         {stats.map((s) => (
           <div key={s.label} className={styles.statCard}>
             <span className={styles.statCardLabel}>{s.label}</span>
-            <span className={styles.statCardValue}>
+            <span className={`${styles.statCardValue} ${s.tone ? TONE_CLASS[s.tone] : ""}`}>
               {s.value}
               {s.of && <span className={styles.statCardValueOf}>{s.of}</span>}
             </span>
@@ -400,7 +416,7 @@ export default function PricingConfig({
             </div>
             <div className={styles.cardRows}>
               {rules.marketplaceFees.map((fee) => (
-                <div className={styles.row} key={fee.id}>
+                <div className={fee.enabled ? styles.row : styles.rowOff} key={fee.id}>
                   <Toggle checked={fee.enabled} onChange={(v) => updateFee(fee.id, { enabled: v })} />
                   <span
                     className={styles.rowLabel}
@@ -470,7 +486,7 @@ export default function PricingConfig({
             </div>
             <div className={styles.cardRows}>
               {rules.taxRates.map((tax) => (
-                <div className={styles.row} key={tax.id}>
+                <div className={tax.enabled ? styles.row : styles.rowOff} key={tax.id}>
                   <Toggle checked={tax.enabled} onChange={(v) => updateTax(tax.id, { enabled: v })} />
                   <span
                     className={styles.rowLabel}
@@ -552,12 +568,12 @@ export default function PricingConfig({
                   (preview.marginPct ?? 0) >= 0 ? styles.previewMarginUp : styles.previewMarginDown
                 }
               >
-                {((preview.marginPct ?? 0) * 100).toFixed(1).replace(".", ",")}%
+                {pct(preview.marginPct ?? 0)}
               </span>
               <span className={styles.previewResultText}>
-                margem sobre o custo
+                margem deste produto
                 <span className={styles.previewResultSub}>
-                  meta {(rules.targetMarginPct * 100).toFixed(0)}%
+                  só este item · meta {(rules.targetMarginPct * 100).toFixed(0)}%
                 </span>
               </span>
             </div>
@@ -641,22 +657,43 @@ export default function PricingConfig({
                       />
                     </div>
                     <div className={styles.legend}>
-                      <span className={styles.legendItem}>
-                        <span className={`${styles.legendDot} ${styles.segProfit}`} />
-                        Recomendado
-                        <b className={styles.legendValue}>{impact.counts.recomendado}</b>
-                      </span>
-                      <span className={styles.legendItem}>
-                        <span className={`${styles.legendDot} ${styles.segShipping}`} />
-                        Revisar
-                        <b className={styles.legendValue}>{impact.counts.revisar}</b>
-                      </span>
-                      <span className={styles.legendItem}>
-                        <span className={`${styles.legendDot} ${styles.segTaxes}`} />
-                        Evitar
-                        <b className={styles.legendValue}>{impact.counts.evitar}</b>
-                      </span>
+                      {(
+                        [
+                          { id: "recomendado", label: "Recomendado", dot: styles.segProfit },
+                          { id: "revisar", label: "Revisar", dot: styles.segShipping },
+                          { id: "evitar", label: "Evitar", dot: styles.segTaxes },
+                        ] as const
+                      ).map((item) =>
+                        onViewResults && impact.counts[item.id] > 0 ? (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className={styles.legendButton}
+                            onClick={() => onViewResults(item.id)}
+                            title={`Ver os produtos em "${item.label}" na tela de Resultados`}
+                          >
+                            <span className={`${styles.legendDot} ${item.dot}`} />
+                            {item.label}
+                            <b className={styles.legendValue}>{impact.counts[item.id]}</b>
+                          </button>
+                        ) : (
+                          <span key={item.id} className={styles.legendItem}>
+                            <span className={`${styles.legendDot} ${item.dot}`} />
+                            {item.label}
+                            <b className={styles.legendValue}>{impact.counts[item.id]}</b>
+                          </span>
+                        )
+                      )}
                     </div>
+                    {onViewResults && impact.counts.evitar > 0 && (
+                      <button
+                        type="button"
+                        className={styles.impactLink}
+                        onClick={() => onViewResults("evitar")}
+                      >
+                        Ver os {impact.counts.evitar} produto(s) em "Evitar" →
+                      </button>
+                    )}
                     <div className={styles.histogram}>
                       {impact.buckets.map((b) => (
                         <div key={b.label} className={styles.histCol}>

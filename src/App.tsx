@@ -25,11 +25,11 @@ import TopNav from "./components/TopNav";
 import Home from "./components/Home";
 import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
-import ResultsTable from "./components/ResultsTable";
+import ResultsTable, { type FilterOption } from "./components/ResultsTable";
 import Portfolio from "./components/Portfolio";
 import SupplierCompare from "./components/SupplierCompare";
 import Account from "./components/Account";
-import Settings from "./components/Settings";
+import Settings, { type Section as SettingsSection } from "./components/Settings";
 import Admin from "./components/Admin";
 import Faq from "./components/Faq";
 import DoubtToast from "./components/DoubtToast";
@@ -59,7 +59,27 @@ export default function App() {
   // 4): resumo do que já foi processado + atalho pra Nova busca (a
   // Dashboard atual, agora só operacional). Landing screen padrão no
   // lugar do antigo "dashboard".
-  const [screen, setScreen] = useState<Screen>("home");
+  // Link compartilhado de uma pergunta do FAQ (`#faq/<âncora>`, ver
+  // CopyLinkButton em Faq.tsx) abre direto na Central de dúvidas.
+  const [screen, setScreen] = useState<Screen>(() =>
+    typeof window !== "undefined" && window.location.hash.startsWith("#faq/") ? "faq" : "home"
+  );
+  // Filtro de status com que Resultados abre — só muda quando outra tela
+  // pede um recorte específico (ex.: "ver os produtos em Evitar" de
+  // Precificação); volta pra "todos" em qualquer outra navegação.
+  const [resultsInitialFilter, setResultsInitialFilter] = useState<FilterOption>("todos");
+  useEffect(() => {
+    const onHashChange = () => {
+      if (window.location.hash.startsWith("#faq/")) setScreen("faq");
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection>("aparencia");
+  useEffect(() => {
+    if (screen !== "results") setResultsInitialFilter("todos");
+    if (screen !== "settings") setSettingsInitialSection("aparencia");
+  }, [screen]);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [pricingRules, setPricingRules] = useState<PricingRules>(DEFAULT_PRICING_RULES);
@@ -454,6 +474,11 @@ export default function App() {
                 onNavigate={setScreen}
                 onOpenRecord={handleOpenHistoryRecord}
                 onUseSharedCatalog={handleUseSharedCatalog}
+                targetMarginPct={pricingRules.targetMarginPct}
+                onOpenPlans={() => {
+                  setSettingsInitialSection("pagamento");
+                  setScreen("settings");
+                }}
               />
             )}
             {screen === "dashboard" && (
@@ -481,6 +506,11 @@ export default function App() {
                 activeHistoryId={activeHistoryId}
                 onSelectHistory={handleSelectHistory}
                 showCharts={preferences.chartsPricing}
+                onViewResults={(filter) => {
+                  if (isPricingDirty) handleSyncPricing();
+                  setResultsInitialFilter(filter);
+                  setScreen("results");
+                }}
               />
             )}
             {screen === "results" && (
@@ -496,6 +526,7 @@ export default function App() {
                 groupBySku={preferences.groupOffersBySku}
                 isPricingDirty={isPricingDirty}
                 onSyncPricing={handleSyncPricing}
+                initialFilter={resultsInitialFilter}
               />
             )}
             {screen === "portfolio" && (
@@ -518,6 +549,7 @@ export default function App() {
                 onUpdatePreferences={updatePreferences}
                 user={user}
                 profile={profile}
+                initialSection={settingsInitialSection}
               />
             )}
             {screen === "admin" && <Admin profile={profile} />}

@@ -103,6 +103,67 @@
   border-radius: var(--radius-lg);
   padding: var(--space-4) var(--space-5);
   min-width: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.card:hover {
+  border-color: var(--color-accent);
+}
+
+.cardActive {
+  composes: card;
+  border-color: var(--color-accent);
+  background: var(--color-accent-dim);
+}
+
+.filterButton,
+.filterButtonActive {
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--color-bg-elevated-2);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  transition: border-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+
+.filterButton:hover {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.filterButtonActive {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.sortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.sortButton:hover {
+  color: var(--color-text);
+}
+
+.sortIconIdle {
+  opacity: 0.4;
 }
 
 .cardValue {

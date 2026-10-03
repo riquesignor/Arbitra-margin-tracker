@@ -189,6 +189,12 @@ export default function Admin({ profile }: Props) {
   }
 
   async function handleChangeUserPlan(uid: string, plan: PlanId) {
+    const target = users.find((u) => u.uid === uid);
+    const from = PLANS.find((p) => p.id === target?.plan)?.name ?? target?.plan;
+    const to = PLANS.find((p) => p.id === plan)?.name ?? plan;
+    // Muda acesso à biblioteca e o teto diário do usuário na hora — vale
+    // uma confirmação explícita em vez de salvar no onChange do <select>.
+    if (!window.confirm(`Trocar o plano de ${target?.email ?? uid} de ${from} para ${to}?`)) return;
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, plan } : u)));
     try {
       await updateUserPlan(uid, plan);
@@ -199,6 +205,15 @@ export default function Admin({ profile }: Props) {
   }
 
   async function handleToggleUserAdmin(uid: string, isAdmin: boolean) {
+    const email = users.find((u) => u.uid === uid)?.email ?? uid;
+    // Admin lê o perfil de todo mundo, troca plano e mexe na biblioteca —
+    // é a ação de maior risco desta tela, então nunca num clique só.
+    const message = isAdmin
+      ? `Dar acesso de ADMIN para ${email}?\n\nEssa conta vai poder ver todos os usuários, trocar planos e editar a biblioteca compartilhada.`
+      : uid === profile?.uid
+        ? `Remover o SEU próprio acesso de admin?\n\nVocê perde acesso a esta tela imediatamente e só outro admin consegue devolver.`
+        : `Remover o acesso de admin de ${email}?`;
+    if (!window.confirm(message)) return;
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, isAdmin } : u)));
     try {
       await updateUserAdmin(uid, isAdmin);
@@ -384,7 +399,11 @@ export default function Admin({ profile }: Props) {
                 </span>
                 <span className={styles.diagLabel}>
                   <strong>OAuth Mercado Livre (ML_CLIENT_ID / ML_CLIENT_SECRET)</strong>
-                  <span>Hoje parked por pendência de verificação de titularidade no DevCenter deles.</span>
+                  <span>
+                    {diagnostics.mercadoLivreOAuthConfigured
+                      ? "Configurado — a API oficial do Mercado Livre (gratuita) entra como fonte de candidatos no motor interno."
+                      : "Ausente — usuário NÃO é afetado diretamente: preço do Mercado Livre continua vindo via Google Shopping (ScraperAPI/SerpApi) e o motor interno só pula essa fonte gratuita. Pendente: verificação de titularidade no DevCenter do Mercado Livre."}
+                  </span>
                 </span>
               </div>
               <div className={styles.diagRow}>

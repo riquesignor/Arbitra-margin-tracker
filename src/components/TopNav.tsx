@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   Home as HomeIcon,
   LayoutDashboard,
@@ -50,6 +51,22 @@ function accountLabel(email?: string | null): string {
   return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
+/** Estado real da conexão (antes o indicador dizia "online" fixo, sempre). */
+function useOnlineStatus(): boolean {
+  const [online, setOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  return online;
+}
+
 export default function TopNav({
   active,
   onChange,
@@ -60,6 +77,7 @@ export default function TopNav({
   userEmail,
 }: Props) {
   const name = accountLabel(userEmail);
+  const online = useOnlineStatus();
 
   return (
     <header className={styles.topnav}>
@@ -124,9 +142,16 @@ export default function TopNav({
           <HelpCircle size={15} strokeWidth={2} />
         </button>
 
-        <span className={styles.statusRow}>
-          <span className={styles.statusDot} />
-          online
+        <span
+          className={styles.statusRow}
+          title={
+            online
+              ? "Conectado à internet — buscas e salvamento funcionando"
+              : "Sem conexão — buscas e salvamento ficam indisponíveis até voltar"
+          }
+        >
+          <span className={online ? styles.statusDot : styles.statusDotOffline} />
+          {online ? "online" : "offline"}
         </span>
 
         <span className={styles.separator} />

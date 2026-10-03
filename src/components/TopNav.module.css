@@ -223,3 +223,8 @@
     margin-left: 0;
   }
 }
+
+.statusDotOffline {
+  composes: statusDot;
+  background: var(--color-danger);
+}

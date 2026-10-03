@@ -153,6 +153,12 @@
 
 .guideImage {
   width: 100%;
+  /* Mesma caixa pros dois exemplos (PDF e planilha), mesmo com proporções
+     de origem diferentes — antes a planilha ficava mais baixa e sobrava
+     um vão embaixo dela. */
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+  background: var(--color-bg);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-soft);
   display: block;
@@ -209,4 +215,57 @@
 .copyButton:hover {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+/* --- Busca nas dúvidas --- */
+
+.searchWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-dim);
+}
+
+.searchWrap:focus-within {
+  border-color: var(--color-accent);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}
+
+.emptySearch {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+}
+
+.copyLinkButton {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.copyLinkButton:hover {
+  text-decoration: underline;
 }

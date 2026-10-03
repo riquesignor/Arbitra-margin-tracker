@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown, Copy, Check as CheckIcon, HelpCircle } from "lucide-react";
+import { ChevronDown, Copy, Check as CheckIcon, HelpCircle, Link2, Search } from "lucide-react";
 import styles from "./Faq.module.css";
 
 interface FaqItem {
@@ -246,10 +246,63 @@ const cardMotion = {
   transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const },
 };
 
+/** Âncora estável de uma pergunta — a explícita (`anchor`) quando existe, senão derivada do texto. */
+function anchorOf(item: FaqItem): string {
+  if (item.anchor) return item.anchor;
+  return item.question
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * Âncora pedida pela URL. Aceita o formato compartilhável `#faq/<âncora>`
+ * (link copiado de uma pergunta, abre o app direto aqui — ver App.tsx) e
+ * o formato antigo `#<âncora>` (usado pelo aviso de erro da Nova busca).
+ */
+function anchorFromHash(): string {
+  const hash = window.location.hash.replace(/^#/, "");
+  return hash.startsWith("faq/") ? hash.slice(4) : hash;
+}
+
+/** Texto pesquisável de uma resposta — respostas em JSX só entram pela pergunta. */
+function searchableText(item: FaqItem): string {
+  return `${item.question} ${typeof item.answer === "string" ? item.answer : ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function CopyLinkButton({ anchor }: { anchor: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    const url = `${window.location.origin}${window.location.pathname}#faq/${anchor}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("Copie o link desta pergunta:", url);
+    }
+  }
+
+  return (
+    <button type="button" className={styles.copyLinkButton} onClick={() => void handleCopy()}>
+      {copied ? <CheckIcon size={12} /> : <Link2 size={12} />}
+      {copied ? "Link copiado!" : "Copiar link desta pergunta"}
+    </button>
+  );
+}
+
 export default function Faq() {
   // Chave única "grupo-índice" — permite que a mesma pergunta (índice)
   // em grupos diferentes abra independentemente.
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
 
   function toggle(key: string) {
     setOpenKeys((prev) => {
@@ -261,25 +314,48 @@ export default function Faq() {
   }
 
   // Abre e rola até a pergunta certa quando a tela chega via link com
-  // âncora (ex: aviso de erro de parsing em Dashboard.tsx apontando pra
-  // "/faq#catalogo-ideal") — sem isso, o usuário caía na Central de
-  // dúvidas mas precisava procurar manualmente qual pergunta abrir.
+  // âncora (aviso de erro da Nova busca, ou link compartilhado
+  // `#faq/<âncora>`) — sem isso o usuário caía na Central de dúvidas e
+  // precisava procurar manualmente qual pergunta abrir.
   useEffect(() => {
-    const anchor = window.location.hash.replace("#", "");
-    if (!anchor) return;
+    const openFromHash = () => {
+      const anchor = anchorFromHash();
+      if (!anchor) return;
 
-    for (const group of FAQ_GROUPS) {
-      const i = group.items.findIndex((item) => item.anchor === anchor);
-      if (i === -1) continue;
-      const key = `${group.title}-${i}`;
-      setOpenKeys((prev) => new Set(prev).add(key));
-      // Espera o accordion renderizar aberto antes de rolar até ele.
-      requestAnimationFrame(() => {
-        document.getElementById(`faq-${anchor}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-      break;
-    }
+      for (const group of FAQ_GROUPS) {
+        const i = group.items.findIndex((item) => anchorOf(item) === anchor);
+        if (i === -1) continue;
+        const key = `${group.title}-${i}`;
+        setQuery("");
+        setOpenKeys((prev) => new Set(prev).add(key));
+        // Espera o accordion renderizar aberto antes de rolar até ele.
+        requestAnimationFrame(() => {
+          document.getElementById(`faq-${anchor}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        break;
+      }
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
   }, []);
+
+  const term = query
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const visibleGroups = useMemo(
+    () =>
+      FAQ_GROUPS.map((group) => ({
+        ...group,
+        entries: group.items
+          .map((item, i) => ({ item, i }))
+          .filter(({ item }) => !term || searchableText(item).includes(term)),
+      })).filter((group) => group.entries.length > 0),
+    [term]
+  );
+  const totalQuestions = FAQ_GROUPS.reduce((sum, g) => sum + g.items.length, 0);
 
   return (
     <motion.div className={styles.container} {...cardMotion}>
@@ -292,15 +368,34 @@ export default function Faq() {
         </p>
       </div>
 
-      {FAQ_GROUPS.map((group) => (
+      <label className={styles.searchWrap}>
+        <Search size={14} />
+        <input
+          className={styles.searchInput}
+          type="search"
+          placeholder={`Buscar entre ${totalQuestions} perguntas — ex.: cota, PDF, 403`}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          aria-label="Buscar nas dúvidas"
+        />
+      </label>
+
+      {visibleGroups.length === 0 && (
+        <p className={styles.emptySearch}>
+          Nenhuma pergunta com “{query.trim()}”. Tente outra palavra — ou veja todas limpando a busca.
+        </p>
+      )}
+
+      {visibleGroups.map((group) => (
         <section key={group.title} className={styles.group}>
           <h2 className={styles.groupTitle}>{group.title}</h2>
           <div className={styles.itemList}>
-            {group.items.map((item, i) => {
+            {group.entries.map(({ item, i }) => {
               const key = `${group.title}-${i}`;
+              const anchor = anchorOf(item);
               const open = openKeys.has(key);
               return (
-                <div key={key} id={item.anchor ? `faq-${item.anchor}` : undefined} className={styles.item}>
+                <div key={key} id={`faq-${anchor}`} className={styles.item}>
                   <button
                     type="button"
                     className={styles.itemQuestion}
@@ -316,7 +411,12 @@ export default function Faq() {
                       className={open ? styles.itemChevronOpen : styles.itemChevron}
                     />
                   </button>
-                  {open && <div className={styles.itemAnswer}>{item.answer}</div>}
+                  {open && (
+                    <div className={styles.itemAnswer}>
+                      {item.answer}
+                      <CopyLinkButton anchor={anchor} />
+                    </div>
+                  )}
                 </div>
               );
             })}

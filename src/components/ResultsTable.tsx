@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, Recommendation } from "../types";
 import { median } from "../lib/marginCalculator";
+import { brl, displayProductName, pct } from "../lib/format";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import MarginBar from "./MarginBar";
 import styles from "./ResultsTable.module.css";
@@ -63,6 +64,8 @@ interface Props {
   isPricingDirty?: boolean;
   /** Recalcula margem/preço sugerido/recomendação de TODAS as linhas com a regra atual de Precificação — ver handleSyncPricing em App.tsx. */
   onSyncPricing?: () => void;
+  /** Filtro de status já aplicado ao abrir a tela — ex.: "evitar" vindo do card "Impacto no catálogo" de Precificação. */
+  initialFilter?: FilterOption;
 }
 
 /** Pequena legenda "de qual catálogo veio" — só aparece na visão combinada (2+ catálogos do histórico marcados, ver HistoryMultiSelect). */
@@ -286,7 +289,7 @@ export function PopularityBadge({
       className={styles.popularityBadge}
       title={`Anúncio com ${parts.join(" · ")} — sinal de que o preço vem de oferta com procura real, não de anúncio parado.`}
     >
-      {isSales ? <Flame size={10} /> : <Star size={10} />}
+      {isSales ? <Flame size={12} /> : <Star size={12} />}
       {reviewCount != null && reviewCount > 0 ? formatCompactCount(reviewCount) : rating?.toFixed(1).replace(".", ",")}
     </span>
   );
@@ -315,7 +318,7 @@ export function CompetitionBadge({
           : `Não elegível ao ganha-compra — ${competitorCount} concorrente(s) encontrado(s)`
       }
     >
-      {buyBoxEligible ? <Crown size={10} /> : <Users size={10} />}
+      {buyBoxEligible ? <Crown size={12} /> : <Users size={12} />}
       {competitorCount}
     </span>
   );
@@ -385,17 +388,17 @@ export function ApproximateBadge({
 export function MarketPrice({ result }: { result: Pick<MarginResult, "marketplacePrice" | "packQuantity" | "listingPrice"> }) {
   return (
     <>
-      R$ {result.marketplacePrice.toFixed(2)}
+      {brl(result.marketplacePrice)}
       {result.packQuantity != null && result.listingPrice != null && (
         <span
           className={styles.packNote}
           title={
             `O anúncio vende um lote de ${result.packQuantity} unidades por ` +
-            `R$ ${result.listingPrice.toFixed(2)}. O valor em destaque é o preço por unidade — ` +
+            `${brl(result.listingPrice)}. O valor em destaque é o preço por unidade — ` +
             "é o único comparável com o custo unitário do seu catálogo, e é o que entra no cálculo de margem."
           }
         >
-          lote de {result.packQuantity} · R$ {result.listingPrice.toFixed(2)} no anúncio
+          lote de {result.packQuantity} · {brl(result.listingPrice)} no anúncio
         </span>
       )}
     </>
@@ -438,7 +441,7 @@ function CostCell({ value }: { value?: number }) {
   return (
     <td>
       {value != null ? (
-        `R$ ${value.toFixed(2)}`
+        brl(value)
       ) : (
         <span className={styles.noLink} title="Catálogo sem preço de custo pra este produto">
           —
@@ -486,16 +489,16 @@ function SuggestedPriceCell({
 
   return (
     <td>
-      R$ {suggestedPrice.toFixed(2)}
+      {brl(suggestedPrice)}
       <span
         className={`${styles.suggestedPriceNote} ${withinMarket ? styles.suggestedPriceOk : styles.suggestedPriceHigh}`}
         title={
           withinMarket
             ? "Pra bater sua margem-alvo, dá pra vender igual ou abaixo do preço de mercado encontrado."
-            : `Pra bater sua margem-alvo, precisaria vender R$ ${diff.toFixed(2)} ACIMA do preço de mercado encontrado — acima da concorrência.`
+            : `Pra bater sua margem-alvo, precisaria vender ${brl(diff)} ACIMA do preço de mercado encontrado — acima da concorrência.`
         }
       >
-        {withinMarket ? "dentro do mercado" : `+R$ ${diff.toFixed(2)} vs. mercado`}
+        {withinMarket ? "dentro do mercado" : `+${brl(diff)} vs. mercado`}
       </span>
     </td>
   );
@@ -521,7 +524,7 @@ function MarginCell({
   return (
     <td>
       <MarginBar marginPct={marginPct} targetMarginPct={targetMarginPct} recommendation={recommendation} />
-      <span className={styles.marginValue}>{(marginPct * 100).toFixed(1)}%</span>
+      <span className={styles.marginValue}>{pct(marginPct)}</span>
     </td>
   );
 }
@@ -531,7 +534,7 @@ const SOURCE_LABEL: Record<"server" | "local", string> = {
   local: "direto no navegador",
 };
 
-type FilterOption = "todos" | Recommendation;
+export type FilterOption = "todos" | Recommendation;
 type SortKey = "supplierPrice" | "marketplacePrice" | "marginPct" | "confidence";
 type SortDir = "asc" | "desc";
 
@@ -619,9 +622,10 @@ export default function ResultsTable({
   groupBySku = false,
   isPricingDirty = false,
   onSyncPricing,
+  initialFilter = "todos",
 }: Props) {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterOption>("todos");
+  const [filter, setFilter] = useState<FilterOption>(initialFilter);
   const [sortKey, setSortKey] = useState<SortKey>("marginPct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -1003,7 +1007,7 @@ export default function ResultsTable({
                     <td>{r.sku}</td>
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
-                        {r.name}
+                        {displayProductName(r.name)}
                         {r.approximate && (
                           <ApproximateBadge
                             matchedSource={r.matchedSource}
@@ -1093,7 +1097,7 @@ export default function ResultsTable({
                       <td>{best.sku}</td>
                       <td className={styles.productCell}>
                         <div className={styles.productName} title={best.name}>
-                          {best.name}
+                          {displayProductName(best.name)}
                           {group.some((r) => r.approximate) && (
                             <ApproximateBadge
                               matchedSource={group.find((r) => r.approximate)?.matchedSource}
@@ -1111,7 +1115,7 @@ export default function ResultsTable({
                                 <MarketPrice result={offer} />
                                 <span className={styles.marginValue}>
                                   {offer.marginPct != null
-                                    ? `${(offer.marginPct * 100).toFixed(1)}% margem`
+                                    ? `${pct(offer.marginPct)} margem`
                                     : "sem custo"}
                                 </span>
                                 {offer.suggestedPrice != null && (
@@ -1119,7 +1123,7 @@ export default function ResultsTable({
                                     className={styles.marginValue}
                                     title="Preço de venda que bate exatamente sua margem-alvo (Precificação) neste marketplace."
                                   >
-                                    sugerido: R$ {offer.suggestedPrice.toFixed(2)}
+                                    sugerido: {brl(offer.suggestedPrice)}
                                   </span>
                                 )}
                                 {offer.link ? (
@@ -1149,7 +1153,7 @@ export default function ResultsTable({
                           ) : (
                             <span className={diff <= 0 ? styles.diffDown : styles.diffUp}>
                               {diff > 0 ? "+" : ""}
-                              R$ {diff.toFixed(2)}
+                              {brl(diff)}
                             </span>
                           )}
                         </td>
@@ -1207,7 +1211,7 @@ export default function ResultsTable({
                         <td>{best.sku}</td>
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={best.name}>
-                            {best.name}
+                            {displayProductName(best.name)}
                             {best.approximate && (
                               <ApproximateBadge
                                 matchedSource={best.matchedSource}
@@ -1296,7 +1300,7 @@ export default function ResultsTable({
                             <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
                             <td>
                               <span className={styles.marginValue}>
-                                {r.marginPct != null ? `${(r.marginPct * 100).toFixed(1)}%` : "sem custo"}
+                                {r.marginPct != null ? pct(r.marginPct) : "sem custo"}
                               </span>
                             </td>
                             <td>

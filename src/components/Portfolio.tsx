@@ -9,9 +9,14 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
+import type { Recommendation } from "../types";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { buildPortfolio, type PortfolioItem } from "../lib/portfolio";
+import { brl, displayProductName, pct } from "../lib/format";
 import {
   ProductThumb,
   CompetitionBadge,
@@ -27,6 +32,73 @@ interface Props {
 }
 
 const PAGE_SIZE = 50;
+
+type Filter = "todos" | Recommendation | "subiu" | "caiu";
+type SortKey = "status" | "price" | "trend" | "margin" | "when";
+type SortDir = "asc" | "desc";
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "todos", label: "Todos" },
+  { id: "recomendado", label: "Recomendado" },
+  { id: "revisar", label: "Revisar" },
+  { id: "evitar", label: "Evitar" },
+  { id: "sem_custo", label: "Sem custo" },
+  { id: "subiu", label: "Preço subiu" },
+  { id: "caiu", label: "Preço caiu" },
+];
+
+// Ordem padrão da tabela: o que dá pra agir primeiro aparece primeiro.
+const STATUS_RANK: Record<Recommendation, number> = { recomendado: 0, revisar: 1, evitar: 2, sem_custo: 3 };
+
+function matchesFilter(item: PortfolioItem, filter: Filter): boolean {
+  if (filter === "todos") return true;
+  if (filter === "subiu") return item.trend === "up";
+  if (filter === "caiu") return item.trend === "down";
+  return item.recommendation === filter;
+}
+
+function priceDiff(item: PortfolioItem): number {
+  return item.previousMarketplacePrice == null ? 0 : item.marketplacePrice - item.previousMarketplacePrice;
+}
+
+function compareItems(a: PortfolioItem, b: PortfolioItem, key: SortKey): number {
+  switch (key) {
+    case "status":
+      return STATUS_RANK[a.recommendation] - STATUS_RANK[b.recommendation] || (b.marginPct ?? -Infinity) - (a.marginPct ?? -Infinity);
+    case "price":
+      return a.marketplacePrice - b.marketplacePrice;
+    case "trend":
+      return priceDiff(a) - priceDiff(b);
+    case "margin":
+      return (a.marginPct ?? -Infinity) - (b.marginPct ?? -Infinity);
+    case "when":
+      return a.lastSearchedAt - b.lastSearchedAt;
+  }
+}
+
+function SortHeader({
+  label,
+  sortKey,
+  active,
+  dir,
+  onSort,
+}: {
+  label: string;
+  sortKey: SortKey;
+  active: boolean;
+  dir: SortDir;
+  onSort: (key: SortKey) => void;
+}) {
+  const Icon = !active ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}>
+      <button type="button" className={styles.sortButton} onClick={() => onSort(sortKey)}>
+        {label}
+        <Icon size={11} className={active ? undefined : styles.sortIconIdle} />
+      </button>
+    </th>
+  );
+}
 
 function formatWhen(ts: number): string {
   const diffMs = Date.now() - ts;
@@ -57,27 +129,48 @@ function TrendTag({ item }: { item: PortfolioItem }) {
   const Icon = item.trend === "up" ? TrendingUp : TrendingDown;
   const cls = item.trend === "up" ? styles.trendUp : styles.trendDown;
   return (
-    <span className={cls} title={`Era R$ ${item.previousMarketplacePrice?.toFixed(2)} na busca anterior`}>
+    <span className={cls} title={`Era ${brl(item.previousMarketplacePrice ?? item.marketplacePrice)} na busca anterior`}>
       <Icon size={11} />
       {diff > 0 ? "+" : ""}
-      {diff.toFixed(2)}
+      {brl(diff)}
     </span>
   );
 }
 
 export default function Portfolio({ history, onNavigateToDashboard }: Props) {
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("todos");
+  const [sortKey, setSortKey] = useState<SortKey>("status");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
 
   const portfolio = useMemo(() => buildPortfolio(history), [history]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
-    if (!term) return portfolio;
-    return portfolio.filter(
-      (item) => item.sku.toLowerCase().includes(term) || item.name.toLowerCase().includes(term)
+    const rows = portfolio.filter(
+      (item) =>
+        matchesFilter(item, filter) &&
+        (!term || item.sku.toLowerCase().includes(term) || item.name.toLowerCase().includes(term))
     );
-  }, [portfolio, search]);
+    const sign = sortDir === "asc" ? 1 : -1;
+    return rows.sort((a, b) => sign * compareItems(a, b, sortKey));
+  }, [portfolio, search, filter, sortKey, sortDir]);
+
+  function applyFilter(next: Filter) {
+    setFilter((current) => (current === next && next !== "todos" ? "todos" : next));
+    setPage(0);
+  }
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "status" ? "asc" : "desc");
+    }
+    setPage(0);
+  }
 
   const summary = useMemo(() => {
     const up = portfolio.filter((i) => i.trend === "up").length;
@@ -118,22 +211,26 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
       ) : (
         <>
           <div className={styles.summaryRow}>
-            <div className={styles.card}>
-              <span className={styles.cardValue}>{summary.total}</span>
-              <span className={styles.cardLabel}>Produtos acompanhados</span>
-            </div>
-            <div className={styles.card}>
-              <span className={`${styles.cardValue} ${styles.cardValueUp}`}>{summary.up}</span>
-              <span className={styles.cardLabel}>Preço subiu</span>
-            </div>
-            <div className={styles.card}>
-              <span className={`${styles.cardValue} ${styles.cardValueDown}`}>{summary.down}</span>
-              <span className={styles.cardLabel}>Preço caiu</span>
-            </div>
-            <div className={styles.card}>
-              <span className={styles.cardValue}>{summary.recomendados}</span>
-              <span className={styles.cardLabel}>Recomendados agora</span>
-            </div>
+            {(
+              [
+                { id: "todos", value: summary.total, label: "Produtos acompanhados", tone: "" },
+                { id: "subiu", value: summary.up, label: "Preço subiu", tone: styles.cardValueUp },
+                { id: "caiu", value: summary.down, label: "Preço caiu", tone: styles.cardValueDown },
+                { id: "recomendado", value: summary.recomendados, label: "Recomendados agora", tone: "" },
+              ] as const
+            ).map((card) => (
+              <button
+                key={card.id}
+                type="button"
+                className={filter === card.id && card.id !== "todos" ? styles.cardActive : styles.card}
+                onClick={() => applyFilter(card.id)}
+                aria-pressed={filter === card.id}
+                title={card.id === "todos" ? "Mostrar todos" : `Filtrar a tabela: ${card.label.toLowerCase()}`}
+              >
+                <span className={`${styles.cardValue} ${card.tone}`}>{card.value}</span>
+                <span className={styles.cardLabel}>{card.label}</span>
+              </button>
+            ))}
           </div>
 
           <div className={styles.panel}>
@@ -150,6 +247,16 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                   }}
                 />
               </span>
+              {FILTERS.map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  className={filter === f.id ? styles.filterButtonActive : styles.filterButton}
+                  onClick={() => applyFilter(f.id)}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
 
             <p className={styles.countHint}>
@@ -159,7 +266,7 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
             </p>
 
             {filtered.length === 0 ? (
-              <p className={styles.emptyFilter}>Nenhum produto com esse termo de busca.</p>
+              <p className={styles.emptyFilter}>Nenhum produto com esse filtro ou termo de busca.</p>
             ) : (
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
@@ -169,11 +276,11 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                       <th>SKU</th>
                       <th className={styles.productHeader}>Produto</th>
                       <th>Marketplace</th>
-                      <th>Preço atual</th>
-                      <th>Tendência</th>
-                      <th>Margem</th>
-                      <th>Status</th>
-                      <th>Última busca</th>
+                      <SortHeader label="Preço atual" sortKey="price" active={sortKey === "price"} dir={sortDir} onSort={handleSort} />
+                      <SortHeader label="Tendência" sortKey="trend" active={sortKey === "trend"} dir={sortDir} onSort={handleSort} />
+                      <SortHeader label="Margem" sortKey="margin" active={sortKey === "margin"} dir={sortDir} onSort={handleSort} />
+                      <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={handleSort} />
+                      <SortHeader label="Última busca" sortKey="when" active={sortKey === "when"} dir={sortDir} onSort={handleSort} />
                     </tr>
                   </thead>
                   <tbody>
@@ -190,7 +297,7 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                         <td>{item.sku}</td>
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={item.name}>
-                            {item.name}
+                            {displayProductName(item.name)}
                           </div>
                           {item.link && (
                             <a
@@ -204,11 +311,11 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                           )}
                         </td>
                         <td>{MARKETPLACE_LABEL[item.marketplace]}</td>
-                        <td>R$ {item.marketplacePrice.toFixed(2)}</td>
+                        <td>{brl(item.marketplacePrice)}</td>
                         <td>
                           <TrendTag item={item} />
                         </td>
-                        <td>{item.marginPct != null ? `${(item.marginPct * 100).toFixed(1)}%` : "—"}</td>
+                        <td>{item.marginPct != null ? pct(item.marginPct) : "—"}</td>
                         <td>
                           <span className={`${styles.badge} ${BADGE_CLASS[item.recommendation]}`}>
                             {BADGE_LABEL[item.recommendation]}

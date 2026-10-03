@@ -669,3 +669,64 @@
   font-size: 0.62rem;
   color: var(--color-text-dim);
 }
+
+/* Tom semântico da margem mediana — mesma régua do Preview ao vivo (verde
+   bate a meta, âmbar positiva abaixo da meta, vermelho negativa). */
+.toneGood {
+  color: var(--color-success);
+}
+
+.toneWarn {
+  color: var(--color-warning);
+}
+
+.toneBad {
+  color: var(--color-danger);
+}
+
+/* Taxa/imposto desligado: a linha inteira esmaece, não só o switch —
+   deixa óbvio que aquele valor não entra na conta. */
+.rowOff {
+  composes: row;
+}
+
+.rowOff .rowLabel,
+.rowOff .rowComputed,
+.rowOff .rowUnit,
+.rowOff input {
+  opacity: 0.45;
+}
+
+/* Legenda do "Impacto no catálogo" clicável — leva pra Resultados já
+   filtrado no status escolhido. */
+.legendButton {
+  composes: legendItem;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.legendButton:hover {
+  color: var(--color-text);
+}
+
+.impactLink {
+  margin-top: var(--space-3);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+}
+
+.impactLink:hover {
+  text-decoration: underline;
+}

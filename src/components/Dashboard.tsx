@@ -32,6 +32,7 @@ import { downloadCatalogRowsAsCsv } from "../lib/csvExport";
 import { fetchMultipleMarketplacePrices, MISS_REASON_LABEL, type MissReason } from "../lib/priceApi";
 import { missingKeyMessage, PROVIDER_KEY_GUIDE } from "../config/providerKeys";
 import { calculateMargins } from "../lib/marginCalculator";
+import { formatMs } from "../lib/format";
 import {
   computeFileHash,
   deleteCatalogUpload,
@@ -714,6 +715,7 @@ export default function Dashboard({
   onNavigateToFaq,
 }: Props) {
   const [state, setState] = useState<UploadState>("idle");
+  const [showPrereqDetails, setShowPrereqDetails] = useState(false);
   // true quando o erro atual em `error` veio de CatalogParseError/PdfParseError
   // (formato do arquivo não reconhecido) — diferencia de erro de rede/cota/
   // permissão, que não tem nada a ver com "seu catálogo está no formato
@@ -1033,9 +1035,6 @@ export default function Dashboard({
     .map((m) => m.label)
     .join(" + ");
 
-  const lastRun = uploadHistory[0] ?? null;
-  const uniqueMarketplaces = new Set(uploadHistory.flatMap((h) => h.marketplaces ?? []));
-
   const plan = getPlan(profile?.plan);
 
   const activeProvider = SEARCH_PROVIDERS.find((p) => p.id === searchProvider)!;
@@ -1058,6 +1057,7 @@ export default function Dashboard({
                   ? scraperApiKey
                   : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
+  const allPrereqsOk = Boolean(userId) && hasRequiredKey && selectedMarketplaces.length > 0;
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
   // busca (mesma filosofia BYOK do resto do app). `!` a partir de 80% —
@@ -2056,7 +2056,7 @@ export default function Dashboard({
                 {PROVIDER_GROUPS.find((g) => g.id === activeProviderGroup)!.hint}
               </p>
 
-              <div className={styles.marketplaceGrid}>
+              <div className={styles.marketplaceGrid} role="radiogroup" aria-label="Mecanismo de busca">
                 {SELECTABLE_PROVIDERS.filter((p) => groupOfProvider(p.id) === activeProviderGroup).map(
                   (p) => {
                     const active = searchProvider === p.id;
@@ -2065,6 +2065,8 @@ export default function Dashboard({
                       <button
                         key={p.id}
                         type="button"
+                        role="radio"
+                        aria-checked={active}
                         className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
                         onClick={() => selectProvider(p.id)}
                         title={p.note}
@@ -2080,11 +2082,10 @@ export default function Dashboard({
                             {p.beta && <span className={styles.betaTag}>Beta</span>}
                           </span>
                         </span>
-                        {active && (
-                          <span className={styles.marketplaceCardCheck}>
-                            <Check size={11} strokeWidth={3} />
-                          </span>
-                        )}
+                        <span
+                          className={active ? styles.providerRadioOn : styles.providerRadio}
+                          aria-hidden="true"
+                        />
                       </button>
                     );
                   }
@@ -2145,8 +2146,9 @@ export default function Dashboard({
 
               {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider) && (
                 <div className={styles.subGroup}>
-                  <span className={styles.subGroupLabel}>
-                    onde comparar ({activeProvider.label} cobre os dois — escolha um ou os dois)
+                  <span className={styles.subGroupLabel}>Onde comparar</span>
+                  <span className={styles.subGroupHint}>
+                    {activeProvider.label} cobre os dois — marque um ou os dois.
                   </span>
                   <div className={styles.marketplaceGrid}>
                     {(SLOW_AI_VISION_PROVIDERS.has(searchProvider)
@@ -2548,7 +2550,29 @@ export default function Dashboard({
           <section className={styles.card}>
             <div className={styles.cardHeader}>
               <h2 className={styles.cardHeaderTitle}>Pré-requisitos</h2>
+              {allPrereqsOk && (
+                <button
+                  type="button"
+                  className={styles.cardHeaderLink}
+                  onClick={() => setShowPrereqDetails((v) => !v)}
+                  aria-expanded={showPrereqDetails}
+                >
+                  {showPrereqDetails ? "recolher" : "detalhes"}
+                </button>
+              )}
             </div>
+            {allPrereqsOk && !showPrereqDetails ? (
+              <div className={styles.prereqRow}>
+                <span className={styles.prereqIcon}>
+                  <Check size={11} strokeWidth={3} />
+                </span>
+                <span>
+                  <span className={styles.prereqLabel}>Tudo pronto pra buscar</span>
+                  <span className={styles.prereqSub}>conta, chave e marketplace ok</span>
+                </span>
+              </div>
+            ) : (
+            <>
             <div className={styles.prereqRow}>
               <span className={userId ? styles.prereqIcon : styles.prereqIconWarning}>
                 {userId ? <Check size={11} strokeWidth={3} /> : <AlertCircle size={11} />}
@@ -2612,6 +2636,8 @@ export default function Dashboard({
                 </span>
               </span>
             </div>
+            </>
+            )}
           </section>
 
           {/* Cota (set/2026, auditoria item 23): o card era exclusivo de quem
@@ -2676,14 +2702,14 @@ export default function Dashboard({
                     const label = SEARCH_PROVIDERS.find((p) => p.id === s.provider)?.label ?? s.provider;
                     return (
                       <div key={s.provider} className={styles.speedRow}>
-                        <span className={styles.speedRowLabel}>{label}</span>
+                        <span className={styles.speedRowLabel} title={label}>{label}</span>
                         <span className={styles.speedTrack}>
                           <span
                             className={styles.speedFill}
                             style={{ width: `${Math.max(6, Math.round((s.avgMsPerItem / maxMs) * 100))}%` }}
                           />
                         </span>
-                        <span className={styles.speedValue}>{Math.round(s.avgMsPerItem)}ms</span>
+                        <span className={styles.speedValue}>{formatMs(s.avgMsPerItem)}</span>
                       </div>
                     );
                   });
@@ -2695,27 +2721,6 @@ export default function Dashboard({
             )}
           </section>
 
-          {userId && uploadHistory.length > 0 && (
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <h2 className={styles.cardHeaderTitle}>Seu histórico</h2>
-              </div>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>Catálogos processados</span>
-                <span className={styles.statValue}>{uploadHistory.length}</span>
-              </div>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>Última busca</span>
-                <span className={styles.statValue}>
-                  {lastRun ? new Date(lastRun.uploadedAt).toLocaleDateString("pt-BR") : "—"}
-                </span>
-              </div>
-              <div className={styles.statRow}>
-                <span className={styles.statLabel}>Marketplaces usados</span>
-                <span className={styles.statValue}>{uniqueMarketplaces.size || "—"}</span>
-              </div>
-            </section>
-          )}
         </aside>
       </div>
 

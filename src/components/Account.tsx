@@ -285,12 +285,6 @@ const SCRAPERAPI_INTRO = (
   </>
 );
 
-// 13 dias ilustrativos — `usage_daily` (ver usageQuota.ts) só guarda o
-// contador do dia atual, sem histórico por dia no back-end ainda. Só a
-// última barra (hoje) é dado real; o resto é só pra dar forma ao
-// gráfico (ver aviso abaixo do gráfico, igual ao mockup).
-const ILLUSTRATIVE_USAGE_SHAPE = [4, 12, 2, 8, 18, 14, 6, 2, 15, 20, 9, 7, 11];
-
 // Input de chave BYOK com "olhinho" pra revelar o que foi digitado/colado
 // antes de salvar — NÃO reexibe a chave já salva (o servidor só devolve
 // "tem chave configurada?" via has*ApiKey, nunca o valor em si, ver
@@ -358,6 +352,19 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   // BYOK — chave SerpApi própria (ver userSecrets.ts). Só carrega/mostra
   // quando logado; nunca reexibe a chave em texto puro depois de salva,
   // só indica que existe uma configurada.
+  // Chave já configurada fica recolhida (só status + "Trocar chave"); o
+  // form completo só abre pra quem ainda não tem chave ou pediu pra trocar.
+  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
+  function startEditingKey(id: string) {
+    setEditingKeys((prev) => new Set(prev).add(id));
+  }
+  function stopEditingKey(id: string) {
+    setEditingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
   const [hasSerpKey, setHasSerpKey] = useState(false);
   const [serpKeyInput, setSerpKeyInput] = useState("");
   const [savingSerpKey, setSavingSerpKey] = useState(false);
@@ -451,6 +458,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserRapidApiKey(user.uid, rapidKeyInput);
       setHasRapidKey(true);
+      stopEditingKey("rapid");
       setRapidKeyInput("");
       setRapidKeyMsg("Chave salva — o provider \"Amazon direto\" no Dashboard já pode usar.");
     } catch (err) {
@@ -485,6 +493,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserSearchApiKey(user.uid, searchApiKeyInput);
       setHasSearchApiKey(true);
+      stopEditingKey("searchApi");
       setSearchApiKeyInput("");
       setSearchApiKeyMsg("Chave salva — já pode escolher \"SearchApi.io\" como API de busca por imagem.");
     } catch (err) {
@@ -519,6 +528,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserUnwrangleApiKey(user.uid, unwrangleKeyInput);
       setHasUnwrangleKey(true);
+      stopEditingKey("unwrangle");
       setUnwrangleKeyInput("");
       setUnwrangleKeyMsg(
         "Chave salva — se a busca pública do Mercado Livre falhar, você poderá tentar de novo com ela."
@@ -555,6 +565,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserGeminiApiKey(user.uid, geminiKeyInput);
       setHasGeminiKey(true);
+      stopEditingKey("gemini");
       setGeminiKeyInput("");
       setGeminiKeyMsg("Chave salva — já pode escolher \"Motor interno + IA\" como API de busca por imagem.");
     } catch (err) {
@@ -589,6 +600,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserMistralApiKey(user.uid, mistralKeyInput);
       setHasMistralKey(true);
+      stopEditingKey("mistral");
       setMistralKeyInput("");
       setMistralKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (Mistral)\" como API de busca por imagem.");
     } catch (err) {
@@ -623,6 +635,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserNvidiaApiKey(user.uid, nvidiaKeyInput);
       setHasNvidiaKey(true);
+      stopEditingKey("nvidia");
       setNvidiaKeyInput("");
       setNvidiaKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (NVIDIA, beta)\" como API de busca por imagem.");
     } catch (err) {
@@ -657,6 +670,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserScraperApiKey(user.uid, scraperApiKeyInput);
       setHasScraperApiKey(true);
+      stopEditingKey("scraperApi");
       setScraperApiKeyInput("");
       setScraperApiKeyMsg(
         "Chave salva — o mecanismo \"ScraperAPI\" e o fallback anti-bloqueio do motor interno + IA já podem usar."
@@ -693,6 +707,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     try {
       await saveUserSerpApiKey(user.uid, serpKeyInput);
       setHasSerpKey(true);
+      stopEditingKey("serp");
       setSerpKeyInput("");
       setSerpKeyMsg("Chave salva — suas próximas buscas usam sua cota, não a compartilhada.");
     } catch (err) {
@@ -872,18 +887,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   }
 
   const plan = getPlan(profile?.plan);
-  const usageDays = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (13 - i));
-    const isToday = i === 13;
-    return {
-      key: `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`,
-      label: String(d.getDate()).padStart(2, "0"),
-      value: isToday ? todayUsage ?? 0 : ILLUSTRATIVE_USAGE_SHAPE[i],
-      isToday,
-    };
-  });
-  const maxUsage = Math.max(1, ...usageDays.map((d) => d.value));
+  // `usage_daily` (ver usageQuota.ts) só guarda o contador do DIA ATUAL —
+  // sem histórico por dia no back-end, então aqui só aparece dado real:
+  // uso de hoje contra o teto do plano (antes eram 13 barras inventadas).
+  const usageToday = todayUsage ?? 0;
+  const usagePct = Math.min(1, usageToday / Math.max(1, plan.dailySearchLimit));
 
   return (
     <motion.div className={styles.container} {...cardMotion}>
@@ -929,22 +937,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveSerpKey}>
-              <p className={styles.cardIntro}>{SERPAPI_INTRO}</p>
+              {(!hasSerpKey || editingKeys.has("serp")) && <p className={styles.cardIntro}>{SERPAPI_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={serpKeyInput}
-                  onChange={setSerpKeyInput}
-                  placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
-                  disabled={savingSerpKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingSerpKey || !serpKeyInput.trim()}
-                >
-                  {savingSerpKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasSerpKey && !editingKeys.has("serp") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("serp")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={serpKeyInput}
+                      onChange={setSerpKeyInput}
+                      placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
+                      disabled={savingSerpKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingSerpKey || !serpKeyInput.trim()}
+                    >
+                      {savingSerpKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasSerpKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("serp")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasSerpKey && (
                   <button
                     type="button"
@@ -976,22 +1000,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveRapidKey}>
-              <p className={styles.cardIntro}>{RAPIDAPI_INTRO}</p>
+              {(!hasRapidKey || editingKeys.has("rapid")) && <p className={styles.cardIntro}>{RAPIDAPI_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={rapidKeyInput}
-                  onChange={setRapidKeyInput}
-                  placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
-                  disabled={savingRapidKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingRapidKey || !rapidKeyInput.trim()}
-                >
-                  {savingRapidKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasRapidKey && !editingKeys.has("rapid") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("rapid")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={rapidKeyInput}
+                      onChange={setRapidKeyInput}
+                      placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
+                      disabled={savingRapidKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingRapidKey || !rapidKeyInput.trim()}
+                    >
+                      {savingRapidKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasRapidKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("rapid")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasRapidKey && (
                   <button
                     type="button"
@@ -1023,22 +1063,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveSearchApiKey}>
-              <p className={styles.cardIntro}>{SEARCHAPI_INTRO}</p>
+              {(!hasSearchApiKey || editingKeys.has("searchApi")) && <p className={styles.cardIntro}>{SEARCHAPI_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={searchApiKeyInput}
-                  onChange={setSearchApiKeyInput}
-                  placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
-                  disabled={savingSearchApiKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingSearchApiKey || !searchApiKeyInput.trim()}
-                >
-                  {savingSearchApiKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasSearchApiKey && !editingKeys.has("searchApi") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("searchApi")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={searchApiKeyInput}
+                      onChange={setSearchApiKeyInput}
+                      placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
+                      disabled={savingSearchApiKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingSearchApiKey || !searchApiKeyInput.trim()}
+                    >
+                      {savingSearchApiKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasSearchApiKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("searchApi")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasSearchApiKey && (
                   <button
                     type="button"
@@ -1070,22 +1126,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveGeminiKey}>
-              <p className={styles.cardIntro}>{GEMINI_INTRO}</p>
+              {(!hasGeminiKey || editingKeys.has("gemini")) && <p className={styles.cardIntro}>{GEMINI_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={geminiKeyInput}
-                  onChange={setGeminiKeyInput}
-                  placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
-                  disabled={savingGeminiKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingGeminiKey || !geminiKeyInput.trim()}
-                >
-                  {savingGeminiKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasGeminiKey && !editingKeys.has("gemini") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("gemini")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={geminiKeyInput}
+                      onChange={setGeminiKeyInput}
+                      placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
+                      disabled={savingGeminiKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingGeminiKey || !geminiKeyInput.trim()}
+                    >
+                      {savingGeminiKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasGeminiKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("gemini")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasGeminiKey && (
                   <button
                     type="button"
@@ -1117,22 +1189,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveMistralKey}>
-              <p className={styles.cardIntro}>{MISTRAL_INTRO}</p>
+              {(!hasMistralKey || editingKeys.has("mistral")) && <p className={styles.cardIntro}>{MISTRAL_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={mistralKeyInput}
-                  onChange={setMistralKeyInput}
-                  placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
-                  disabled={savingMistralKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingMistralKey || !mistralKeyInput.trim()}
-                >
-                  {savingMistralKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasMistralKey && !editingKeys.has("mistral") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("mistral")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={mistralKeyInput}
+                      onChange={setMistralKeyInput}
+                      placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
+                      disabled={savingMistralKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingMistralKey || !mistralKeyInput.trim()}
+                    >
+                      {savingMistralKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasMistralKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("mistral")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasMistralKey && (
                   <button
                     type="button"
@@ -1165,22 +1253,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveNvidiaKey}>
-              <p className={styles.cardIntro}>{NVIDIA_INTRO}</p>
+              {(!hasNvidiaKey || editingKeys.has("nvidia")) && <p className={styles.cardIntro}>{NVIDIA_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={nvidiaKeyInput}
-                  onChange={setNvidiaKeyInput}
-                  placeholder={hasNvidiaKey ? "Substituir a chave atual…" : "Cole sua chave NVIDIA"}
-                  disabled={savingNvidiaKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingNvidiaKey || !nvidiaKeyInput.trim()}
-                >
-                  {savingNvidiaKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasNvidiaKey && !editingKeys.has("nvidia") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("nvidia")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={nvidiaKeyInput}
+                      onChange={setNvidiaKeyInput}
+                      placeholder={hasNvidiaKey ? "Substituir a chave atual…" : "Cole sua chave NVIDIA"}
+                      disabled={savingNvidiaKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingNvidiaKey || !nvidiaKeyInput.trim()}
+                    >
+                      {savingNvidiaKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasNvidiaKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("nvidia")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasNvidiaKey && (
                   <button
                     type="button"
@@ -1212,22 +1316,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveScraperApiKey}>
-              <p className={styles.cardIntro}>{SCRAPERAPI_INTRO}</p>
+              {(!hasScraperApiKey || editingKeys.has("scraperApi")) && <p className={styles.cardIntro}>{SCRAPERAPI_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={scraperApiKeyInput}
-                  onChange={setScraperApiKeyInput}
-                  placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
-                  disabled={savingScraperApiKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingScraperApiKey || !scraperApiKeyInput.trim()}
-                >
-                  {savingScraperApiKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasScraperApiKey && !editingKeys.has("scraperApi") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("scraperApi")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={scraperApiKeyInput}
+                      onChange={setScraperApiKeyInput}
+                      placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
+                      disabled={savingScraperApiKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingScraperApiKey || !scraperApiKeyInput.trim()}
+                    >
+                      {savingScraperApiKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasScraperApiKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("scraperApi")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasScraperApiKey && (
                   <button
                     type="button"
@@ -1259,22 +1379,38 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
 
             <form className={styles.compactKeyForm} onSubmit={handleSaveUnwrangleKey}>
-              <p className={styles.cardIntro}>{UNWRANGLE_INTRO}</p>
+              {(!hasUnwrangleKey || editingKeys.has("unwrangle")) && <p className={styles.cardIntro}>{UNWRANGLE_INTRO}</p>}
 
               <div className={styles.compactKeyRow}>
-                <KeyInput
-                  value={unwrangleKeyInput}
-                  onChange={setUnwrangleKeyInput}
-                  placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
-                  disabled={savingUnwrangleKey}
-                />
-                <button
-                  className={styles.primaryButton}
-                  type="submit"
-                  disabled={savingUnwrangleKey || !unwrangleKeyInput.trim()}
-                >
-                  {savingUnwrangleKey ? "Salvando…" : "Salvar"}
-                </button>
+                {hasUnwrangleKey && !editingKeys.has("unwrangle") ? (
+                  <>
+                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
+                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("unwrangle")}>
+                      Trocar chave
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <KeyInput
+                      value={unwrangleKeyInput}
+                      onChange={setUnwrangleKeyInput}
+                      placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
+                      disabled={savingUnwrangleKey}
+                    />
+                    <button
+                      className={styles.primaryButton}
+                      type="submit"
+                      disabled={savingUnwrangleKey || !unwrangleKeyInput.trim()}
+                    >
+                      {savingUnwrangleKey ? "Salvando…" : "Salvar"}
+                    </button>
+                    {hasUnwrangleKey && (
+                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("unwrangle")}>
+                        Cancelar
+                      </button>
+                    )}
+                  </>
+                )}
                 {hasUnwrangleKey && (
                   <button
                     type="button"
@@ -1299,33 +1435,32 @@ export default function Account({ user, profile, preferences, onUpdatePreference
                 <Gauge size={14} />
               </span>
               <h2 className={styles.cardHeaderTitle}>Uso diário de busca</h2>
-              <span className={styles.cardHeaderMeta}>últimos 14 dias</span>
+              <span className={styles.cardHeaderMeta}>hoje</span>
             </div>
             <div className={styles.cardBody}>
               <div className={styles.usageBig}>
-                <span className={styles.usageBigNumber}>{todayUsage ?? 0}</span>
+                <span className={styles.usageBigNumber}>{usageToday}</span>
                 <span className={styles.usageBigLabel}>
                   busca(s) hoje{hasSerpKey ? " com a sua chave" : ""}
                 </span>
               </div>
-              <div className={styles.usageChart}>
-                {usageDays.map((d) => (
-                  <div key={d.key} className={styles.usageBarCol}>
-                    <span className={d.isToday ? styles.usageBarTrackToday : styles.usageBarTrack}>
-                      <span
-                        className={d.isToday ? styles.usageBarFillToday : styles.usageBarFill}
-                        style={{ height: `${Math.max(4, Math.round((d.value / maxUsage) * 100))}%` }}
-                      />
-                    </span>
-                    <span className={d.isToday ? styles.usageBarLabelToday : styles.usageBarLabel}>
-                      {d.label}
-                    </span>
-                  </div>
-                ))}
+              <div
+                className={styles.usageMeter}
+                role="meter"
+                aria-valuemin={0}
+                aria-valuemax={plan.dailySearchLimit}
+                aria-valuenow={usageToday}
+                aria-label="Uso de busca hoje"
+              >
+                <span
+                  className={usagePct >= 0.8 ? styles.usageMeterFillWarning : styles.usageMeterFill}
+                  style={{ width: `${Math.round(usagePct * 100)}%` }}
+                />
               </div>
               <p className={styles.usageCaption}>
-                a barra destacada é o dia de hoje (dado real). O histórico dos dias anteriores é
-                ilustrativo — ainda não é gravado por dia no back-end.
+                {usageToday} de {plan.dailySearchLimit} buscas do plano {plan.name} hoje — o contador
+                zera todo dia. Com chave própria, o teto real é o da sua conta no provedor. O
+                histórico por dia ainda não é gravado, por isso não tem gráfico de dias anteriores.
               </p>
             </div>
           </section>
@@ -1387,8 +1522,10 @@ export default function Account({ user, profile, preferences, onUpdatePreference
                 <span className={styles.infoRowValue}>{user.email}</span>
               </div>
               <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>uid</span>
-                <span className={styles.infoRowValueMono}>{user.uid}</span>
+                <span className={styles.infoRowLabel}>id de suporte</span>
+                <span className={styles.infoRowValueMono} title={user.uid}>
+                  {user.uid.slice(0, 8)}…
+                </span>
               </div>
               <div className={styles.infoRow}>
                 <span className={styles.infoRowLabel}>permissão</span>

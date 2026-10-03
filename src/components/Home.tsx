@@ -16,6 +16,7 @@ import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { listSharedCatalogsForPlan, type SharedCatalog } from "../lib/sharedCatalogs";
 import { getUserSerpApiKey } from "../lib/userSecrets";
 import { median } from "../lib/marginCalculator";
+import { marginTone, pct } from "../lib/format";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import styles from "./Home.module.css";
@@ -31,6 +32,10 @@ interface Props {
   onOpenRecord: (id: string) => void;
   /** "usar" num catálogo da biblioteca — manda o catálogo inteiro pro App, que passa pra Dashboard já processar (ver handleUseSharedCatalog em App.tsx). */
   onUseSharedCatalog: (catalog: SharedCatalog) => void;
+  /** Margem-alvo das regras de Precificação — régua das cores de margem desta tela. */
+  targetMarginPct: number;
+  /** Abre Configurações direto na seção de planos/pagamento. */
+  onOpenPlans: () => void;
 }
 
 const STEPS = [
@@ -53,6 +58,8 @@ const STEPS = [
     text: "Preço encontrado menos taxa, frete e imposto — recomendação pronta por produto.",
   },
 ];
+
+const TONE_CLASS = { good: styles.toneGood, warn: styles.toneWarn, bad: styles.toneBad } as const;
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -81,6 +88,8 @@ export default function Home({
   onNavigate,
   onOpenRecord,
   onUseSharedCatalog,
+  targetMarginPct,
+  onOpenPlans,
 }: Props) {
   const [libraryCatalogs, setLibraryCatalogs] = useState<SharedCatalog[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
@@ -120,7 +129,9 @@ export default function Home({
   const allMargins = history
     .flatMap((h) => h.results.map((r) => r.marginPct))
     .filter((v): v is number => v != null);
-  const medianMargin = median(thisMonthMargins.length > 0 ? thisMonthMargins : allMargins);
+  const usingThisMonth = thisMonthMargins.length > 0;
+  const medianMargin = median(usingThisMonth ? thisMonthMargins : allMargins);
+  const medianCount = usingThisMonth ? thisMonthMargins.length : allMargins.length;
 
   const recent = history.slice(0, 5);
   const plan = getPlan(profile?.plan);
@@ -168,30 +179,50 @@ export default function Home({
             <span className={styles.statValue}>{totalProdutos.toLocaleString("pt-BR")}</span>
             <span className={styles.statLabel}>produtos precificados</span>
           </div>
-          <div className={styles.statRow}>
-            <span className={styles.statValue}>
-              {allMargins.length > 0 ? `${(medianMargin * 100).toFixed(1)}%` : "—"}
+          <div
+            className={styles.statRow}
+            title={
+              allMargins.length > 0
+                ? `Mediana da margem sobre o custo de ${medianCount} produto(s) ${usingThisMonth ? "buscados este mês" : "de todas as buscas"}, com as regras de Precificação de cada busca. Meta atual: ${pct(targetMarginPct, 0)}. Valor muito negativo costuma vir de produto com match errado ou preço de mercado suspeito — confira em Resultados.`
+                : undefined
+            }
+          >
+            <span
+              className={`${styles.statValue} ${
+                allMargins.length > 0 ? TONE_CLASS[marginTone(medianMargin, targetMarginPct)] : ""
+              }`}
+            >
+              {allMargins.length > 0 ? pct(medianMargin) : "—"}
             </span>
-            <span className={styles.statLabel}>margem mediana do mês</span>
+            <span className={styles.statLabel}>
+              margem mediana {usingThisMonth ? "do mês" : "geral"} · meta {pct(targetMarginPct, 0)}
+            </span>
+            {allMargins.length > 0 && medianMargin < 0 && recent.length > 0 && (
+              <button type="button" className={styles.statLink} onClick={() => onOpenRecord(recent[0].id)}>
+                entender esse número →
+              </button>
+            )}
           </div>
         </div>
       </section>
 
-      <section className={styles.stepsCard}>
-        <h2 className={styles.stepsTitle}>Como funciona</h2>
-        <div className={styles.stepsRow}>
-          {STEPS.map((s) => (
-            <div key={s.n} className={styles.stepCol}>
-              <span className={styles.stepIcon}>
-                <s.icon size={16} strokeWidth={2} />
-              </span>
-              <span className={styles.stepNumber}>{s.n}</span>
-              <span className={styles.stepTitle}>{s.title}</span>
-              <span className={styles.stepText}>{s.text}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+      {history.length === 0 && (
+        <section className={styles.stepsCard}>
+          <h2 className={styles.stepsTitle}>Como funciona</h2>
+          <div className={styles.stepsRow}>
+            {STEPS.map((s) => (
+              <div key={s.n} className={styles.stepCol}>
+                <span className={styles.stepIcon}>
+                  <s.icon size={16} strokeWidth={2} />
+                </span>
+                <span className={styles.stepNumber}>{s.n}</span>
+                <span className={styles.stepTitle}>{s.title}</span>
+                <span className={styles.stepText}>{s.text}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className={styles.twoCol}>
         <section className={styles.panel}>
@@ -228,8 +259,13 @@ export default function Home({
                     </span>
                     <span className={styles.recentMeta}>{r.marketplaces.join(", ")}</span>
                     <span className={styles.recentMeta}>{r.results.length}/{r.rows.length} com preço</span>
-                    <span className={styles.recentMargin}>
-                      {recordMargins.length > 0 ? `${(recordMargin * 100).toFixed(1)}%` : "—"}
+                    <span
+                      className={`${styles.recentMargin} ${
+                        recordMargins.length > 0 ? TONE_CLASS[marginTone(recordMargin, targetMarginPct)] : ""
+                      }`}
+                      title="Margem mediana dos produtos com custo nesta busca"
+                    >
+                      {recordMargins.length > 0 ? pct(recordMargin) : "—"}
                     </span>
                   </button>
                 );
@@ -243,6 +279,24 @@ export default function Home({
         </section>
 
         <aside className={styles.asideCol}>
+          {hasSerpKey !== null && (
+            <section className={hasSerpKey ? styles.keyCardOk : styles.keyCardWarning}>
+              <span className={styles.keyCardIcon}>
+                {hasSerpKey ? <Check size={13} strokeWidth={3} /> : <KeyRound size={13} />}
+              </span>
+              <span className={styles.keyCardText}>
+                {hasSerpKey ? "Sua chave SerpApi está ativa" : "Configure sua chave SerpApi"}
+                <span className={styles.keyCardSub}>
+                  {hasSerpKey
+                    ? "As buscas rodam na cota da sua própria conta."
+                    : "Sem chave própria, a busca de preço fica indisponível."}
+                </span>
+              </span>
+              <button type="button" className={styles.keyCardLink} onClick={() => onNavigate("account")}>
+                Gerenciar chave
+              </button>
+            </section>
+          )}
           <section className={styles.panel}>
             <div className={styles.panelHeader}>
               <h2 className={styles.panelTitle}>
@@ -254,9 +308,20 @@ export default function Home({
             {libraryLoading ? (
               <p className={styles.emptyText}>Carregando biblioteca…</p>
             ) : libraryCatalogs.length === 0 ? (
-              <p className={styles.emptyText}>
-                Nenhum catálogo liberado pro seu plano ainda — o admin adiciona pela tela Admin.
-              </p>
+              <div className={styles.libraryEmpty}>
+                <p className={styles.emptyText}>
+                  Nenhum catálogo liberado pro plano {plan.name} ainda. Enquanto isso, a Nova busca
+                  funciona com qualquer catálogo seu.
+                </p>
+                <div className={styles.libraryEmptyActions}>
+                  <button type="button" className={styles.keyCardLink} onClick={() => onNavigate("dashboard")}>
+                    Subir meu catálogo
+                  </button>
+                  <button type="button" className={styles.panelHeaderLink} onClick={onOpenPlans}>
+                    Ver planos
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className={styles.libraryList}>
                 {libraryCatalogs.map((c) => (
@@ -278,24 +343,6 @@ export default function Home({
             )}
           </section>
 
-          {hasSerpKey !== null && (
-            <section className={hasSerpKey ? styles.keyCardOk : styles.keyCardWarning}>
-              <span className={styles.keyCardIcon}>
-                {hasSerpKey ? <Check size={13} strokeWidth={3} /> : <KeyRound size={13} />}
-              </span>
-              <span className={styles.keyCardText}>
-                {hasSerpKey ? "Sua chave SerpApi está ativa" : "Configure sua chave SerpApi"}
-                <span className={styles.keyCardSub}>
-                  {hasSerpKey
-                    ? "As buscas rodam na cota da sua própria conta."
-                    : "Sem chave própria, a busca de preço fica indisponível."}
-                </span>
-              </span>
-              <button type="button" className={styles.keyCardLink} onClick={() => onNavigate("account")}>
-                Gerenciar chave
-              </button>
-            </section>
-          )}
         </aside>
       </div>
     </motion.div>

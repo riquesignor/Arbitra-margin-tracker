@@ -1,6 +1,6 @@
 .container {
   width: 100%;
-  max-width: 920px;
+  max-width: 1240px;
 }
 
 .header {
@@ -35,14 +35,29 @@
 
 .layout {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 200px minmax(0, 1fr) 300px;
   gap: var(--space-5);
   align-items: start;
+}
+
+/* Sem largura pra 3 colunas: o preview desce pra baixo do conteúdo. */
+@media (max-width: 1180px) {
+  .layout {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+
+  .previewCol {
+    grid-column: 2;
+  }
 }
 
 @media (max-width: 780px) {
   .layout {
     grid-template-columns: 1fr;
+  }
+
+  .previewCol {
+    grid-column: auto;
   }
 }
 
@@ -544,4 +559,106 @@
   color: var(--color-danger);
   font-size: 0.85rem;
   margin: 0;
+}
+
+/* --- Coluna de preview (tema aplicado nos componentes de produto) --- */
+
+.previewCol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+  position: sticky;
+  top: var(--space-5);
+}
+
+.previewBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.previewStat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.previewStatLabel {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-text-dim);
+}
+
+.previewStatValue {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  color: var(--color-warning);
+}
+
+.previewRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+
+.previewRowTop,
+.previewRowBottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.previewRowName {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.previewRowPrice,
+.previewRowMargin {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.previewBadge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.previewButton {
+  composes: primaryButton;
+  align-self: flex-start;
+  pointer-events: none;
+}
+
+.planSummary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.planSummaryName {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+}
+
+.planSummaryPrice {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-accent);
 }

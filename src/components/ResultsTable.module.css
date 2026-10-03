@@ -670,14 +670,14 @@
 .popularityBadge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  margin-left: 5px;
-  padding: 1px 6px;
+  gap: 4px;
+  margin-left: var(--space-2);
+  padding: 2px 7px;
   border-radius: 999px;
   border: 1px solid var(--color-border-soft);
   background: var(--color-bg-elevated-2);
   color: var(--color-text-dim);
-  font-size: 10px;
+  font-size: 0.72rem;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -935,7 +935,7 @@
 .buyBoxNo {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   margin-left: var(--space-2);
   font-family: var(--font-mono);
   font-size: 0.7rem;
