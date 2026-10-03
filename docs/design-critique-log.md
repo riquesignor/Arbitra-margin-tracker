@@ -106,6 +106,113 @@ O que funciona bem:
 - Badge de contagem (183) no item "Resultados" da sidebar — detalhe
   fino, reflete estado real.
 
+## Session 4 — Início (Home)
+
+**Problema central**: o olho vai direto pro "-288.9%" em vermelho no
+canto superior direito (`heroStats` em `Home.tsx`, linha 171) — não pro
+CTA "+ Nova busca", que deveria ser o foco. Primeira reação é de alarme
+("algo quebrou?"), não de orientação. Hierarquia visual invertida: o
+número mais alarmante da tela compete com a ação principal sem nenhum
+contexto que explique por que está tão negativo.
+
+Achados críticos:
+1. **`medianMargin` (linha 173) exibida sem nenhum tooltip/link/contexto**
+   — um valor como -288.9% sem explicação faz o usuário achar que o
+   produto está quebrado logo na primeira tela. Mesma classe de problema
+   já sinalizado no Session 3 pra margem média de Resultados (lá era
+   outlier contaminando a média; aqui pode ser o mesmo tipo de dado ruim
+   se propagando pro resumo da Home) — vale checar se straightforward é
+   dado real ou herda o mesmo bug de origem.
+2. **Card "Catálogos disponíveis" é beco sem saída pra plano pago**
+   (linha 256-259): `"Nenhum catálogo liberado pro seu plano ainda — o
+   admin adiciona pela tela Admin."` — sem botão/link de ação nenhum.
+   Usuário Pro pagando e vendo isso sem next-step próprio é fricção séria.
+3. **"Nova busca" duplicado** — existe no menu superior E como botão
+   primário no hero (linha ~150-157) — redundância que não ajuda em nada.
+
+Ausências/gaps visuais:
+1. Bloco "Como funciona" (linha 180-194) aparece pra qualquer usuário,
+   inclusive quem já tem histórico real — compete por espaço com
+   "Suas buscas", que importa mais pra quem é recorrente. Mesmo raciocínio
+   do Session 1: esconder/colapsar depois do primeiro catálogo processado.
+2. Ícones da barra superior (tema, engrenagem, "?", indicador "online")
+   sem rótulo visível — tooltip no hover resolve.
+3. Card verde de sucesso (chave SerpApi ativa, linha ~282+) fica
+   embaixo do card de beco-sem-saída do plano Pro — a informação boa
+   devia ter mais destaque, não menos.
+
+O que funciona bem:
+- `recentRow` (linha 220) é um `<button>` cobrindo a linha inteira —
+  boa prática de affordance, já correto, só confirmando.
+- "Resultado guardado não gasta busca nova — reabrir um catálogo é de
+  graça." (linha 241) — ótimo UX writing, antecipa a dúvida de cota.
+- Saudação personalizada com data cria calor humano sem exagerar.
+- CTA primário "+ Nova busca" tem bom contraste e está na posição certa.
+- Cards de passo (01/02/03) com ícone — resolve o gap "sem ícone" que
+  o Session 1 apontou pro Dashboard.
+
+## Session 5 — Nova busca (Dashboard, parte 2: seletor de API + sidebar)
+
+Continuação do Session 1 (mesmo componente, `Dashboard.tsx`/
+`Dashboard.module.css`) — aquela sessão cobriu KPI/histórico/ícones de
+chip (já implementados, visíveis e funcionando nesta captura); esta olha
+o bloco "01 Qual API usar" e a sidebar (Pré-requisitos/Cota/Velocidade/
+Histórico), não cobertos antes.
+
+**Problema central**: o card "01 Qual API usar" empilha duas decisões
+distintas (qual motor de busca, e em quais marketplaces comparar) com o
+MESMO componente visual pros dois — mesmo grid, mesmo destaque azul,
+mesmo check (`styles.marketplaceCard`/`marketplaceCardActive`, linhas
+~2058 e ~2155). O problema é que são interações diferentes: motor é
+seleção única (`selectProvider`, troca a anterior) e marketplace é
+múltipla (`toggleMarketplace`, soma). Visualmente idênticos, sem nenhuma
+pista (radio vs. checkbox, ou cor/formato diferente) de que um substitui
+e o outro acumula.
+
+Achados:
+1. **Rótulo cortado em "Velocidade por mecanismo"** (`Dashboard.module.css`
+   linha 958: `grid-template-columns: 84px minmax(0, 1fr) 44px`) — 84px
+   fixos pra rótulos como "Motor interno + IA (Gemini)" (`Dashboard.tsx`
+   linha 201). O `text-overflow: ellipsis` está correto (linha 967), o
+   problema é só a largura da coluna: a reticência aparece cedo demais
+   e quase nenhuma informação sobrevive ("Motor intern…"). Widen a
+   coluna ou quebra em 2 linhas (label em cima, barra embaixo).
+2. **Seleção única e múltipla com o mesmo visual** (acima) — dar um
+   tratamento distinto (ex: radio real pros motores, ou pelo menos ícone
+   de "escolha uma opção" vs "marque quantas quiser" na legenda).
+3. **"ms" cru sem formatação** (`Dashboard.tsx` linha 2686:
+   `{Math.round(s.avgMsPerItem)}ms`) — "12048ms" é mais difícil de ler
+   que "12,0s" ou "12.048 ms". Resto do app formata número grande com
+   separador (ex: `totalProdutos.toLocaleString("pt-BR")` na Home).
+4. **Dado duplicado entre "03 Catálogos processados" (corpo) e "Seu
+   histórico" (sidebar)** — os dois usam `uploadHistory.length`
+   (linha ~2483 e 2705) pra mostrar basicamente a mesma contagem em
+   dois cards separados, em posições opostas da tela.
+5. **"Pré-requisitos" (linha 2550) só aparece com os 3 itens já ✓** —
+   nesta captura ocupa espaço permanente sem exigir nenhuma ação; faz
+   mais sentido como checklist que algo recolhe/resume ("tudo certo ✓")
+   depois de satisfeito, do que uma seção sempre expandida.
+6. **Legenda "onde comparar (...)" em caixa alta** (`.subGroupLabel`,
+   `Dashboard.module.css` linha 425-433: `text-transform: uppercase`) —
+   a classe tem cara de rótulo curto (tipo "SENHA" nos forms), mas aqui
+   carrega uma frase inteira com parêntese. Caixa alta prejudica leitura
+   de frases longas; reservar esse estilo pra rótulos de 1-3 palavras.
+
+O que funciona bem:
+- Seção "01/02/03" numerada é consistente com "Como funciona" da Home —
+  o mesmo padrão de numeração se repete entre telas, reforça o fluxo.
+- `MULTI_MARKETPLACE_PROVIDERS.has(searchProvider)` (linha 2143) esconde
+  o seletor de marketplace certinho quando o motor só cobre um — não é
+  bug, já tratado (hipótese inicial descartada ao ler o código).
+- Aviso de BYOK ("Este mecanismo roda com a sua chave...", linha
+  2128-2142) aparece no momento certo (ao escolher o motor, não só
+  depois de falhar) — já é o fix documentado no comentário do próprio
+  código (onboarding corrigido em set/2026).
+- "Cota diária" com fração clara (0/500) e nome do plano — mesmo padrão
+  bom já visto noutros cards de uso/cota.
+- Dropzone com formato aceito explícito no texto de apoio — evita
+  upload que vai falhar silenciosamente.
+
 ## Implementado (rodada 1 — todas as sessões acima)
 
 Nova paleta em `src/styles/tokens.css`: preto + um único acento
@@ -150,7 +257,10 @@ localStorage).
   antes ficava vazio.
 
 ## Pendente
-- Sessions futuras (Conta, outras) a registrar aqui.
+- Sessions 4 (Início) e 5 (Nova busca, parte 2) acima ainda não entraram
+  em "Implementado" — ficam pendentes até rodar a próxima leva.
+- Sessions futuras (Conta, outras — mais telas a caminho) a registrar
+  aqui conforme forem chegando.
 - Paginação de verdade em Resultados (hoje só mostra a contagem, ainda
   não corta em páginas) — considerar se catálogos crescerem muito além
   de ~200 SKUs.
