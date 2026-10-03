@@ -406,6 +406,11 @@
 
 /* --- Tendência --- */
 
+.trendCell {
+  display: flex;
+  align-items: center;
+}
+
 .trendUp,
 .trendDown,
 .trendStable,

@@ -1,0 +1,22 @@
+.sparkline {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: var(--space-2);
+  flex-shrink: 0;
+}
+
+.sparkline polyline {
+  stroke: var(--color-text-dim);
+}
+
+.sparkline.up polyline {
+  stroke: var(--color-success);
+}
+
+.sparkline.down polyline {
+  stroke: var(--color-danger);
+}
+
+.sparkline.flat polyline {
+  stroke: var(--color-text-dim);
+}

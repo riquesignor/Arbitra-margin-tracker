@@ -28,6 +28,7 @@ import {
   MARKETPLACE_LABEL,
 } from "./ResultsTable";
 import WatchToggle from "./WatchToggle";
+import PriceSparkline from "./PriceSparkline";
 import styles from "./Portfolio.module.css";
 
 interface Props {
@@ -456,8 +457,9 @@ export default function Portfolio({ history, onNavigateToDashboard, userId = nul
                         </td>
                         <td>{MARKETPLACE_LABEL[item.marketplace]}</td>
                         <td>{brl(item.marketplacePrice)}</td>
-                        <td>
+                        <td className={styles.trendCell}>
                           <TrendTag item={item} />
+                          <PriceSparkline points={item.priceHistory} />
                         </td>
                         <td>{item.marginPct != null ? pct(item.marginPct) : "—"}</td>
                         <td>

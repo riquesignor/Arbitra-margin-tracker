@@ -32,6 +32,7 @@ o e-mail de contato pra assuntos de privacidade]`.
 | Contador de buscas do dia | `users/{uid}/usage_daily` | Mostrar e (conforme o plano) aplicar o teto diário de uso | Execução de contrato / legítimo interesse (prevenção a abuso) |
 | Preferência de tema/aparência | `users/{uid}/preferences` | Lembrar a preferência de exibição do usuário | Legítimo interesse |
 | `[PREENCHER, se aplicável]` Dado de pagamento (não o número do cartão em si — isso fica com o processador de pagamento) | Processador de pagamento (ex.: Mercado Pago) | Cobrança recorrente do plano pago | Execução de contrato |
+| Produtos marcados pra monitorar e alertas de mudança de preço (out/2026) | `users/{uid}/watches`, `users/{uid}/watch_alerts` | Avisar o usuário quando o preço de um produto monitorado mudar ou ficar indisponível, quando ele pedir uma checagem manual | Execução de contrato |
 
 Não coletamos dado sensível (LGPD art. 5º, II) de propósito — se o catálogo
 enviado pelo usuário contiver, incidentalmente, esse tipo de informação, o
@@ -69,7 +70,10 @@ usuário para treinar modelo de IA próprio.
   manualmente ou encerrar a conta;
 - Ao excluir a conta (disponível na tela de Conta), os dados nas
   subcoleções do próprio usuário são removidos;
-- Cache de preço (`market_prices`) expira em algumas horas.
+- Cache de preço (`market_prices`) expira em algumas horas;
+- Produto monitorado (`watches`) fica até o usuário parar de monitorar
+  (botão "Parar") ou excluir a conta; alerta gerado (`watch_alerts`)
+  segue a mesma regra do histórico de buscas.
 
 ## 5. Seus direitos (LGPD art. 18)
 

@@ -43,6 +43,16 @@ export interface PortfolioItem {
   previousSearchedAt?: number;
   /** Provider da busca mais recente (out/2026, ver monitoramento — watchlist.ts) — ausente em registro salvo antes desse campo existir. */
   provider?: SearchProviderId;
+  /**
+   * Série completa de preço (out/2026, ver PriceSparkline.tsx) — TODAS as
+   * ocorrências desse SKU no histórico salvo, não só as duas mais
+   * recentes usadas em `trend` acima. Mesmo dado que já existia em
+   * `occurrencesBySku`, só não era exposto; nenhuma busca nova nem
+   * coleção nova precisou entrar pra isso existir. Ordem cronológica
+   * ascendente (mais antiga primeiro) — é o que um gráfico de linha
+   * espera.
+   */
+  priceHistory: { price: number; date: number }[];
 }
 
 /**
@@ -118,6 +128,9 @@ export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] 
       previousMarketplacePrice: previous?.result.marketplacePrice,
       previousSearchedAt: previous?.uploadedAt,
       provider: latest.provider,
+      priceHistory: [...occurrences]
+        .reverse() // occurrences vem desc (mais recente primeiro); gráfico quer cronológico
+        .map((o) => ({ price: o.result.marketplacePrice, date: o.uploadedAt })),
     });
   }
 

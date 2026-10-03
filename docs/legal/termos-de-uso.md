@@ -30,6 +30,17 @@ própria chave"/BYOK: SerpApi, RapidAPI, SearchApi.io, Unwrangle, ScraperAPI,
 Gemini, Mistral). O Arbitra calcula uma margem estimada a partir do custo
 informado pelo usuário e do preço encontrado.
 
+### 2.1. Monitoramento de preço (opcional, out/2026)
+
+O usuário pode marcar produtos específicos pra acompanhar e, quando
+quiser, pedir uma nova checagem de preço daquele produto ("checar
+agora"). Essa checagem gasta cota de busca normalmente (seção 5) e
+gera um aviso dentro do próprio Arbitra se o preço mudou ou se o
+produto ficou indisponível/voltou a ficar disponível. **Não há
+checagem automática em segundo plano** — a atualização depende de
+ação do usuário clicando em "checar agora"; isso pode mudar no
+futuro, caso em que estes Termos serão atualizados antes.
+
 ## 3. Conta e cadastro
 
 O acesso exige login (e-mail/senha ou provedor externo, via Firebase
@@ -51,6 +62,12 @@ acontece com o acesso em caso de atraso de pagamento (a assinatura entra
 em `paused`/`cancelled` no Mercado Pago e o Arbitra rebaixa
 automaticamente pro plano Free); e como o usuário cancela a própria
 assinatura.
+
+Nos primeiros 7 (sete) dias corridos após a contratação de um plano
+pago, o usuário pode desistir e pedir reembolso integral, conforme o
+direito de arrependimento do art. 49 do Código de Defesa do
+Consumidor, sem necessidade de justificativa. `[PREENCHER: canal
+exato pra esse pedido, se diferente do contato geral de suporte]`.
 
 ## 5. Chaves de API de terceiro (BYOK)
 
