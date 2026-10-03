@@ -172,6 +172,41 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow write: if false;
       }
+
+      // Lista de produtos monitorados (out/2026, monitoramento contínuo —
+      // ver src/lib/watchlist.ts). O dono cria/apaga/pausa — é ele quem
+      // decide o que monitorar. `isVerified()` aqui pelo mesmo motivo de
+      // `pricing_rules`/`secrets`: representa "usar a conta de verdade"
+      // (vai gastar a cota BYOK do dono todo dia via cron). O cron
+      // (Admin SDK, api/cron-check-watches.ts) escreve `lastPrice`/
+      // `lastCheckedAt`/etc ignorando esta regra — ela só governa escrita
+      // DIRETA do client. `maxWatches` por plano (config/plans.ts) é
+      // checado em `startWatching` (src/lib/watchlist.ts) antes de criar
+      // — como `dailySearchLimit`, é um teto do lado do app, não travado
+      // aqui na regra (contar documentos de uma subcoleção em rules
+      // exigiria manter um contador à parte; não vale a complexidade
+      // agora — o teto existe pra guiar uso normal, não como defesa
+      // contra alguém escrevendo direto no Firestore por fora do app).
+      match /watches/{watchId} {
+        allow read: if isOwner(userId);
+        allow create, update, delete: if isOwner(userId) && isVerified();
+      }
+
+      // Alertas gerados pela checagem de monitoramento (out/2026, ver
+      // api/check-watch.ts e api/cron-check-watches.ts). SÓ o servidor
+      // cria (Admin SDK) — um alerta é "o sistema constatou algo", não
+      // dado que o usuário digita, então create fica de fora da regra de
+      // propósito (cliente nunca grava um alerta fabricado). Dono só pode
+      // mexer no campo `read` (mesmo padrão `hasOnly`/`affectedKeys` já
+      // usado em `users/{userId}` pra travar quais campos um update pode
+      // tocar) — marcar como lido ao abrir o sino de notificação
+      // (TopNav.tsx), nunca reescrever o conteúdo do alerta.
+      match /watch_alerts/{alertId} {
+        allow read: if isOwner(userId);
+        allow update: if isOwner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+        allow create, delete: if false;
+      }
     }
 
     // Índice `imageId -> { uid, expiresAt }` da foto de catálogo

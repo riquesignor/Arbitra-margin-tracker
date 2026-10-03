@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Boxes,
@@ -13,10 +13,11 @@ import {
   ArrowDown,
   ArrowUpDown,
 } from "lucide-react";
-import type { Recommendation } from "../types";
+import type { MarketplaceId, PlanId, Recommendation } from "../types";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { buildPortfolio, type PortfolioItem } from "../lib/portfolio";
 import { brl, displayProductName, pct } from "../lib/format";
+import { checkWatchNow, listWatches, stopWatching, watchId, type WatchItem } from "../lib/watchlist";
 import {
   ProductThumb,
   CompetitionBadge,
@@ -24,11 +25,14 @@ import {
   BADGE_LABEL,
   MARKETPLACE_LABEL,
 } from "./ResultsTable";
+import WatchToggle from "./WatchToggle";
 import styles from "./Portfolio.module.css";
 
 interface Props {
   history: CatalogUploadRecord[];
   onNavigateToDashboard: () => void;
+  userId?: string | null;
+  planId?: PlanId | null;
 }
 
 const PAGE_SIZE = 50;
@@ -137,9 +141,112 @@ function TrendTag({ item }: { item: PortfolioItem }) {
   );
 }
 
-export default function Portfolio({ history, onNavigateToDashboard }: Props) {
+/**
+ * Painel "Monitorados" (Fase A — out/2026, ver docs/design-critique-log.md
+ * e src/lib/watchlist.ts): lista os watches ativos com o botão "checar
+ * agora" (api/check-watch.ts) — é como valido o fluxo inteiro (reler
+ * preço, comparar, gravar alerta) com um clique de verdade, ANTES de
+ * automatizar via cron (Fase B). Fica no topo de Meus produtos, antes da
+ * tabela normal, e some sozinho se não há nenhum watch (sem seção vazia
+ * ocupando espaço — mesmo raciocínio do "Como funciona" só aparecer pra
+ * quem não tem catálogo, Session 4 do log).
+ */
+function WatchPanel({
+  userId,
+  watches,
+  onRefresh,
+}: {
+  userId: string | null;
+  watches: WatchItem[];
+  onRefresh: () => void;
+}) {
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [errorById, setErrorById] = useState<Record<string, string>>({});
+
+  if (watches.length === 0) return null;
+
+  async function handleCheck(w: WatchItem) {
+    setCheckingId(w.id);
+    setErrorById((prev) => {
+      const next = { ...prev };
+      delete next[w.id];
+      return next;
+    });
+    try {
+      await checkWatchNow(w.sku, w.marketplace);
+      onRefresh();
+    } catch (err) {
+      setErrorById((prev) => ({ ...prev, [w.id]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setCheckingId(null);
+    }
+  }
+
+  async function handleStop(w: WatchItem) {
+    if (!userId) return;
+    await stopWatching(userId, w.sku, w.marketplace);
+    onRefresh();
+  }
+
+  return (
+    <section className={styles.watchPanel}>
+      <div className={styles.watchPanelHeader}>
+        <h2 className={styles.watchPanelTitle}>Monitorados</h2>
+        <span className={styles.countHint}>{watches.length} produto(s)</span>
+      </div>
+      <div className={styles.watchList}>
+        {watches.map((w) => (
+          <div key={w.id} className={styles.watchRow}>
+            <div className={styles.watchRowMain}>
+              <span className={styles.watchRowName} title={w.name}>
+                {displayProductName(w.name)}
+              </span>
+              <span className={styles.watchRowMeta}>
+                {MARKETPLACE_LABEL[w.marketplace]} · {brl(w.lastPrice)}
+                {w.lastStatus === "esgotado" && " · esgotado"}
+                {w.lastMarginPct != null && ` · ${pct(w.lastMarginPct)} aprox.`}
+              </span>
+              <span className={styles.watchRowWhen}>
+                última checagem: {new Date(w.lastCheckedAt).toLocaleString("pt-BR")}
+              </span>
+              {errorById[w.id] && <span className={styles.watchRowError}>{errorById[w.id]}</span>}
+            </div>
+            <div className={styles.watchRowActions}>
+              <button
+                type="button"
+                className={styles.filterButton}
+                onClick={() => void handleCheck(w)}
+                disabled={checkingId === w.id}
+              >
+                {checkingId === w.id ? "Checando…" : "Checar agora"}
+              </button>
+              <button type="button" className={styles.watchRowStop} onClick={() => void handleStop(w)}>
+                Parar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export default function Portfolio({ history, onNavigateToDashboard, userId = null, planId = null }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("todos");
+  const [watches, setWatches] = useState<WatchItem[]>([]);
+  const reloadWatches = () => listWatches(userId).then(setWatches);
+  useEffect(() => {
+    void reloadWatches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+  const watchedKeys = useMemo(() => new Set(watches.map((w) => w.id)), [watches]);
+  // WatchToggle só manda sku/marketplace/watching — mais simples recarregar
+  // a lista inteira (teto de maxWatches, no máximo 200 docs) do que tentar
+  // reconstruir o WatchItem completo (com lastPrice/lastStatus/etc) aqui.
+  function handleWatchChange(_sku: string, _marketplace: MarketplaceId, _watching: boolean) {
+    void reloadWatches();
+  }
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [page, setPage] = useState(0);
@@ -196,6 +303,8 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
           </p>
         </div>
       </div>
+
+      <WatchPanel userId={userId} watches={watches} onRefresh={() => void reloadWatches()} />
 
       {portfolio.length === 0 ? (
         <div className={styles.empty}>
@@ -323,6 +432,14 @@ export default function Portfolio({ history, onNavigateToDashboard }: Props) {
                           <CompetitionBadge
                             competitorCount={item.competitorCount}
                             buyBoxEligible={item.buyBoxEligible}
+                          />
+                          <WatchToggle
+                            userId={userId}
+                            planId={planId}
+                            provider={item.provider}
+                            item={item}
+                            watching={watchedKeys.has(watchId(item.sku, item.marketplace))}
+                            onChange={handleWatchChange}
                           />
                         </td>
                         <td className={styles.whenCell}>{formatWhen(item.lastSearchedAt)}</td>

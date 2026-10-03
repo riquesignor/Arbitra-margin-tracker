@@ -7,6 +7,7 @@ import type {
   MarketplacePriceResult,
   PricingRules,
   Screen,
+  SearchProviderId,
 } from "./types";
 import { subscribeToAuth, type AuthUser } from "./lib/auth";
 import { ensureUserProfile, type UserProfile } from "./lib/userProfile";
@@ -105,6 +106,15 @@ export default function App() {
   >({});
   const [results, setResults] = useState<MarginResult[]>([]);
   const [source, setSource] = useState<"server" | "local" | null>(null);
+  /**
+   * Mecanismo da busca atualmente em tela (out/2026, ver monitoramento
+   * contínuo — src/lib/watchlist.ts e ResultsTable.tsx > botão de
+   * monitorar). `null` quando ambíguo — 2+ catálogos combinados
+   * (handleSelectHistoryMultiple) podem ter usado providers diferentes
+   * cada um, então não existe UM provider certo pra essas linhas; o
+   * botão de monitorar some nesse caso.
+   */
+  const [searchProvider, setSearchProvider] = useState<SearchProviderId | null>(null);
 
   // Histórico completo do usuário (não só o mais recente, ver efeito de
   // restauro abaixo) — alimenta o seletor "qual busca ver" em
@@ -231,6 +241,7 @@ export default function App() {
           // logo no login já bate com a Precificação salva mais recente.
           setResults(recalcMarginsForPriceMap(latest.rows, latest.pricesByMarket, rules));
           setSource(latest.source);
+          setSearchProvider(latest.provider ?? null);
           setActiveHistoryId(latest.id);
           setSelectedHistoryIds([latest.id]);
         }
@@ -244,6 +255,7 @@ export default function App() {
     setPricesByMarket(data.pricesByMarket);
     setResults(data.results);
     setSource(data.source);
+    setSearchProvider(data.provider);
     setActiveHistoryId(null);
     setSelectedHistoryIds([]);
     // `data.results` acabou de sair do Dashboard já calculado com
@@ -270,6 +282,7 @@ export default function App() {
     setPricesByMarket(data.pricesByMarket);
     setResults(data.results);
     setSource(data.source);
+    setSearchProvider(data.provider);
     // Ver mesmo comentário em handleDashboardComplete.
     setAppliedPricingRules(pricingRules);
   }
@@ -302,6 +315,7 @@ export default function App() {
     // "Sincronizar" logo depois de simplesmente trocar de catálogo.
     setResults(recalcMarginsForPriceMap(record.rows, record.pricesByMarket, pricingRules));
     setSource(record.source);
+    setSearchProvider(record.provider ?? null);
     setAppliedPricingRules(pricingRules);
   }
 
@@ -357,6 +371,9 @@ export default function App() {
     setCatalogRows(combinedRows);
     setResults(combinedResults);
     setSource(combinedSource);
+    // Ambíguo por natureza (ver comentário no state `searchProvider`
+    // acima) — 2+ catálogos podem ter usado providers diferentes.
+    setSearchProvider(null);
     setAppliedPricingRules(pricingRules);
     // `pricesByMarket` fica como está — só Precificação (PricingConfig)
     // consome esse mapa, e aquela tela continua usando o single-select
@@ -454,6 +471,7 @@ export default function App() {
         }
         isAdmin={profile?.isAdmin ?? false}
         userEmail={user?.email}
+        userId={user?.uid ?? null}
       />
       <main className="app-shell__main">
         <AnimatePresence mode="wait">
@@ -527,10 +545,18 @@ export default function App() {
                 isPricingDirty={isPricingDirty}
                 onSyncPricing={handleSyncPricing}
                 initialFilter={resultsInitialFilter}
+                userId={user?.uid ?? null}
+                planId={profile?.plan}
+                searchProvider={searchProvider}
               />
             )}
             {screen === "portfolio" && (
-              <Portfolio history={history} onNavigateToDashboard={() => setScreen("dashboard")} />
+              <Portfolio
+                history={history}
+                onNavigateToDashboard={() => setScreen("dashboard")}
+                userId={user?.uid ?? null}
+                planId={profile?.plan}
+              />
             )}
             {screen === "suppliers" && (
               <SupplierCompare history={history} onNavigateToDashboard={() => setScreen("dashboard")} />

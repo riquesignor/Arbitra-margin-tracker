@@ -1,0 +1,43 @@
+.idle,
+.active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  margin-left: var(--space-2);
+  flex-shrink: 0;
+}
+
+.idle:hover {
+  color: var(--color-text);
+  background: var(--color-bg-elevated-2);
+}
+
+.idle:disabled,
+.active:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.active {
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+}
+
+.disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: var(--space-2);
+  color: var(--color-text-dim);
+  opacity: 0.35;
+  flex-shrink: 0;
+}

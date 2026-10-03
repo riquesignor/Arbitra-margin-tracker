@@ -14,10 +14,19 @@ import {
   ChevronDown,
   Settings as SettingsIcon,
   HelpCircle,
+  Bell,
 } from "lucide-react";
 import type { Screen } from "../types";
 import type { Theme } from "../lib/theme";
+import { listUnreadAlerts, markAlertRead, type WatchAlert } from "../lib/watchlist";
 import styles from "./TopNav.module.css";
+
+const ALERT_KIND_LABEL: Record<WatchAlert["kind"], string> = {
+  price_down: "preço caiu",
+  price_up: "preço subiu",
+  out_of_stock: "esgotou",
+  back_in_stock: "voltou ao estoque",
+};
 
 interface Props {
   active: Screen;
@@ -28,6 +37,8 @@ interface Props {
   isAdmin?: boolean;
   /** Email do usuário logado — vira o nome exibido no bloco de conta (ver `accountLabel` abaixo). Sem login: mostra "convidado". */
   userEmail?: string | null;
+  /** Sino de alertas de monitoramento (ver src/lib/watchlist.ts) — `null`/ausente sem login. */
+  userId?: string | null;
 }
 
 const NAV_ITEMS: { screen: Screen; icon: typeof LayoutDashboard; label: string }[] = [
@@ -75,9 +86,24 @@ export default function TopNav({
   onToggleTheme,
   isAdmin,
   userEmail,
+  userId = null,
 }: Props) {
   const name = accountLabel(userEmail);
   const online = useOnlineStatus();
+  const [alerts, setAlerts] = useState<WatchAlert[]>([]);
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  useEffect(() => {
+    void listUnreadAlerts(userId).then(setAlerts);
+    // Recarrega a cada troca de tela — jeito barato de refletir um alerta
+    // novo (ex.: acabou de clicar "checar agora" em Meus produtos) sem
+    // precisar de polling nem de um canal de evento entre telas.
+  }, [userId, active]);
+
+  async function handleOpenAlert(alert: WatchAlert) {
+    if (!userId) return;
+    setAlerts((prev) => prev.filter((a) => a.id !== alert.id));
+    await markAlertRead(userId, alert.id);
+  }
 
   return (
     <header className={styles.topnav}>
@@ -141,6 +167,48 @@ export default function TopNav({
         >
           <HelpCircle size={15} strokeWidth={2} />
         </button>
+
+        {userId && (
+          <span className={styles.alertWrap}>
+            <button
+              type="button"
+              className={alerts.length > 0 ? styles.iconButtonActive : styles.iconButton}
+              onClick={() => setAlertsOpen((v) => !v)}
+              aria-label="Alertas de monitoramento"
+              title={alerts.length > 0 ? `${alerts.length} alerta(s) não lido(s)` : "Nenhum alerta novo"}
+            >
+              <Bell size={15} strokeWidth={2} />
+              {alerts.length > 0 && <span className={styles.alertDot}>{alerts.length}</span>}
+            </button>
+            {alertsOpen && (
+              <>
+                <div className={styles.alertBackdrop} onClick={() => setAlertsOpen(false)} />
+                <div className={styles.alertPanel}>
+                  {alerts.length === 0 ? (
+                    <p className={styles.alertEmpty}>Nenhum alerta novo — produtos monitorados sem mudança.</p>
+                  ) : (
+                    alerts.map((alert) => (
+                      <button
+                        key={alert.id}
+                        type="button"
+                        className={styles.alertItem}
+                        onClick={() => void handleOpenAlert(alert)}
+                      >
+                        <span className={styles.alertItemKind}>{ALERT_KIND_LABEL[alert.kind]}</span>
+                        <span className={styles.alertItemName}>{alert.name}</span>
+                        {alert.oldPrice != null && alert.newPrice != null && (
+                          <span className={styles.alertItemPrice}>
+                            R$ {alert.oldPrice.toFixed(2)} → R$ {alert.newPrice.toFixed(2)}
+                          </span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </span>
+        )}
 
         <span
           className={styles.statusRow}

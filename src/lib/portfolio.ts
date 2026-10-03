@@ -1,4 +1,4 @@
-import type { MarginResult, MarketplaceId, Recommendation } from "../types";
+import type { MarginResult, MarketplaceId, Recommendation, SearchProviderId } from "../types";
 import type { CatalogUploadRecord } from "./catalogHistory";
 import { safeExternalUrl } from "./safeExternalUrl";
 
@@ -41,6 +41,8 @@ export interface PortfolioItem {
   trend: PriceTrend;
   previousMarketplacePrice?: number;
   previousSearchedAt?: number;
+  /** Provider da busca mais recente (out/2026, ver monitoramento — watchlist.ts) — ausente em registro salvo antes desse campo existir. */
+  provider?: SearchProviderId;
 }
 
 /**
@@ -52,7 +54,10 @@ export interface PortfolioItem {
 export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] {
   const sortedHistory = [...history].sort((a, b) => b.uploadedAt - a.uploadedAt);
 
-  const occurrencesBySku = new Map<string, { result: MarginResult; uploadedAt: number }[]>();
+  const occurrencesBySku = new Map<
+    string,
+    { result: MarginResult; uploadedAt: number; provider?: SearchProviderId }[]
+  >();
 
   for (const upload of sortedHistory) {
     // Uma mesma busca pode ter mais de uma oferta pro mesmo SKU (vários
@@ -71,7 +76,7 @@ export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] 
 
     for (const [sku, result] of bestPerSkuThisUpload) {
       const list = occurrencesBySku.get(sku) ?? [];
-      list.push({ result, uploadedAt: upload.uploadedAt });
+      list.push({ result, uploadedAt: upload.uploadedAt, provider: upload.provider });
       occurrencesBySku.set(sku, list);
     }
   }
@@ -112,6 +117,7 @@ export function buildPortfolio(history: CatalogUploadRecord[]): PortfolioItem[] 
       trend,
       previousMarketplacePrice: previous?.result.marketplacePrice,
       previousSearchedAt: previous?.uploadedAt,
+      provider: latest.provider,
     });
   }
 

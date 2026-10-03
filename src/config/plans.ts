@@ -14,6 +14,15 @@ export interface PlanDefinition {
    * design-tokens.md § Regras de tela adicionadas).
    */
   dailySearchLimit: number;
+  /**
+   * Quantos produtos o plano pode ter em monitoramento contínuo ao mesmo
+   * tempo (out/2026, ver src/lib/watchlist.ts). Este SIM é enforcement de
+   * verdade (checado em startWatching e de novo no cron) — diferente de
+   * `dailySearchLimit`: cada watch ativo gasta a cota BYOK do dono todo
+   * dia sozinho, sem o usuário pedir, então o teto existe pra isso não
+   * crescer sem controle, não só como referência visual.
+   */
+  maxWatches: number;
 }
 
 export const DEFAULT_PLAN_ID: PlanId = "free";
@@ -38,6 +47,7 @@ export const PLANS: PlanDefinition[] = [
     priceLabel: "Grátis",
     description: "Acesso a uma seleção básica da biblioteca de catálogos.",
     dailySearchLimit: 50,
+    maxWatches: 10,
   },
   {
     id: "starter",
@@ -45,6 +55,7 @@ export const PLANS: PlanDefinition[] = [
     priceLabel: "Sob consulta",
     description: "Mais catálogos liberados e um teto diário de busca maior.",
     dailySearchLimit: 200,
+    maxWatches: 50,
   },
   {
     id: "pro",
@@ -52,6 +63,7 @@ export const PLANS: PlanDefinition[] = [
     priceLabel: "Sob consulta",
     description: "Biblioteca completa e o maior teto diário de busca.",
     dailySearchLimit: 500,
+    maxWatches: 200,
   },
 ];
 

@@ -571,6 +571,8 @@ export interface DashboardResult {
   pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>;
   results: MarginResult[];
   source: "server" | "local";
+  /** Mecanismo usado nesta busca (out/2026, ver monitoramento — src/lib/watchlist.ts). */
+  provider: SearchProviderId;
 }
 
 interface Props {
@@ -1126,6 +1128,10 @@ export default function Dashboard({
       pricesByMarket: record.pricesByMarket,
       results: record.results,
       source: record.source,
+      // Registro antigo sem `provider` salvo: cai no provider ATUAL do
+      // seletor — aproximação razoável (mesma lacuna existia implícita
+      // antes desta mudança), nunca undefined.
+      provider: record.provider ?? searchProvider,
     });
   }
 
@@ -1562,6 +1568,7 @@ export default function Dashboard({
             pricesByMarket,
             results: resultsSoFar,
             source: allFromServer ? "server" : "local",
+            provider: searchProvider,
           });
         }
       }
@@ -1630,7 +1637,7 @@ export default function Dashboard({
 
     const source = allFromServer ? "server" : "local";
     setState("idle");
-    onComplete({ rows: rowsWithImages, pricesByMarket, results: allResults, source });
+    onComplete({ rows: rowsWithImages, pricesByMarket, results: allResults, source, provider: searchProvider });
 
     // O incremento client-side (`addTodayUsage(userId, searchCost)`) foi
     // REMOVIDO aqui (set/2026, ver api/_lib/searchQuota.ts): quem conta a
@@ -1651,6 +1658,7 @@ export default function Dashboard({
       pricesByMarket,
       results: allResults,
       source,
+      provider: searchProvider,
     }).then(() => {
       if (userId) listCatalogUploads(userId).then(setUploadHistory);
       onHistoryChanged?.();

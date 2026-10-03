@@ -1,4 +1,4 @@
-import type { CatalogRow, MarginResult, MarketplaceId, MarketplacePriceResult } from "../types";
+import type { CatalogRow, MarginResult, MarketplaceId, MarketplacePriceResult, SearchProviderId } from "../types";
 import type { PageRange } from "./parsePdfCatalog";
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 
@@ -24,6 +24,14 @@ export interface CatalogUploadRecord {
   pricesByMarket: Partial<Record<MarketplaceId, Record<string, MarketplacePriceResult>>>;
   results: MarginResult[];
   source: "server" | "local";
+  /**
+   * Mecanismo de busca usado nesta busca (out/2026, ver monitoramento
+   * contínuo — src/lib/watchlist.ts). Opcional porque registro salvo
+   * ANTES desta mudança não tem o campo — nesse caso o botão "monitorar"
+   * fica desabilitado pra linhas desse catálogo (não dá pra saber com
+   * qual provider rechecar depois).
+   */
+  provider?: SearchProviderId;
 }
 
 /** SHA-256 do conteúdo do arquivo — usado como chave pra "já processei isso antes?". */

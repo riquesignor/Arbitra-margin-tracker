@@ -26,11 +26,13 @@ import {
   X,
   RefreshCw,
 } from "lucide-react";
-import type { MarginResult, MarketplaceId, Recommendation } from "../types";
+import type { MarginResult, MarketplaceId, PlanId, Recommendation, SearchProviderId } from "../types";
 import { median } from "../lib/marginCalculator";
 import { brl, displayProductName, pct } from "../lib/format";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
+import { listWatches, watchId } from "../lib/watchlist";
 import MarginBar from "./MarginBar";
+import WatchToggle from "./WatchToggle";
 import styles from "./ResultsTable.module.css";
 
 interface Props {
@@ -66,6 +68,11 @@ interface Props {
   onSyncPricing?: () => void;
   /** Filtro de status já aplicado ao abrir a tela — ex.: "evitar" vindo do card "Impacto no catálogo" de Precificação. */
   initialFilter?: FilterOption;
+  /** Monitoramento contínuo (out/2026, ver WatchToggle.tsx) — `null` sem login. */
+  userId?: string | null;
+  planId?: PlanId | null;
+  /** Provider desta busca — `null`/ausente desabilita o sino (ver comentário em App.tsx > searchProvider). */
+  searchProvider?: SearchProviderId | null;
 }
 
 /** Pequena legenda "de qual catálogo veio" — só aparece na visão combinada (2+ catálogos do histórico marcados, ver HistoryMultiSelect). */
@@ -623,9 +630,29 @@ export default function ResultsTable({
   isPricingDirty = false,
   onSyncPricing,
   initialFilter = "todos",
+  userId = null,
+  planId = null,
+  searchProvider = null,
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterOption>(initialFilter);
+  // Monitoramento contínuo (ver WatchToggle.tsx) — um `listWatches` por
+  // montagem da tela, não por linha (seriam 50-200 leituras à toa).
+  // Chave do Set é a mesma `watchId` usada pelo Firestore, então o
+  // lookup por linha é O(1).
+  const [watchedKeys, setWatchedKeys] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    void listWatches(userId).then((watches) => setWatchedKeys(new Set(watches.map((w) => w.id))));
+  }, [userId]);
+  function handleWatchChange(sku: string, marketplace: MarketplaceId, watching: boolean) {
+    setWatchedKeys((prev) => {
+      const next = new Set(prev);
+      const key = watchId(sku, marketplace);
+      if (watching) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
   const [sortKey, setSortKey] = useState<SortKey>("marginPct");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
@@ -1056,6 +1083,14 @@ export default function ResultsTable({
                         reviewCount={r.reviewCount}
                         rating={r.rating}
                         marketplace={r.marketplace}
+                      />
+                      <WatchToggle
+                        userId={userId}
+                        planId={planId}
+                        provider={searchProvider}
+                        item={r}
+                        watching={watchedKeys.has(watchId(r.sku, r.marketplace))}
+                        onChange={handleWatchChange}
                       />
                     </td>
                   </motion.tr>
