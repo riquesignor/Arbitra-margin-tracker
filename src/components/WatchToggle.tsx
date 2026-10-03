@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bell, BellRing, Loader2 } from "lucide-react";
+import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
 import type { MarginResult, MarketplaceId, PlanId, SearchProviderId } from "../types";
 import { startWatching, stopWatching } from "../lib/watchlist";
 import styles from "./WatchToggle.module.css";
@@ -39,7 +39,7 @@ export default function WatchToggle({ userId, planId, watching, item, provider, 
         className={styles.disabled}
         title="Monitoramento indisponível pra catálogos combinados, ou buscas salvas antes desse recurso existir — reprocesse o catálogo pra habilitar."
       >
-        <Bell size={13} />
+        <BellOff size={13} />
       </span>
     );
   }

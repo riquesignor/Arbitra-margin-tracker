@@ -38,6 +38,6 @@
   height: 24px;
   margin-left: var(--space-2);
   color: var(--color-text-dim);
-  opacity: 0.35;
+  opacity: 0.5;
   flex-shrink: 0;
 }
