@@ -1303,6 +1303,14 @@ export default function ResultsTable({
                             rating={best.rating}
                             marketplace={best.marketplace}
                           />
+                          <WatchToggle
+                            userId={userId}
+                            planId={planId}
+                            provider={searchProvider}
+                            item={best}
+                            watching={watchedKeys.has(watchId(best.sku, best.marketplace))}
+                            onChange={handleWatchChange}
+                          />
                         </td>
                       </motion.tr>
                       {isExpanded &&
