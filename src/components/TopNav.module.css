@@ -201,6 +201,19 @@
   text-overflow: ellipsis;
 }
 
+/* 7 itens de navegação (out/2026, entrou "Assistente") não cabem com
+   rótulo num notebook de 1366px — abaixo disso os itens inativos viram
+   só ícone (nome no tooltip/aria-label), o ativo mantém o rótulo. */
+@media (max-width: 1480px) {
+  .navItem .navLabel {
+    display: none;
+  }
+
+  .navItemActive .navLabel {
+    display: inline;
+  }
+}
+
 @media (max-width: 900px) {
   .accountName {
     display: none;

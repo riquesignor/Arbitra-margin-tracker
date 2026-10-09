@@ -25,12 +25,15 @@ import {
   Star,
   X,
   RefreshCw,
+  Printer,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, PlanId, Recommendation, SearchProviderId } from "../types";
 import { median } from "../lib/marginCalculator";
 import { brl, displayProductName, pct } from "../lib/format";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { listWatches, watchId } from "../lib/watchlist";
+import { openPrintableReport } from "../lib/printReport";
+import { getPlan } from "../config/plans";
 import MarginBar from "./MarginBar";
 import WatchToggle from "./WatchToggle";
 import styles from "./ResultsTable.module.css";
@@ -836,6 +839,24 @@ export default function ResultsTable({
     URL.revokeObjectURL(url);
   }
 
+  const canPrintReport = getPlan(planId).features.printableReport;
+  const [printBlocked, setPrintBlocked] = useState(false);
+  function handlePrintReport() {
+    const margins = filtered.map((r) => r.marginPct).filter((v): v is number => v != null);
+    const opened = openPrintableReport(
+      filtered,
+      {
+        total: filtered.length,
+        recommended: filtered.filter((r) => r.recommendation === "recomendado").length,
+        toAvoid: filtered.filter((r) => r.recommendation === "evitar").length,
+        medianMarginPct: margins.length > 0 ? median(margins) : null,
+        targetMarginPct,
+      },
+      { marketplace: (r) => MARKETPLACE_LABEL[r.marketplace], status: (r) => BADGE_LABEL[r.recommendation] }
+    );
+    setPrintBlocked(!opened);
+  }
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -969,6 +990,16 @@ export default function ResultsTable({
           {filtered.length > 0 && (
             <button className={styles.exportButton} type="button" onClick={handleExportCsv}>
               <Download size={13} /> Exportar CSV
+            </button>
+          )}
+          {filtered.length > 0 && canPrintReport && (
+            <button
+              className={styles.exportButton}
+              type="button"
+              onClick={handlePrintReport}
+              title={printBlocked ? "O navegador bloqueou a janela do relatório — libere pop-ups pra este site." : "Abre o relatório pronto pra imprimir ou salvar como PDF"}
+            >
+              <Printer size={13} /> {printBlocked ? "Libere pop-ups" : "Relatório / PDF"}
             </button>
           )}
         </div>

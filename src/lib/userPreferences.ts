@@ -39,6 +39,10 @@ export interface UserPreferences {
   reuseRecentResult: boolean;
   notifyOnSearchComplete: boolean;
   retainHistory90Days: boolean;
+
+  // --- Monitoramento (out/2026) ---
+  /** Checagem diária automática dos produtos monitorados (plano Pro). Lido também pelo servidor — api/cron-check-watches.ts. */
+  autoCheckWatches: boolean;
 }
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -61,6 +65,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   reuseRecentResult: true,
   notifyOnSearchComplete: false,
   retainHistory90Days: true,
+
+  autoCheckWatches: false,
 };
 
 const STORAGE_KEY = "arbitra:preferences";

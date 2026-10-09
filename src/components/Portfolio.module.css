@@ -498,6 +498,24 @@
   gap: var(--space-3);
 }
 
+.autoCheck,
+.autoCheckHint {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.autoCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.autoCheckHint {
+  color: var(--color-text-dim);
+}
+
 .watchPanelTitle {
   font-size: 1rem;
   font-weight: 600;

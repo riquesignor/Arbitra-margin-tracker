@@ -32,7 +32,8 @@ o e-mail de contato pra assuntos de privacidade]`.
 | Contador de buscas do dia | `users/{uid}/usage_daily` | Mostrar e (conforme o plano) aplicar o teto diário de uso | Execução de contrato / legítimo interesse (prevenção a abuso) |
 | Preferência de tema/aparência | `users/{uid}/preferences` | Lembrar a preferência de exibição do usuário | Legítimo interesse |
 | `[PREENCHER, se aplicável]` Dado de pagamento (não o número do cartão em si — isso fica com o processador de pagamento) | Processador de pagamento (ex.: Mercado Pago) | Cobrança recorrente do plano pago | Execução de contrato |
-| Produtos marcados pra monitorar e alertas de mudança de preço (out/2026) | `users/{uid}/watches`, `users/{uid}/watch_alerts` | Avisar o usuário quando o preço de um produto monitorado mudar ou ficar indisponível, quando ele pedir uma checagem manual | Execução de contrato |
+| Produtos marcados pra monitorar e alertas de mudança de preço (out/2026) | `users/{uid}/watches`, `users/{uid}/watch_alerts` | Avisar o usuário quando o preço de um produto monitorado mudar ou ficar indisponível — por checagem manual ou, se o usuário ligar a opção (plano Pro), automática diária | Execução de contrato |
+| Foto e conversa do Assistente de produto (out/2026) | **Não armazenadas** — enviadas só no momento da pergunta ao Google Gemini (chave do próprio usuário) e ao mecanismo de busca escolhido | Identificar o produto, buscar preço e responder a pergunta do usuário | Execução de contrato |
 
 Não coletamos dado sensível (LGPD art. 5º, II) de propósito — se o catálogo
 enviado pelo usuário contiver, incidentalmente, esse tipo de informação, o

@@ -3,7 +3,7 @@ import type { MarketplaceId } from "./_lib/types.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
 import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
-import { checkWatch, watchId, buildAlertDoc, type WatchDoc } from "./_lib/watchCheck.js";
+import { checkAndPersistWatch, watchId, type WatchDoc } from "./_lib/watchCheck.js";
 import { FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 
 const VALID_MARKETPLACES: MarketplaceId[] = ["amazon", "shopee", "mercadolivre", "geral"];
@@ -89,19 +89,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   }
 
   try {
-    const outcome = await checkWatch(uid, watch);
-
-    const updates: Partial<WatchDoc> = outcome.found
-      ? { lastPrice: outcome.newPrice!, lastMarginPct: outcome.newMarginPct, lastStatus: "disponivel", lastCheckedAt: Date.now() }
-      : { lastStatus: "esgotado", lastCheckedAt: Date.now() };
-    await ref.set(updates, { merge: true });
-
-    let alertId: string | null = null;
-    if (outcome.alertKind) {
-      const alertRef = db.collection("users").doc(uid).collection("watch_alerts").doc();
-      await alertRef.set(buildAlertDoc(ref.id, watch, outcome));
-      alertId = alertRef.id;
-    }
+    const { outcome, alertId } = await checkAndPersistWatch(db, uid, ref, watch);
 
     res.status(200).json({
       checked: true,

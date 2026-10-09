@@ -28,6 +28,8 @@ import Dashboard, { type DashboardResult } from "./components/Dashboard";
 import PricingConfig from "./components/PricingConfig";
 import ResultsTable, { type FilterOption } from "./components/ResultsTable";
 import Portfolio from "./components/Portfolio";
+import ProductAssistant from "./components/ProductAssistant";
+import { getPlan } from "./config/plans";
 import SupplierCompare from "./components/SupplierCompare";
 import Account from "./components/Account";
 import Settings, { type Section as SettingsSection } from "./components/Settings";
@@ -250,6 +252,21 @@ export default function App() {
   }, [user]);
 
   function handleDashboardComplete(data: DashboardResult) {
+    // Conta → "Me avisar quando a busca terminar" (out/2026 — antes o
+    // toggle existia mas não fazia nada). Só notifica com a aba em segundo
+    // plano: com o app na frente, a própria tela de Resultados já avisa.
+    if (
+      preferences.notifyOnSearchComplete &&
+      document.hidden &&
+      "Notification" in window &&
+      Notification.permission === "granted"
+    ) {
+      const priced = data.results.length;
+      new Notification("Arbitra — busca concluída", {
+        body: `${priced} produto(s) com preço encontrado. Clique pra ver os resultados.`,
+        icon: "/favicon.svg",
+      }).onclick = () => window.focus();
+    }
     skipRestoreRef.current = true;
     setCatalogRows(data.rows);
     setPricesByMarket(data.pricesByMarket);
@@ -287,10 +304,20 @@ export default function App() {
     setAppliedPricingRules(pricingRules);
   }
 
+  // Plano pago carrega histórico maior (out/2026, `features.historyLimit`
+  // em config/plans.ts). Efeito separado do restauro acima de propósito:
+  // o perfil chega depois do histórico inicial, e o restauro não deve
+  // rodar de novo só porque a lista cresceu.
+  const historyLimit = getPlan(profile?.plan).features.historyLimit;
+  useEffect(() => {
+    if (!user || historyLimit <= 50) return;
+    void listCatalogUploads(user.uid, historyLimit).then(setHistory);
+  }, [user, historyLimit]);
+
   /** Recarrega o histórico global após uma nova busca ser salva (Dashboard.tsx). */
   function handleHistoryChanged() {
     if (!user) return;
-    listCatalogUploads(user.uid).then(setHistory);
+    void listCatalogUploads(user.uid, historyLimit).then(setHistory);
   }
 
   /** Poda um registro excluído (Dashboard.tsx) da lista global — mesma exclusão usada no seletor de Precificação/Resultados. */
@@ -556,7 +583,12 @@ export default function App() {
                 onNavigateToDashboard={() => setScreen("dashboard")}
                 userId={user?.uid ?? null}
                 planId={profile?.plan}
+                autoCheckWatches={preferences.autoCheckWatches}
+                onToggleAutoCheckWatches={(next) => updatePreferences({ autoCheckWatches: next })}
               />
+            )}
+            {screen === "assistant" && (
+              <ProductAssistant planId={profile?.plan} onOpenAccount={() => setScreen("account")} />
             )}
             {screen === "suppliers" && (
               <SupplierCompare history={history} onNavigateToDashboard={() => setScreen("dashboard")} />

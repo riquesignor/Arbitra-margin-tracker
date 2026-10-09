@@ -107,6 +107,7 @@ export type Screen =
   | "pricing"
   | "results"
   | "portfolio"
+  | "assistant"
   | "suppliers"
   | "account"
   | "settings"

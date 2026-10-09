@@ -15,6 +15,7 @@ import {
   Settings as SettingsIcon,
   HelpCircle,
   Bell,
+  Sparkles,
 } from "lucide-react";
 import type { Screen } from "../types";
 import type { Theme } from "../lib/theme";
@@ -52,6 +53,7 @@ const NAV_ITEMS: { screen: Screen; icon: typeof LayoutDashboard; label: string }
   { screen: "pricing", icon: SlidersHorizontal, label: "Precificação" },
   { screen: "results", icon: BarChart3, label: "Resultados" },
   { screen: "portfolio", icon: PackageSearch, label: "Meus produtos" },
+  { screen: "assistant", icon: Sparkles, label: "Assistente" },
   { screen: "suppliers", icon: Truck, label: "Fornecedores" },
 ];
 
@@ -124,11 +126,13 @@ export default function TopNav({
               type="button"
               className={isActive ? styles.navItemActive : styles.navItem}
               onClick={() => onChange(item.screen)}
+              title={item.label}
+              aria-label={item.label}
             >
               <span className={styles.navIcon}>
                 <Icon size={16} strokeWidth={2} />
               </span>
-              {item.label}
+              <span className={styles.navLabel}>{item.label}</span>
               {item.screen === "results" && !!resultsCount && (
                 <span className={styles.badge}>{resultsCount}</span>
               )}

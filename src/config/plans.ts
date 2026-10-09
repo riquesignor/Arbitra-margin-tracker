@@ -23,6 +23,23 @@ export interface PlanDefinition {
    * crescer sem controle, não só como referência visual.
    */
   maxWatches: number;
+  /**
+   * Recursos de plano pago (out/2026) — um lugar só pra decidir quem tem
+   * o quê. `api/_lib/planFeatures.ts` espelha estes valores no servidor
+   * (tsconfig.api.json não enxerga src/) — MANTER EM SINCRONIA.
+   */
+  features: PlanFeatures;
+}
+
+export interface PlanFeatures {
+  /** Tela "Assistente": foto de um produto → preço de mercado + preço sugerido + conversa com IA. */
+  productAssistant: boolean;
+  /** Checagem diária automática dos produtos monitorados (cron), opt-in em Configurações. */
+  autoWatchCheck: boolean;
+  /** Relatório imprimível/PDF dos resultados. */
+  printableReport: boolean;
+  /** Quantos registros de busca a lista de histórico carrega. */
+  historyLimit: number;
 }
 
 export const DEFAULT_PLAN_ID: PlanId = "free";
@@ -48,6 +65,7 @@ export const PLANS: PlanDefinition[] = [
     description: "Acesso a uma seleção básica da biblioteca de catálogos.",
     dailySearchLimit: 50,
     maxWatches: 10,
+    features: { productAssistant: false, autoWatchCheck: false, printableReport: false, historyLimit: 50 },
   },
   {
     id: "starter",
@@ -56,6 +74,7 @@ export const PLANS: PlanDefinition[] = [
     description: "Mais catálogos liberados e um teto diário de busca maior.",
     dailySearchLimit: 200,
     maxWatches: 50,
+    features: { productAssistant: false, autoWatchCheck: false, printableReport: true, historyLimit: 100 },
   },
   {
     id: "pro",
@@ -64,6 +83,7 @@ export const PLANS: PlanDefinition[] = [
     description: "Biblioteca completa e o maior teto diário de busca.",
     dailySearchLimit: 500,
     maxWatches: 200,
+    features: { productAssistant: true, autoWatchCheck: true, printableReport: true, historyLimit: 200 },
   },
 ];
 

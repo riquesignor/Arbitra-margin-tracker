@@ -29,6 +29,7 @@ import {
 } from "./ResultsTable";
 import WatchToggle from "./WatchToggle";
 import PriceSparkline from "./PriceSparkline";
+import { getPlan } from "../config/plans";
 import styles from "./Portfolio.module.css";
 
 interface Props {
@@ -36,6 +37,9 @@ interface Props {
   onNavigateToDashboard: () => void;
   userId?: string | null;
   planId?: PlanId | null;
+  /** Preferência `autoCheckWatches` (Fase B, plano Pro) — controlada pelo App, salva em userPreferences. */
+  autoCheckWatches?: boolean;
+  onToggleAutoCheckWatches?: (next: boolean) => void;
 }
 
 const PAGE_SIZE = 50;
@@ -158,10 +162,16 @@ function WatchPanel({
   userId,
   watches,
   onRefresh,
+  autoCheckAvailable,
+  autoCheckOn,
+  onToggleAutoCheck,
 }: {
   userId: string | null;
   watches: WatchItem[];
   onRefresh: () => void;
+  autoCheckAvailable: boolean;
+  autoCheckOn: boolean;
+  onToggleAutoCheck?: (next: boolean) => void;
 }) {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string>>({});
@@ -196,6 +206,21 @@ function WatchPanel({
       <div className={styles.watchPanelHeader}>
         <h2 className={styles.watchPanelTitle}>Monitorados</h2>
         <span className={styles.countHint}>{watches.length} produto(s)</span>
+        {autoCheckAvailable && onToggleAutoCheck ? (
+          <label
+            className={styles.autoCheck}
+            title="Checa o preço de todos os monitorados uma vez por dia, sozinho, usando a sua chave de busca (gasta 1 busca por produto por dia)."
+          >
+            <input
+              type="checkbox"
+              checked={autoCheckOn}
+              onChange={(e) => onToggleAutoCheck(e.target.checked)}
+            />
+            Checar automaticamente todo dia
+          </label>
+        ) : (
+          <span className={styles.autoCheckHint}>checagem automática diária no plano Pro</span>
+        )}
       </div>
       <div className={styles.watchList}>
         {watches.map((w) => (
@@ -234,7 +259,14 @@ function WatchPanel({
   );
 }
 
-export default function Portfolio({ history, onNavigateToDashboard, userId = null, planId = null }: Props) {
+export default function Portfolio({
+  history,
+  onNavigateToDashboard,
+  userId = null,
+  planId = null,
+  autoCheckWatches = false,
+  onToggleAutoCheckWatches,
+}: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("todos");
   const [watches, setWatches] = useState<WatchItem[]>([]);
@@ -340,7 +372,14 @@ export default function Portfolio({ history, onNavigateToDashboard, userId = nul
         </div>
       )}
 
-      <WatchPanel userId={userId} watches={watches} onRefresh={() => void reloadWatches()} />
+      <WatchPanel
+        userId={userId}
+        watches={watches}
+        onRefresh={() => void reloadWatches()}
+        autoCheckAvailable={getPlan(planId).features.autoWatchCheck}
+        autoCheckOn={autoCheckWatches}
+        onToggleAutoCheck={onToggleAutoCheckWatches}
+      />
 
       {portfolio.length === 0 ? (
         <div className={styles.empty}>

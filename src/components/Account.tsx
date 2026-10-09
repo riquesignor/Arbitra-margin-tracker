@@ -1481,7 +1481,15 @@ export default function Account({ user, profile, preferences, onUpdatePreference
                   </span>
                   <PrefSwitch
                     on={preferences[p.key]}
-                    onToggle={() => onUpdatePreferences({ [p.key]: !preferences[p.key] })}
+                    onToggle={() => {
+                      const next = !preferences[p.key];
+                      // Permissão de notificação só pode ser pedida a partir de
+                      // um clique do usuário — este é o momento natural.
+                      if (p.key === "notifyOnSearchComplete" && next && "Notification" in window && Notification.permission === "default") {
+                        void Notification.requestPermission();
+                      }
+                      onUpdatePreferences({ [p.key]: next });
+                    }}
                     label={p.title}
                   />
                 </div>

@@ -1,4 +1,5 @@
 import type { MarketplaceId, MarketplacePriceResult, SearchProviderId } from "./types.js";
+import type { DocumentReference, Firestore } from "firebase-admin/firestore";
 import { fetchPricesCore, FetchPricesValidationError } from "./fetchPricesCore.js";
 
 /**
@@ -121,6 +122,34 @@ export async function checkWatch(uid: string, watch: WatchDoc): Promise<WatchChe
   }
 
   return { found: true, newPrice: result.price, newMarginPct, alertKind };
+}
+
+/**
+ * Checa um watch e grava o resultado (campos `last*` no watch + alerta,
+ * se houver) — mesmo caminho pra checagem manual (api/check-watch.ts) e
+ * automática (api/cron-check-watches.ts), pra os dois nunca divergirem.
+ * Cota é responsabilidade de quem chama.
+ */
+export async function checkAndPersistWatch(
+  db: Firestore,
+  uid: string,
+  ref: DocumentReference,
+  watch: WatchDoc
+): Promise<{ outcome: WatchCheckOutcome; alertId: string | null }> {
+  const outcome = await checkWatch(uid, watch);
+
+  const updates: Partial<WatchDoc> = outcome.found
+    ? { lastPrice: outcome.newPrice!, lastMarginPct: outcome.newMarginPct, lastStatus: "disponivel", lastCheckedAt: Date.now() }
+    : { lastStatus: "esgotado", lastCheckedAt: Date.now() };
+  await ref.set(updates, { merge: true });
+
+  let alertId: string | null = null;
+  if (outcome.alertKind) {
+    const alertRef = db.collection("users").doc(uid).collection("watch_alerts").doc();
+    await alertRef.set(buildAlertDoc(ref.id, watch, outcome));
+    alertId = alertRef.id;
+  }
+  return { outcome, alertId };
 }
 
 export { FetchPricesValidationError };

@@ -36,10 +36,20 @@ O usuário pode marcar produtos específicos pra acompanhar e, quando
 quiser, pedir uma nova checagem de preço daquele produto ("checar
 agora"). Essa checagem gasta cota de busca normalmente (seção 5) e
 gera um aviso dentro do próprio Arbitra se o preço mudou ou se o
-produto ficou indisponível/voltou a ficar disponível. **Não há
-checagem automática em segundo plano** — a atualização depende de
-ação do usuário clicando em "checar agora"; isso pode mudar no
-futuro, caso em que estes Termos serão atualizados antes.
+produto ficou indisponível/voltou a ficar disponível. No plano Pro, o
+usuário pode **ligar opcionalmente** a checagem automática diária
+("Checar automaticamente todo dia", desligada por padrão): com ela
+ligada, o Arbitra checa de novo os produtos monitorados uma vez por dia
+usando a chave de busca do próprio usuário, gastando 1 busca por
+produto por dia, até ele desligar a opção.
+
+### 2.2. Assistente de produto (plano Pro, out/2026)
+
+O usuário pode enviar a foto de um produto avulso; o Arbitra
+identifica o produto com IA (usando a chave Gemini do próprio
+usuário), busca o preço atual no mercado e responde com um preço de
+venda sugerido e perguntas de acompanhamento. As respostas da IA são
+sugestões — valem as mesmas ressalvas da seção 6.
 
 ## 3. Conta e cadastro
 

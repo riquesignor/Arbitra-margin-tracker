@@ -43,7 +43,8 @@
  * modelos "Stable" em ai.google.dev/gemini-api/docs/models.
  */
 
-const MODEL = "gemini-3.1-flash-lite";
+export const GEMINI_MODEL = "gemini-3.1-flash-lite";
+const MODEL = GEMINI_MODEL;
 const ENDPOINT_BASE = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
 /**
