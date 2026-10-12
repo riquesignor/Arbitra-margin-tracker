@@ -588,7 +588,11 @@ export default function App() {
               />
             )}
             {screen === "assistant" && (
-              <ProductAssistant planId={profile?.plan} onOpenAccount={() => setScreen("account")} />
+              <ProductAssistant
+                userId={user?.uid ?? null}
+                planId={profile?.plan}
+                onOpenAccount={() => setScreen("account")}
+              />
             )}
             {screen === "suppliers" && (
               <SupplierCompare history={history} onNavigateToDashboard={() => setScreen("dashboard")} />

@@ -33,7 +33,7 @@ o e-mail de contato pra assuntos de privacidade]`.
 | Preferência de tema/aparência | `users/{uid}/preferences` | Lembrar a preferência de exibição do usuário | Legítimo interesse |
 | `[PREENCHER, se aplicável]` Dado de pagamento (não o número do cartão em si — isso fica com o processador de pagamento) | Processador de pagamento (ex.: Mercado Pago) | Cobrança recorrente do plano pago | Execução de contrato |
 | Produtos marcados pra monitorar e alertas de mudança de preço (out/2026) | `users/{uid}/watches`, `users/{uid}/watch_alerts` | Avisar o usuário quando o preço de um produto monitorado mudar ou ficar indisponível — por checagem manual ou, se o usuário ligar a opção (plano Pro), automática diária | Execução de contrato |
-| Foto e conversa do Assistente de produto (out/2026) | **Não armazenadas** — enviadas só no momento da pergunta ao Google Gemini (chave do próprio usuário) e ao mecanismo de busca escolhido | Identificar o produto, buscar preço e responder a pergunta do usuário | Execução de contrato |
+| Conversa do Assistente de produto (out/2026): perguntas, respostas, produto identificado, ofertas encontradas e uma miniatura da foto | `users/{uid}/assistant_chats`; a foto em tamanho original é enviada só no momento da análise ao Google Gemini (chave do próprio usuário) e não é guardada | Identificar o produto, buscar preço, responder e permitir retomar a conversa depois | Execução de contrato |
 
 Não coletamos dado sensível (LGPD art. 5º, II) de propósito — se o catálogo
 enviado pelo usuário contiver, incidentalmente, esse tipo de informação, o
@@ -74,7 +74,9 @@ usuário para treinar modelo de IA próprio.
 - Cache de preço (`market_prices`) expira em algumas horas;
 - Produto monitorado (`watches`) fica até o usuário parar de monitorar
   (botão "Parar") ou excluir a conta; alerta gerado (`watch_alerts`)
-  segue a mesma regra do histórico de buscas.
+  segue a mesma regra do histórico de buscas;
+- Conversa do Assistente (`assistant_chats`) fica até o usuário excluir
+  (lixeira na lista de conversas) ou encerrar a conta.
 
 ## 5. Seus direitos (LGPD art. 18)
 

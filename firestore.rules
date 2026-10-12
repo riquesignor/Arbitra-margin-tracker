@@ -207,6 +207,16 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
         allow create, delete: if false;
       }
+
+      // Histórico do Assistente de produto (out/2026, ver
+      // src/lib/assistantChats.ts) — uma conversa por doc, escrita pelo
+      // próprio cliente depois de cada resposta. Só o dono lê/apaga;
+      // criar/continuar exige conta confirmada, igual ao resto do que é
+      // "usar a conta de verdade".
+      match /assistant_chats/{chatId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isVerified();
+      }
     }
 
     // Índice `imageId -> { uid, expiresAt }` da foto de catálogo

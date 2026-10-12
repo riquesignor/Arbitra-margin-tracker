@@ -36,18 +36,34 @@ const MAX_SIDE_PX = 1024;
  * function na Vercel, e o modelo não precisa de mais resolução que isso
  * pra reconhecer um produto.
  */
-export async function shrinkPhoto(file: File): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_SIDE_PX / Math.max(bitmap.width, bitmap.height));
+const THUMB_SIDE_PX = 256;
+
+function drawScaled(bitmap: ImageBitmap, maxSide: number, quality: number): string {
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(bitmap.width * scale);
   canvas.height = Math.round(bitmap.height * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Não consegui processar a imagem neste navegador.");
+  // Fundo branco: PNG com transparência viraria preto no JPEG.
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-  return { base64: dataUrl.split(",")[1], mimeType: "image/jpeg", previewUrl: dataUrl };
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+/** `thumbUrl` (~256px) é o que fica salvo no histórico — ver assistantChats.ts. */
+export async function shrinkPhoto(
+  file: File
+): Promise<{ base64: string; mimeType: string; previewUrl: string; thumbUrl: string }> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    const dataUrl = drawScaled(bitmap, MAX_SIDE_PX, 0.85);
+    const thumbUrl = drawScaled(bitmap, THUMB_SIDE_PX, 0.7);
+    return { base64: dataUrl.split(",")[1], mimeType: "image/jpeg", previewUrl: dataUrl, thumbUrl };
+  } finally {
+    bitmap.close();
+  }
 }
 
 export interface AssistantRequest {

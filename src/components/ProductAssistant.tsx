@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, ExternalLink, Loader2, RotateCcw, Send, Sparkles } from "lucide-react";
+import { Camera, ExternalLink, Loader2, MessageSquare, RotateCcw, Send, Sparkles, Trash2 } from "lucide-react";
 import type { PlanId, SearchProviderId } from "../types";
 import { getPlan } from "../config/plans";
 import { brl } from "../lib/format";
@@ -11,9 +11,16 @@ import {
   type AssistantContext,
   type ChatTurn,
 } from "../lib/productAssistant";
+import {
+  deleteAssistantChat,
+  listAssistantChats,
+  saveAssistantChat,
+  type AssistantChatRecord,
+} from "../lib/assistantChats";
 import styles from "./ProductAssistant.module.css";
 
 interface Props {
+  userId: string | null;
   planId: PlanId | null | undefined;
   onOpenAccount: () => void;
 }
@@ -28,9 +35,22 @@ const DEFAULT_QUESTION = "Por quanto eu deveria vender esse produto?";
  * mensagem busca preço (gasta cota); as seguintes só conversam sobre o
  * contexto já achado — ver api/product-assistant.ts.
  */
-export default function ProductAssistant({ planId, onOpenAccount }: Props) {
+/** Teto do servidor é 30 mensagens (api/product-assistant.ts); conversa reaberta pode ser mais longa. */
+const MAX_TURNS_SENT = 29;
+
+export default function ProductAssistant({ userId, planId, onOpenAccount }: Props) {
   const plan = getPlan(planId);
-  const [photo, setPhoto] = useState<{ base64: string; mimeType: string; previewUrl: string } | null>(null);
+  const [photo, setPhoto] = useState<{
+    base64: string;
+    mimeType: string;
+    previewUrl: string;
+    thumbUrl: string;
+  } | null>(null);
+  /** Imagem mostrada no topo da conversa — a foto recém-escolhida ou a miniatura de uma conversa reaberta. */
+  const [threadImage, setThreadImage] = useState<string | null>(null);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chats, setChats] = useState<AssistantChatRecord[]>([]);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [provider, setProvider] = useState<SearchProviderId>("serpapi");
   const [costInput, setCostInput] = useState("");
   const [draft, setDraft] = useState(DEFAULT_QUESTION);
@@ -44,6 +64,10 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns, loading]);
+
+  useEffect(() => {
+    void listAssistantChats(userId).then(setChats);
+  }, [userId]);
 
   if (!plan.features.productAssistant) {
     return (
@@ -68,7 +92,9 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
     if (!file) return;
     setError(null);
     try {
-      setPhoto(await shrinkPhoto(file));
+      const shrunk = await shrinkPhoto(file);
+      setPhoto(shrunk);
+      setThreadImage(shrunk.previewUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não consegui ler essa imagem.");
     }
@@ -89,7 +115,7 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
     setLoading(true);
     try {
       const result = await askProductAssistant({
-        messages: nextTurns,
+        messages: nextTurns.slice(-MAX_TURNS_SENT),
         context,
         ...(context
           ? {}
@@ -100,8 +126,10 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
               supplierPrice: Number.isFinite(cost) && cost > 0 ? cost : undefined,
             }),
       });
+      const finalTurns: ChatTurn[] = [...nextTurns, { role: "model", text: result.reply }];
       setContext(result.context);
-      setTurns([...nextTurns, { role: "model", text: result.reply }]);
+      setTurns(finalTurns);
+      void persist(result.context, finalTurns);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setTurns(turns);
@@ -111,13 +139,63 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
     }
   }
 
+  /** Grava depois de cada resposta. Falha aqui não apaga a resposta da tela — só avisa que não ficou salva. */
+  async function persist(ctx: AssistantContext, finalTurns: ChatTurn[]) {
+    if (!userId) return;
+    const now = Date.now();
+    const existing = chats.find((c) => c.id === chatId);
+    const thumbnail = photo?.thumbUrl ?? existing?.thumbnail;
+    try {
+      const id = await saveAssistantChat(userId, chatId, {
+        title: ctx.query,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        context: ctx,
+        turns: finalTurns,
+        ...(thumbnail ? { thumbnail } : {}),
+      });
+      setChatId(id);
+      setSaveWarning(null);
+      setChats(await listAssistantChats(userId));
+    } catch (err) {
+      console.warn("Não consegui salvar a conversa do Assistente:", err);
+      setSaveWarning("Essa conversa não foi salva no histórico (falha de conexão). A resposta acima continua valendo.");
+    }
+  }
+
+  function openChat(chat: AssistantChatRecord) {
+    setPhoto(null);
+    setThreadImage(chat.thumbnail ?? null);
+    setChatId(chat.id);
+    setContext(chat.context);
+    setTurns(chat.turns);
+    setDraft("");
+    setError(null);
+    setSaveWarning(null);
+  }
+
+  async function removeChat(chat: AssistantChatRecord) {
+    if (!userId) return;
+    if (!window.confirm(`Excluir a conversa "${chat.title}"? Isso não pode ser desfeito.`)) return;
+    try {
+      await deleteAssistantChat(userId, chat.id);
+      setChats((prev) => prev.filter((c) => c.id !== chat.id));
+      if (chat.id === chatId) reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não consegui excluir a conversa.");
+    }
+  }
+
   function reset() {
     setPhoto(null);
+    setThreadImage(null);
+    setChatId(null);
     setTurns([]);
     setContext(null);
     setDraft(DEFAULT_QUESTION);
     setCostInput("");
     setError(null);
+    setSaveWarning(null);
   }
 
   const started = turns.length > 0;
@@ -190,7 +268,7 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
 
       {started && (
         <section className={styles.thread}>
-          {photo && <img src={photo.previewUrl} alt="Produto analisado" className={styles.threadPhoto} />}
+          {threadImage && <img src={threadImage} alt="Produto analisado" className={styles.threadPhoto} />}
           {context && <OffersCard context={context} />}
           {turns.map((t, i) => (
             <div key={i} className={t.role === "user" ? styles.userBubble : styles.modelBubble}>
@@ -207,6 +285,7 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
       )}
 
       {error && <p className={styles.error}>{error}</p>}
+      {saveWarning && <p className={styles.hint}>{saveWarning}</p>}
 
       <form
         className={styles.composer}
@@ -233,6 +312,49 @@ export default function ProductAssistant({ planId, onOpenAccount }: Props) {
           </button>
         )}
       </form>
+
+      {!started && chats.length > 0 && (
+        <section className={styles.history}>
+          <h2 className={styles.historyTitle}>Conversas anteriores</h2>
+          <ul className={styles.historyList}>
+            {chats.map((c) => (
+              <li key={c.id} className={styles.historyRow}>
+                <button type="button" className={styles.historyOpen} onClick={() => openChat(c)}>
+                  {c.thumbnail ? (
+                    <img src={c.thumbnail} alt="" className={styles.historyThumb} />
+                  ) : (
+                    <span className={styles.historyThumbEmpty}>
+                      <MessageSquare size={14} />
+                    </span>
+                  )}
+                  <span className={styles.historyText}>
+                    <span className={styles.historyName}>{c.title}</span>
+                    <span className={styles.hint}>
+                      {new Date(c.updatedAt).toLocaleString("pt-BR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {" · "}
+                      {Math.ceil(c.turns.length / 2)} pergunta(s)
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={styles.historyDelete}
+                  onClick={() => void removeChat(c)}
+                  aria-label={`Excluir conversa ${c.title}`}
+                  title="Excluir conversa"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
