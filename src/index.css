@@ -20,12 +20,12 @@ body {
 
 /* Pesos 400/500/600 só — "nada de 700 em UI" (design-tokens.md §
    Tipografia). Sem isso, <h1>/<h2>/<h3> herdam bold (700) do agente do
-   navegador e o Archivo carregado (só até 600, ver index.html) faz
+   navegador e a fonte carregada (só até 600, ver index.html) faz
    negrito sintético/borrado no título em vez do peso 600 desenhado. */
 h1,
 h2,
 h3 {
-  font-family: var(--font-display);
+  font-family: var(--font-serif);
   font-weight: 600;
   margin: 0;
 }

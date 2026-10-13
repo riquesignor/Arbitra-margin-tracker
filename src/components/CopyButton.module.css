@@ -1,0 +1,48 @@
+.button,
+.buttonCopied {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: var(--space-1);
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out);
+}
+
+:global(tr:hover) .button,
+:global(tr:hover) .buttonCopied,
+.button:focus-visible,
+.buttonCopied {
+  opacity: 1;
+}
+
+.button:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.buttonCopied {
+  color: var(--color-success);
+}
+
+@media (hover: none) {
+  .button {
+    opacity: 1;
+  }
+}

@@ -1,15 +1,16 @@
 :root {
-  /* --- Tipografia — Remaster (ago/2026): Archivo no texto/títulos,
-     JetBrains Mono em todo DADO numérico (preço, margem, SKU, cota,
+  /* --- Tipografia — IBM Plex Sans no texto/UI, Source Serif 4 só nos
+     títulos h1-h3 (--font-serif), IBM Plex Mono em todo DADO numérico (preço, margem, SKU, cota,
      data, contagem) — regra semântica, não decorativa (design/design-
      tokens.md § Tipografia). Troca Inter (família única anterior) e
      remove de vez IBM Plex/Space Grotesk, que já não eram usadas aqui
      mas ainda eram importadas em index.html. --font-mono já era
      consumida por ~120 regras de dado em todo o app antes desta
      mudança — só trocar o valor já reskina cada uma. */
-  --font-display: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-body: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
 
   /* --- Escala tipográfica — cada degrau multiplica --font-scale (ver
      preset de tamanho de texto logo abaixo), então trocar o preset

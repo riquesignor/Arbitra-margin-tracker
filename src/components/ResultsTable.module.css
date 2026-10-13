@@ -655,6 +655,12 @@
   width: 44px;
 }
 
+.skuCell {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .photoImg {
   display: block;
   width: 32px;

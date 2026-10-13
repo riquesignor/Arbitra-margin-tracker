@@ -36,6 +36,9 @@ import { openPrintableReport } from "../lib/printReport";
 import { getPlan } from "../config/plans";
 import MarginBar from "./MarginBar";
 import WatchToggle from "./WatchToggle";
+import RollingNumber from "./RollingNumber";
+import CopyButton from "./CopyButton";
+import ProfitCharts from "./ProfitCharts";
 import styles from "./ResultsTable.module.css";
 
 interface Props {
@@ -913,14 +916,15 @@ export default function ResultsTable({
 
       <div className={styles.summaryRow}>
         {[
-          { icon: Package, value: String(results.length), label: "Total de SKUs" },
-          { icon: TrendingUp, value: String(totalProfitable), label: "Recomendados" },
+          { icon: Package, value: results.length, label: "Total de SKUs" },
+          { icon: TrendingUp, value: totalProfitable, label: "Recomendados" },
           {
             icon: Percent,
-            value: `${(medianMarginPct * 100).toFixed(1).replace(".", ",")}%`,
+            value: medianMarginPct,
+            format: (n: number) => `${(n * 100).toFixed(1).replace(".", ",")}%`,
             label: "Margem mediana",
           },
-          { icon: ShieldAlert, value: String(totalToAvoid), label: "A evitar" },
+          { icon: ShieldAlert, value: totalToAvoid, label: "A evitar" },
         ].map((card, i) => (
           <motion.div
             key={card.label}
@@ -933,7 +937,9 @@ export default function ResultsTable({
               <card.icon size={16} />
             </span>
             <div className={styles.cardText}>
-              <div className={styles.cardValue}>{card.value}</div>
+              <div className={styles.cardValue}>
+                <RollingNumber value={card.value} format={card.format} />
+              </div>
               <div className={styles.cardLabel}>{card.label}</div>
             </div>
           </motion.div>
@@ -964,6 +970,10 @@ export default function ResultsTable({
             ))}
           </div>
         </div>
+      )}
+
+      {showCharts && results.length > 0 && (
+        <ProfitCharts results={results} targetMarginPct={targetMarginPct} />
       )}
 
       <div className={styles.panel}>
@@ -1062,7 +1072,12 @@ export default function ResultsTable({
                     <td className={styles.photoCell}>
                       <ProductThumb src={r.imageUrl} label={r.matchedTitle ?? r.name} />
                     </td>
-                    <td>{r.sku}</td>
+                    <td>
+                      <span className={styles.skuCell}>
+                        {r.sku}
+                        <CopyButton text={r.sku} label="Copiar SKU" />
+                      </span>
+                    </td>
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
                         {displayProductName(r.name)}
@@ -1160,7 +1175,12 @@ export default function ResultsTable({
                       <td className={styles.photoCell}>
                         <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                       </td>
-                      <td>{best.sku}</td>
+                      <td>
+                        <span className={styles.skuCell}>
+                          {best.sku}
+                          <CopyButton text={best.sku} label="Copiar SKU" />
+                        </span>
+                      </td>
                       <td className={styles.productCell}>
                         <div className={styles.productName} title={best.name}>
                           {displayProductName(best.name)}
@@ -1274,7 +1294,12 @@ export default function ResultsTable({
                         <td className={styles.photoCell}>
                           <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                         </td>
-                        <td>{best.sku}</td>
+                        <td>
+                          <span className={styles.skuCell}>
+                            {best.sku}
+                            <CopyButton text={best.sku} label="Copiar SKU" />
+                          </span>
+                        </td>
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={best.name}>
                             {displayProductName(best.name)}
