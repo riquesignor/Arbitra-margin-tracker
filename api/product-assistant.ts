@@ -192,9 +192,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       }
 
       const SKU = "assistente";
-      const { byMarketplace } = await fetchPricesCore(uid, provider, marketplaces, [
-        { sku: SKU, name: query, supplierPrice },
-      ]);
+      // `cacheMaxAgeMs: 0`: o SKU é fixo ("assistente") pra qualquer
+      // consulta, então ler o cache devolveria o preço da consulta ANTERIOR.
+      const { byMarketplace } = await fetchPricesCore(
+        uid,
+        provider,
+        marketplaces,
+        [{ sku: SKU, name: query, supplierPrice }],
+        "auto",
+        { cacheMaxAgeMs: 0 }
+      );
       const offers: AssistantOffer[] = marketplaces.flatMap((m) => {
         const r = byMarketplace[m]?.[SKU];
         if (!r) return [];

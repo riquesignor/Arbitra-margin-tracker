@@ -1,6 +1,7 @@
 import type { MarketplaceId, MarketplacePriceResult, SearchProviderId } from "./types.js";
 import type { DocumentReference, Firestore } from "firebase-admin/firestore";
 import { fetchPricesCore, FetchPricesValidationError } from "./fetchPricesCore.js";
+import { WATCH_CACHE_MAX_AGE_MS } from "./cache.js";
 
 /**
  * Espelha `WatchItem`/`approxMarginPct` de src/lib/watchlist.ts — MANTER
@@ -97,7 +98,8 @@ export async function checkWatch(uid: string, watch: WatchDoc): Promise<WatchChe
     watch.provider,
     [watch.marketplace],
     [{ sku: watch.sku, name: watch.name, supplierPrice: watch.supplierPrice }],
-    "auto"
+    "auto",
+    { cacheMaxAgeMs: WATCH_CACHE_MAX_AGE_MS }
   );
 
   const result: MarketplacePriceResult | undefined = byMarketplace[watch.marketplace]?.[watch.sku];

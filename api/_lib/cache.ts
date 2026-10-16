@@ -1,7 +1,15 @@
 import type { MarketplaceId, MarketplacePriceResult, SearchProviderId } from "./types.js";
 import { getAdminDb } from "./firestoreAdmin.js";
 
-const TTL_MS = 2 * 60 * 60 * 1000; // 2h — mesmo TTL do master prompt
+// 12h (era 2h): preço de marketplace pra revenda de catálogo não muda de
+// hora em hora, e cada acerto de cache poupa uma chamada paga/limitada ao
+// provider (cota BYOK do usuário). Quem precisa de dado mais fresco (ex.:
+// monitoramento de preço) pede um teto de idade menor via `maxAgeMs` em
+// `getCachedPrices`, sem encurtar o TTL de quem grava.
+const TTL_MS = 12 * 60 * 60 * 1000;
+
+/** Teto de idade que o monitoramento de preço mantém — o comportamento de antes de o TTL subir pra 12h. */
+export const WATCH_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 /**
  * TTL curto pra match APROXIMADO (set/2026, ver docs/auditoria-2026-09.md
@@ -58,7 +66,9 @@ export async function getCachedPrices(
   userId: string,
   provider: SearchProviderId,
   marketplace: MarketplaceId,
-  skus: string[]
+  skus: string[],
+  /** Só conta como acerto a entrada gravada há no máximo isso (ms). `0` ignora o cache por completo. Omitido = vale o TTL da entrada. */
+  maxAgeMs?: number
 ): Promise<{ hits: Record<string, MarketplacePriceResult>; misses: string[] }> {
   const db = getAdminDb();
   const now = Date.now();
@@ -83,7 +93,9 @@ export async function getCachedPrices(
   snaps.forEach((snap, i) => {
     const sku = skus[i];
     const data = snap.data();
-    if (data && typeof data.expiresAt === "number" && data.expiresAt > now) {
+    const isFreshEnough =
+      maxAgeMs == null || (maxAgeMs > 0 && typeof data?.lastSync === "number" && now - data.lastSync <= maxAgeMs);
+    if (data && typeof data.expiresAt === "number" && data.expiresAt > now && isFreshEnough) {
       hits[sku] = data.value as MarketplacePriceResult;
     } else {
       misses.push(sku);

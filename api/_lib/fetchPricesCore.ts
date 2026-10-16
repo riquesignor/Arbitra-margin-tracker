@@ -24,6 +24,7 @@ import { getUserApiKeyForProvider, getUserScraperApiKey } from "./userSecrets.js
 import { detectPackQuantity, unitPriceFromPack } from "./packQuantity.js";
 import { flagPriceSanity } from "./priceSanity.js";
 import { collectMissReasons, type MissReason } from "./searchMissReasons.js";
+import { dedupeItemsByQuery, fanOutDuplicates } from "./dedupeItems.js";
 
 /**
  * Extraído de `api/fetch-prices.ts` (out/2026, ver feature de monitoramento
@@ -156,6 +157,11 @@ function annotateConfidenceSource(
   }
 }
 
+export interface FetchPricesCoreOptions {
+  /** Teto de idade do cache em ms (ver `getCachedPrices`). `0` = sempre busca de novo. Omitido = TTL normal do cache. */
+  cacheMaxAgeMs?: number;
+}
+
 export interface FetchPricesCoreResult {
   byMarketplace: Record<string, Record<string, MarketplacePriceResult>>;
   /** Aviso de cota/qualidade do motor interno + IA — só "vision_internal"/"vision_mistral"/"vision_nvidia" preenchem. */
@@ -176,8 +182,14 @@ export async function fetchPricesCore(
   provider: SearchProviderId,
   marketplaces: MarketplaceId[],
   items: CatalogItemQuery[],
-  candidateSource: VisionCandidateSource = "auto"
+  candidateSource: VisionCandidateSource = "auto",
+  options: FetchPricesCoreOptions = {}
 ): Promise<FetchPricesCoreResult> {
+  // Busca por texto: itens com o mesmo EAN/nome fazem a mesma busca, então
+  // só um por grupo vai ao provider (ver dedupeItems.ts). Busca por foto
+  // não entra — o insumo é a imagem de cada item.
+  const canDedupe = !VISUAL_MATCH_PROVIDERS.has(provider);
+
   // Chave BYOK lida NO SERVIDOR a partir do uid já verificado (set/2026,
   // ver api/_lib/userSecrets.ts). `undefined` aqui significa "provider
   // não é BYOK" ou "usuário não cadastrou" — cada provider já trata isso
@@ -224,9 +236,12 @@ export async function fetchPricesCore(
       uid,
       provider,
       expectedMarketplace,
-      items.map((i) => i.sku)
+      items.map((i) => i.sku),
+      options.cacheMaxAgeMs
     );
-    const missItems = items.filter((i) => cached.misses.includes(i.sku));
+    const allMissItems = items.filter((i) => cached.misses.includes(i.sku));
+    const dedupe = canDedupe ? dedupeItemsByQuery(allMissItems) : null;
+    const missItems = dedupe ? dedupe.unique : allMissItems;
 
     let fresh: Record<string, MarketplacePriceResult> = {};
     if (missItems.length > 0) {
@@ -236,6 +251,7 @@ export async function fetchPricesCore(
           : provider === "mercadolivre_alt"
             ? await fetchUnwrangleMercadoLivrePrices(missItems, apiKey)
             : await fetchMercadoLivreDirectPrices(missItems);
+      if (dedupe) fresh = fanOutDuplicates(fresh, dedupe.duplicatesOf);
 
       try {
         await writeCachedPrices(uid, provider, expectedMarketplace, fresh);
@@ -270,7 +286,8 @@ export async function fetchPricesCore(
         uid,
         provider,
         marketplace,
-        items.map((i) => i.sku)
+        items.map((i) => i.sku),
+        options.cacheMaxAgeMs
       );
       cacheByMarketplace.set(marketplace, cached);
     })
@@ -294,7 +311,9 @@ export async function fetchPricesCore(
     for (const m of sharedMarketplaces) {
       for (const sku of cacheByMarketplace.get(m)!.misses) missedSkus.add(sku);
     }
-    const missItems = items.filter((i) => missedSkus.has(i.sku));
+    const allMissItems = items.filter((i) => missedSkus.has(i.sku));
+    const dedupe = canDedupe ? dedupeItemsByQuery(allMissItems) : null;
+    const missItems = dedupe ? dedupe.unique : allMissItems;
 
     if (missItems.length > 0) {
       const matchers = GOOGLE_SHOPPING_MATCHERS.filter((g) => sharedMarketplaces.includes(g.marketplace));
@@ -346,6 +365,12 @@ export async function fetchPricesCore(
         fresh = await searchScraperApiShared(missItems, matchers, scraperApiKey);
       } else {
         fresh = await searchGoogleShoppingShared(missItems, matchers, apiKey);
+      }
+
+      if (dedupe) {
+        for (const marketplace of sharedMarketplaces) {
+          fresh[marketplace] = fanOutDuplicates(fresh[marketplace] ?? {}, dedupe.duplicatesOf);
+        }
       }
 
       for (const marketplace of sharedMarketplaces) {
