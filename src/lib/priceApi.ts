@@ -139,7 +139,9 @@ export async function fetchMultipleMarketplacePrices(
    * "vision_mistral"; `undefined` (comportamento de sempre, cascata
    * automática) pros demais.
    */
-  candidateSource?: VisionCandidateSource
+  candidateSource?: VisionCandidateSource,
+  /** Ignora o cache de preços do servidor (TTL de 12h) — usado quando o usuário pede pra reprocessar/forçar nova busca. */
+  forceRefresh?: boolean
 ): Promise<Record<MarketplaceId, FetchPricesResult>> {
   if (items.length === 0 || marketplaces.length === 0) {
     return emptyResult(marketplaces);
@@ -155,7 +157,13 @@ export async function fetchMultipleMarketplacePrices(
         "Content-Type": "application/json",
         ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       },
-      body: JSON.stringify({ marketplaces, items, provider, candidateSource }),
+      body: JSON.stringify({
+        marketplaces,
+        items,
+        provider,
+        candidateSource,
+        forceRefresh: forceRefresh || undefined,
+      }),
       signal,
     });
   } catch (err) {

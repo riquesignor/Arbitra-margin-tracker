@@ -50,6 +50,8 @@ interface RequestBody {
    * aplica ao provider da requisição.
    */
   candidateSource?: string;
+  /** `true` ignora o cache de preços (TTL de 12h) e busca tudo de novo — ver `cacheMaxAgeMs` em fetchPricesCore.ts. */
+  forceRefresh?: boolean;
 }
 
 function isValidMarketplaces(value: unknown): value is MarketplaceId[] {
@@ -233,7 +235,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       provider,
       marketplaces,
       items,
-      candidateSource
+      candidateSource,
+      body.forceRefresh === true ? { cacheMaxAgeMs: 0 } : {}
     );
 
     // `_warning` é aditivo — não é um marketplace, então o cliente antigo

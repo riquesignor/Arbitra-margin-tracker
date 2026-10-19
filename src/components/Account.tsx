@@ -4,45 +4,16 @@ import {
   ShieldAlert,
   UserRound,
   LogOut,
-  KeyRound,
-  Check,
-  Trash2,
   Search,
   Calculator,
   Library,
   Gauge,
   SlidersHorizontal,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { firebaseConfigured } from "../lib/firebase";
 import { signIn, signInWithGoogle, signOutUser, signUp, type AuthUser } from "../lib/auth";
-import {
-  deleteUserSerpApiKey,
-  deleteUserRapidApiKey,
-  deleteUserSearchApiKey,
-  deleteUserUnwrangleApiKey,
-  deleteUserGeminiApiKey,
-  deleteUserMistralApiKey,
-  deleteUserNvidiaApiKey,
-  deleteUserScraperApiKey,
-  getUserSerpApiKey,
-  getUserRapidApiKey,
-  getUserSearchApiKey,
-  getUserUnwrangleApiKey,
-  getUserGeminiApiKey,
-  getUserMistralApiKey,
-  getUserNvidiaApiKey,
-  getUserScraperApiKey,
-  saveUserSerpApiKey,
-  saveUserRapidApiKey,
-  saveUserSearchApiKey,
-  saveUserUnwrangleApiKey,
-  saveUserGeminiApiKey,
-  saveUserMistralApiKey,
-  saveUserNvidiaApiKey,
-  saveUserScraperApiKey,
-} from "../lib/userSecrets";
+import { API_KEY_FIELDS, getUserApiKeys, type ApiKeyField } from "../lib/userSecrets";
+import ApiKeyCard, { type ApiKeyCardConfig } from "./ApiKeyCard";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -285,47 +256,75 @@ const SCRAPERAPI_INTRO = (
   </>
 );
 
-// Input de chave BYOK com "olhinho" pra revelar o que foi digitado/colado
-// antes de salvar — NÃO reexibe a chave já salva (o servidor só devolve
-// "tem chave configurada?" via has*ApiKey, nunca o valor em si, ver
-// userSecrets.ts). Visibilidade é estado local do próprio campo (não do
-// componente Account) pra não precisar de mais um useState por chave.
-function KeyInput({
-  value,
-  onChange,
-  placeholder,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  disabled?: boolean;
-}) {
-  const [visible, setVisible] = useState(false);
-  return (
-    <div className={styles.keyInputWrap}>
-      <input
-        className={styles.input}
-        type={visible ? "text" : "password"}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete="off"
-      />
-      <button
-        type="button"
-        className={styles.keyInputToggle}
-        onClick={() => setVisible((v) => !v)}
-        disabled={disabled}
-        tabIndex={-1}
-        title={visible ? "Ocultar chave" : "Mostrar chave"}
-        aria-label={visible ? "Ocultar chave" : "Mostrar chave"}
-      >
-        {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-      </button>
-    </div>
-  );
-}
+// Ordem = ordem de exibição na tela.
+const API_KEY_CARDS: ApiKeyCardConfig[] = [
+  {
+    field: "serpApiKey",
+    title: "SerpApi",
+    intro: SERPAPI_INTRO,
+    placeholder: "Cole sua chave SerpApi",
+    savedMessage: "Chave salva — suas próximas buscas usam sua cota, não a compartilhada.",
+    removedMessage: "Chave removida — voltando a usar a cota compartilhada do app.",
+  },
+  {
+    field: "rapidApiKey",
+    title: "RapidAPI (Amazon)",
+    intro: RAPIDAPI_INTRO,
+    placeholder: "Cole sua X-RapidAPI-Key",
+    savedMessage: 'Chave salva — o provider "Amazon direto" no Dashboard já pode usar.',
+    removedMessage: 'Chave removida — o provider "Amazon direto" fica indisponível até cadastrar outra.',
+  },
+  {
+    field: "searchApiKey",
+    title: "SearchApi.io",
+    intro: SEARCHAPI_INTRO,
+    placeholder: "Cole sua chave SearchApi.io",
+    savedMessage: 'Chave salva — já pode escolher "SearchApi.io" como API de busca por imagem.',
+    removedMessage: "Chave removida.",
+  },
+  {
+    field: "geminiApiKey",
+    title: "Gemini (motor interno + IA)",
+    intro: GEMINI_INTRO,
+    placeholder: "Cole sua chave Gemini",
+    savedMessage: 'Chave salva — já pode escolher "Motor interno + IA" como API de busca por imagem.',
+    removedMessage: "Chave removida.",
+  },
+  {
+    field: "mistralApiKey",
+    title: "Mistral (motor interno + IA)",
+    intro: MISTRAL_INTRO,
+    placeholder: "Cole sua chave Mistral",
+    savedMessage: 'Chave salva — já pode escolher "Motor interno + IA (Mistral)" como API de busca por imagem.',
+    removedMessage: "Chave removida.",
+  },
+  {
+    field: "nvidiaApiKey",
+    title: "NVIDIA (motor interno + IA)",
+    intro: NVIDIA_INTRO,
+    placeholder: "Cole sua chave NVIDIA",
+    savedMessage: 'Chave salva — já pode escolher "Motor interno + IA (NVIDIA, beta)" como API de busca por imagem.',
+    removedMessage: "Chave removida.",
+    beta: true,
+  },
+  {
+    field: "scraperApiKey",
+    title: "ScraperAPI",
+    intro: SCRAPERAPI_INTRO,
+    placeholder: "Cole sua ScraperAPI key",
+    savedMessage:
+      'Chave salva — o mecanismo "ScraperAPI" e o fallback anti-bloqueio do motor interno + IA já podem usar.',
+    removedMessage: 'Chave removida — o mecanismo "ScraperAPI" fica indisponível até cadastrar outra.',
+  },
+  {
+    field: "unwrangleApiKey",
+    title: "Unwrangle (Mercado Livre alt.)",
+    intro: UNWRANGLE_INTRO,
+    placeholder: "Cole sua chave Unwrangle",
+    savedMessage: "Chave salva — se a busca pública do Mercado Livre falhar, você poderá tentar de novo com ela.",
+    removedMessage: "Chave removida.",
+  },
+];
 
 function PrefSwitch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
   return (
@@ -349,88 +348,9 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // BYOK — chave SerpApi própria (ver userSecrets.ts). Só carrega/mostra
-  // quando logado; nunca reexibe a chave em texto puro depois de salva,
-  // só indica que existe uma configurada.
-  // Chave já configurada fica recolhida (só status + "Trocar chave"); o
-  // form completo só abre pra quem ainda não tem chave ou pediu pra trocar.
-  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
-  function startEditingKey(id: string) {
-    setEditingKeys((prev) => new Set(prev).add(id));
-  }
-  function stopEditingKey(id: string) {
-    setEditingKeys((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  }
-  const [hasSerpKey, setHasSerpKey] = useState(false);
-  const [serpKeyInput, setSerpKeyInput] = useState("");
-  const [savingSerpKey, setSavingSerpKey] = useState(false);
-  const [serpKeyMsg, setSerpKeyMsg] = useState<string | null>(null);
-  const [serpKeyError, setSerpKeyError] = useState<string | null>(null);
-
-  // BYOK — chave RapidAPI própria (provider "Amazon direto"). Mesmo
-  // padrão de estado da chave SerpApi acima.
-  const [hasRapidKey, setHasRapidKey] = useState(false);
-  const [rapidKeyInput, setRapidKeyInput] = useState("");
-  const [savingRapidKey, setSavingRapidKey] = useState(false);
-  const [rapidKeyMsg, setRapidKeyMsg] = useState<string | null>(null);
-  const [rapidKeyError, setRapidKeyError] = useState<string | null>(null);
-
-  // BYOK — chave SearchApi.io própria (2ª fonte de busca por foto).
-  // Mesmo padrão de estado das chaves acima.
-  const [hasSearchApiKey, setHasSearchApiKey] = useState(false);
-  const [searchApiKeyInput, setSearchApiKeyInput] = useState("");
-  const [savingSearchApiKey, setSavingSearchApiKey] = useState(false);
-  const [searchApiKeyMsg, setSearchApiKeyMsg] = useState<string | null>(null);
-  const [searchApiKeyError, setSearchApiKeyError] = useState<string | null>(null);
-
-  // BYOK — chave Unwrangle própria (alternativa paga ao Mercado Livre
-  // público, usada só no fallback de erro — ver Dashboard.tsx).
-  const [hasUnwrangleKey, setHasUnwrangleKey] = useState(false);
-  const [unwrangleKeyInput, setUnwrangleKeyInput] = useState("");
-  const [savingUnwrangleKey, setSavingUnwrangleKey] = useState(false);
-  const [unwrangleKeyMsg, setUnwrangleKeyMsg] = useState<string | null>(null);
-  const [unwrangleKeyError, setUnwrangleKeyError] = useState<string | null>(null);
-
-  // BYOK — chave Gemini própria (motor interno + IA, provider
-  // "vision_internal"). Mesmo padrão de estado das chaves acima.
-  const [hasGeminiKey, setHasGeminiKey] = useState(false);
-  const [geminiKeyInput, setGeminiKeyInput] = useState("");
-  const [savingGeminiKey, setSavingGeminiKey] = useState(false);
-  const [geminiKeyMsg, setGeminiKeyMsg] = useState<string | null>(null);
-  const [geminiKeyError, setGeminiKeyError] = useState<string | null>(null);
-
-  // BYOK — chave Mistral própria (motor interno + IA, provider
-  // "vision_mistral", ver MISTRAL_INTRO acima). Mesmo padrão de estado
-  // das chaves acima.
-  const [hasMistralKey, setHasMistralKey] = useState(false);
-  const [mistralKeyInput, setMistralKeyInput] = useState("");
-  const [savingMistralKey, setSavingMistralKey] = useState(false);
-  const [mistralKeyMsg, setMistralKeyMsg] = useState<string | null>(null);
-  const [mistralKeyError, setMistralKeyError] = useState<string | null>(null);
-
-  // BYOK — chave NVIDIA própria (BETA, motor interno + IA, provider
-  // "vision_nvidia", ver NVIDIA_INTRO acima). Mesmo padrão de estado das
-  // chaves acima.
-  const [hasNvidiaKey, setHasNvidiaKey] = useState(false);
-  const [nvidiaKeyInput, setNvidiaKeyInput] = useState("");
-  const [savingNvidiaKey, setSavingNvidiaKey] = useState(false);
-  const [nvidiaKeyMsg, setNvidiaKeyMsg] = useState<string | null>(null);
-  const [nvidiaKeyError, setNvidiaKeyError] = useState<string | null>(null);
-
-  // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
-  // secret de servidor da plataforma, ver src/lib/userSecrets.ts). Usada
-  // pelo mecanismo "ScraperAPI" em si E como fallback/proxy de outros
-  // (motor interno + IA quando a raspagem bloqueia, retry de imagem
-  // bloqueada) — mesmo padrão de estado das chaves acima.
-  const [hasScraperApiKey, setHasScraperApiKey] = useState(false);
-  const [scraperApiKeyInput, setScraperApiKeyInput] = useState("");
-  const [savingScraperApiKey, setSavingScraperApiKey] = useState(false);
-  const [scraperApiKeyMsg, setScraperApiKeyMsg] = useState<string | null>(null);
-  const [scraperApiKeyError, setScraperApiKeyError] = useState<string | null>(null);
+  // Quais chaves BYOK já estão salvas (nunca o valor). Cada ApiKeyCard cuida
+  // do próprio formulário; o status fica aqui porque o card de uso também usa.
+  const [savedKeys, setSavedKeys] = useState<Partial<Record<ApiKeyField, boolean>>>({});
 
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
@@ -438,300 +358,11 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
   useEffect(() => {
     if (!user) return;
-    getUserSerpApiKey(user.uid).then((key) => setHasSerpKey(Boolean(key)));
-    getUserRapidApiKey(user.uid).then((key) => setHasRapidKey(Boolean(key)));
-    getUserSearchApiKey(user.uid).then((key) => setHasSearchApiKey(Boolean(key)));
-    getUserUnwrangleApiKey(user.uid).then((key) => setHasUnwrangleKey(Boolean(key)));
-    getUserGeminiApiKey(user.uid).then((key) => setHasGeminiKey(Boolean(key)));
-    getUserMistralApiKey(user.uid).then((key) => setHasMistralKey(Boolean(key)));
-    getUserNvidiaApiKey(user.uid).then((key) => setHasNvidiaKey(Boolean(key)));
-    getUserScraperApiKey(user.uid).then((key) => setHasScraperApiKey(Boolean(key)));
-    getTodayUsage(user.uid).then(setTodayUsage);
+    void getUserApiKeys(user.uid).then((keys) =>
+      setSavedKeys(Object.fromEntries(API_KEY_FIELDS.map((field) => [field, Boolean(keys[field])])))
+    );
+    void getTodayUsage(user.uid).then(setTodayUsage);
   }, [user]);
-
-  async function handleSaveRapidKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !rapidKeyInput.trim()) return;
-    setSavingRapidKey(true);
-    setRapidKeyError(null);
-    setRapidKeyMsg(null);
-    try {
-      await saveUserRapidApiKey(user.uid, rapidKeyInput);
-      setHasRapidKey(true);
-      stopEditingKey("rapid");
-      setRapidKeyInput("");
-      setRapidKeyMsg("Chave salva — o provider \"Amazon direto\" no Dashboard já pode usar.");
-    } catch (err) {
-      setRapidKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingRapidKey(false);
-    }
-  }
-
-  async function handleRemoveRapidKey() {
-    if (!user) return;
-    setSavingRapidKey(true);
-    setRapidKeyError(null);
-    setRapidKeyMsg(null);
-    try {
-      await deleteUserRapidApiKey(user.uid);
-      setHasRapidKey(false);
-      setRapidKeyMsg("Chave removida — o provider \"Amazon direto\" fica indisponível até cadastrar outra.");
-    } catch (err) {
-      setRapidKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingRapidKey(false);
-    }
-  }
-
-  async function handleSaveSearchApiKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !searchApiKeyInput.trim()) return;
-    setSavingSearchApiKey(true);
-    setSearchApiKeyError(null);
-    setSearchApiKeyMsg(null);
-    try {
-      await saveUserSearchApiKey(user.uid, searchApiKeyInput);
-      setHasSearchApiKey(true);
-      stopEditingKey("searchApi");
-      setSearchApiKeyInput("");
-      setSearchApiKeyMsg("Chave salva — já pode escolher \"SearchApi.io\" como API de busca por imagem.");
-    } catch (err) {
-      setSearchApiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingSearchApiKey(false);
-    }
-  }
-
-  async function handleRemoveSearchApiKey() {
-    if (!user) return;
-    setSavingSearchApiKey(true);
-    setSearchApiKeyError(null);
-    setSearchApiKeyMsg(null);
-    try {
-      await deleteUserSearchApiKey(user.uid);
-      setHasSearchApiKey(false);
-      setSearchApiKeyMsg("Chave removida.");
-    } catch (err) {
-      setSearchApiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingSearchApiKey(false);
-    }
-  }
-
-  async function handleSaveUnwrangleKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !unwrangleKeyInput.trim()) return;
-    setSavingUnwrangleKey(true);
-    setUnwrangleKeyError(null);
-    setUnwrangleKeyMsg(null);
-    try {
-      await saveUserUnwrangleApiKey(user.uid, unwrangleKeyInput);
-      setHasUnwrangleKey(true);
-      stopEditingKey("unwrangle");
-      setUnwrangleKeyInput("");
-      setUnwrangleKeyMsg(
-        "Chave salva — se a busca pública do Mercado Livre falhar, você poderá tentar de novo com ela."
-      );
-    } catch (err) {
-      setUnwrangleKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingUnwrangleKey(false);
-    }
-  }
-
-  async function handleRemoveUnwrangleKey() {
-    if (!user) return;
-    setSavingUnwrangleKey(true);
-    setUnwrangleKeyError(null);
-    setUnwrangleKeyMsg(null);
-    try {
-      await deleteUserUnwrangleApiKey(user.uid);
-      setHasUnwrangleKey(false);
-      setUnwrangleKeyMsg("Chave removida.");
-    } catch (err) {
-      setUnwrangleKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingUnwrangleKey(false);
-    }
-  }
-
-  async function handleSaveGeminiKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !geminiKeyInput.trim()) return;
-    setSavingGeminiKey(true);
-    setGeminiKeyError(null);
-    setGeminiKeyMsg(null);
-    try {
-      await saveUserGeminiApiKey(user.uid, geminiKeyInput);
-      setHasGeminiKey(true);
-      stopEditingKey("gemini");
-      setGeminiKeyInput("");
-      setGeminiKeyMsg("Chave salva — já pode escolher \"Motor interno + IA\" como API de busca por imagem.");
-    } catch (err) {
-      setGeminiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingGeminiKey(false);
-    }
-  }
-
-  async function handleRemoveGeminiKey() {
-    if (!user) return;
-    setSavingGeminiKey(true);
-    setGeminiKeyError(null);
-    setGeminiKeyMsg(null);
-    try {
-      await deleteUserGeminiApiKey(user.uid);
-      setHasGeminiKey(false);
-      setGeminiKeyMsg("Chave removida.");
-    } catch (err) {
-      setGeminiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingGeminiKey(false);
-    }
-  }
-
-  async function handleSaveMistralKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !mistralKeyInput.trim()) return;
-    setSavingMistralKey(true);
-    setMistralKeyError(null);
-    setMistralKeyMsg(null);
-    try {
-      await saveUserMistralApiKey(user.uid, mistralKeyInput);
-      setHasMistralKey(true);
-      stopEditingKey("mistral");
-      setMistralKeyInput("");
-      setMistralKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (Mistral)\" como API de busca por imagem.");
-    } catch (err) {
-      setMistralKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingMistralKey(false);
-    }
-  }
-
-  async function handleRemoveMistralKey() {
-    if (!user) return;
-    setSavingMistralKey(true);
-    setMistralKeyError(null);
-    setMistralKeyMsg(null);
-    try {
-      await deleteUserMistralApiKey(user.uid);
-      setHasMistralKey(false);
-      setMistralKeyMsg("Chave removida.");
-    } catch (err) {
-      setMistralKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingMistralKey(false);
-    }
-  }
-
-  async function handleSaveNvidiaKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !nvidiaKeyInput.trim()) return;
-    setSavingNvidiaKey(true);
-    setNvidiaKeyError(null);
-    setNvidiaKeyMsg(null);
-    try {
-      await saveUserNvidiaApiKey(user.uid, nvidiaKeyInput);
-      setHasNvidiaKey(true);
-      stopEditingKey("nvidia");
-      setNvidiaKeyInput("");
-      setNvidiaKeyMsg("Chave salva — já pode escolher \"Motor interno + IA (NVIDIA, beta)\" como API de busca por imagem.");
-    } catch (err) {
-      setNvidiaKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingNvidiaKey(false);
-    }
-  }
-
-  async function handleRemoveNvidiaKey() {
-    if (!user) return;
-    setSavingNvidiaKey(true);
-    setNvidiaKeyError(null);
-    setNvidiaKeyMsg(null);
-    try {
-      await deleteUserNvidiaApiKey(user.uid);
-      setHasNvidiaKey(false);
-      setNvidiaKeyMsg("Chave removida.");
-    } catch (err) {
-      setNvidiaKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingNvidiaKey(false);
-    }
-  }
-
-  async function handleSaveScraperApiKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !scraperApiKeyInput.trim()) return;
-    setSavingScraperApiKey(true);
-    setScraperApiKeyError(null);
-    setScraperApiKeyMsg(null);
-    try {
-      await saveUserScraperApiKey(user.uid, scraperApiKeyInput);
-      setHasScraperApiKey(true);
-      stopEditingKey("scraperApi");
-      setScraperApiKeyInput("");
-      setScraperApiKeyMsg(
-        "Chave salva — o mecanismo \"ScraperAPI\" e o fallback anti-bloqueio do motor interno + IA já podem usar."
-      );
-    } catch (err) {
-      setScraperApiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingScraperApiKey(false);
-    }
-  }
-
-  async function handleRemoveScraperApiKey() {
-    if (!user) return;
-    setSavingScraperApiKey(true);
-    setScraperApiKeyError(null);
-    setScraperApiKeyMsg(null);
-    try {
-      await deleteUserScraperApiKey(user.uid);
-      setHasScraperApiKey(false);
-      setScraperApiKeyMsg("Chave removida — o mecanismo \"ScraperAPI\" fica indisponível até cadastrar outra.");
-    } catch (err) {
-      setScraperApiKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingScraperApiKey(false);
-    }
-  }
-
-  async function handleSaveSerpKey(e: FormEvent) {
-    e.preventDefault();
-    if (!user || !serpKeyInput.trim()) return;
-    setSavingSerpKey(true);
-    setSerpKeyError(null);
-    setSerpKeyMsg(null);
-    try {
-      await saveUserSerpApiKey(user.uid, serpKeyInput);
-      setHasSerpKey(true);
-      stopEditingKey("serp");
-      setSerpKeyInput("");
-      setSerpKeyMsg("Chave salva — suas próximas buscas usam sua cota, não a compartilhada.");
-    } catch (err) {
-      setSerpKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingSerpKey(false);
-    }
-  }
-
-  async function handleRemoveSerpKey() {
-    if (!user) return;
-    setSavingSerpKey(true);
-    setSerpKeyError(null);
-    setSerpKeyMsg(null);
-    try {
-      await deleteUserSerpApiKey(user.uid);
-      setHasSerpKey(false);
-      setSerpKeyMsg("Chave removida — voltando a usar a cota compartilhada do app.");
-    } catch (err) {
-      setSerpKeyError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingSerpKey(false);
-    }
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -813,7 +444,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </div>
           </div>
 
-          <form className={styles.authCard} onSubmit={handleSubmit}>
+          <form className={styles.authCard} onSubmit={(e) => void handleSubmit(e)}>
             <div className={styles.tabRow}>
               <button
                 type="button"
@@ -925,509 +556,15 @@ export default function Account({ user, profile, preferences, onUpdatePreference
 
       <div className={styles.layout}>
         <div className={styles.main}>
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>SerpApi</h2>
-              <span className={hasSerpKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasSerpKey ? <Check size={11} strokeWidth={3} /> : null} {hasSerpKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveSerpKey}>
-              {(!hasSerpKey || editingKeys.has("serp")) && <p className={styles.cardIntro}>{SERPAPI_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasSerpKey && !editingKeys.has("serp") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("serp")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={serpKeyInput}
-                      onChange={setSerpKeyInput}
-                      placeholder={hasSerpKey ? "Substituir a chave atual…" : "Cole sua chave SerpApi"}
-                      disabled={savingSerpKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingSerpKey || !serpKeyInput.trim()}
-                    >
-                      {savingSerpKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasSerpKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("serp")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasSerpKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveSerpKey()}
-                    disabled={savingSerpKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {serpKeyMsg && <p className={styles.successText}>{serpKeyMsg}</p>}
-              {serpKeyError && <p className={styles.errorText}>{serpKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>RapidAPI (Amazon)</h2>
-              <span className={hasRapidKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasRapidKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasRapidKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveRapidKey}>
-              {(!hasRapidKey || editingKeys.has("rapid")) && <p className={styles.cardIntro}>{RAPIDAPI_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasRapidKey && !editingKeys.has("rapid") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("rapid")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={rapidKeyInput}
-                      onChange={setRapidKeyInput}
-                      placeholder={hasRapidKey ? "Substituir a chave atual…" : "Cole sua X-RapidAPI-Key"}
-                      disabled={savingRapidKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingRapidKey || !rapidKeyInput.trim()}
-                    >
-                      {savingRapidKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasRapidKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("rapid")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasRapidKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveRapidKey()}
-                    disabled={savingRapidKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {rapidKeyMsg && <p className={styles.successText}>{rapidKeyMsg}</p>}
-              {rapidKeyError && <p className={styles.errorText}>{rapidKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>SearchApi.io</h2>
-              <span className={hasSearchApiKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasSearchApiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasSearchApiKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveSearchApiKey}>
-              {(!hasSearchApiKey || editingKeys.has("searchApi")) && <p className={styles.cardIntro}>{SEARCHAPI_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasSearchApiKey && !editingKeys.has("searchApi") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("searchApi")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={searchApiKeyInput}
-                      onChange={setSearchApiKeyInput}
-                      placeholder={hasSearchApiKey ? "Substituir a chave atual…" : "Cole sua chave SearchApi.io"}
-                      disabled={savingSearchApiKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingSearchApiKey || !searchApiKeyInput.trim()}
-                    >
-                      {savingSearchApiKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasSearchApiKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("searchApi")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasSearchApiKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveSearchApiKey()}
-                    disabled={savingSearchApiKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {searchApiKeyMsg && <p className={styles.successText}>{searchApiKeyMsg}</p>}
-              {searchApiKeyError && <p className={styles.errorText}>{searchApiKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Gemini (motor interno + IA)</h2>
-              <span className={hasGeminiKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasGeminiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasGeminiKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveGeminiKey}>
-              {(!hasGeminiKey || editingKeys.has("gemini")) && <p className={styles.cardIntro}>{GEMINI_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasGeminiKey && !editingKeys.has("gemini") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("gemini")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={geminiKeyInput}
-                      onChange={setGeminiKeyInput}
-                      placeholder={hasGeminiKey ? "Substituir a chave atual…" : "Cole sua chave Gemini"}
-                      disabled={savingGeminiKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingGeminiKey || !geminiKeyInput.trim()}
-                    >
-                      {savingGeminiKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasGeminiKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("gemini")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasGeminiKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveGeminiKey()}
-                    disabled={savingGeminiKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {geminiKeyMsg && <p className={styles.successText}>{geminiKeyMsg}</p>}
-              {geminiKeyError && <p className={styles.errorText}>{geminiKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Mistral (motor interno + IA)</h2>
-              <span className={hasMistralKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasMistralKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasMistralKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveMistralKey}>
-              {(!hasMistralKey || editingKeys.has("mistral")) && <p className={styles.cardIntro}>{MISTRAL_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasMistralKey && !editingKeys.has("mistral") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("mistral")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={mistralKeyInput}
-                      onChange={setMistralKeyInput}
-                      placeholder={hasMistralKey ? "Substituir a chave atual…" : "Cole sua chave Mistral"}
-                      disabled={savingMistralKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingMistralKey || !mistralKeyInput.trim()}
-                    >
-                      {savingMistralKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasMistralKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("mistral")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasMistralKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveMistralKey()}
-                    disabled={savingMistralKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {mistralKeyMsg && <p className={styles.successText}>{mistralKeyMsg}</p>}
-              {mistralKeyError && <p className={styles.errorText}>{mistralKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>NVIDIA (motor interno + IA)</h2>
-              <span className={styles.betaBadge}>Beta</span>
-              <span className={hasNvidiaKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasNvidiaKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasNvidiaKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveNvidiaKey}>
-              {(!hasNvidiaKey || editingKeys.has("nvidia")) && <p className={styles.cardIntro}>{NVIDIA_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasNvidiaKey && !editingKeys.has("nvidia") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("nvidia")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={nvidiaKeyInput}
-                      onChange={setNvidiaKeyInput}
-                      placeholder={hasNvidiaKey ? "Substituir a chave atual…" : "Cole sua chave NVIDIA"}
-                      disabled={savingNvidiaKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingNvidiaKey || !nvidiaKeyInput.trim()}
-                    >
-                      {savingNvidiaKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasNvidiaKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("nvidia")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasNvidiaKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveNvidiaKey()}
-                    disabled={savingNvidiaKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {nvidiaKeyMsg && <p className={styles.successText}>{nvidiaKeyMsg}</p>}
-              {nvidiaKeyError && <p className={styles.errorText}>{nvidiaKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>ScraperAPI</h2>
-              <span className={hasScraperApiKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasScraperApiKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasScraperApiKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveScraperApiKey}>
-              {(!hasScraperApiKey || editingKeys.has("scraperApi")) && <p className={styles.cardIntro}>{SCRAPERAPI_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasScraperApiKey && !editingKeys.has("scraperApi") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("scraperApi")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={scraperApiKeyInput}
-                      onChange={setScraperApiKeyInput}
-                      placeholder={hasScraperApiKey ? "Substituir a chave atual…" : "Cole sua ScraperAPI key"}
-                      disabled={savingScraperApiKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingScraperApiKey || !scraperApiKeyInput.trim()}
-                    >
-                      {savingScraperApiKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasScraperApiKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("scraperApi")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasScraperApiKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveScraperApiKey()}
-                    disabled={savingScraperApiKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {scraperApiKeyMsg && <p className={styles.successText}>{scraperApiKeyMsg}</p>}
-              {scraperApiKeyError && <p className={styles.errorText}>{scraperApiKeyError}</p>}
-            </form>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <KeyRound size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Unwrangle (Mercado Livre alt.)</h2>
-              <span className={hasUnwrangleKey ? styles.statusPillOk : styles.statusPillWarning}>
-                {hasUnwrangleKey ? <Check size={11} strokeWidth={3} /> : null}{" "}
-                {hasUnwrangleKey ? "configurada" : "não configurada"}
-              </span>
-            </div>
-
-            <form className={styles.compactKeyForm} onSubmit={handleSaveUnwrangleKey}>
-              {(!hasUnwrangleKey || editingKeys.has("unwrangle")) && <p className={styles.cardIntro}>{UNWRANGLE_INTRO}</p>}
-
-              <div className={styles.compactKeyRow}>
-                {hasUnwrangleKey && !editingKeys.has("unwrangle") ? (
-                  <>
-                    <span className={styles.keyStoredHint}>Chave salva — por segurança o valor não aparece aqui.</span>
-                    <button type="button" className={styles.secondaryKeyButton} onClick={() => startEditingKey("unwrangle")}>
-                      Trocar chave
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <KeyInput
-                      value={unwrangleKeyInput}
-                      onChange={setUnwrangleKeyInput}
-                      placeholder={hasUnwrangleKey ? "Substituir a chave atual…" : "Cole sua chave Unwrangle"}
-                      disabled={savingUnwrangleKey}
-                    />
-                    <button
-                      className={styles.primaryButton}
-                      type="submit"
-                      disabled={savingUnwrangleKey || !unwrangleKeyInput.trim()}
-                    >
-                      {savingUnwrangleKey ? "Salvando…" : "Salvar"}
-                    </button>
-                    {hasUnwrangleKey && (
-                      <button type="button" className={styles.linkButton} onClick={() => stopEditingKey("unwrangle")}>
-                        Cancelar
-                      </button>
-                    )}
-                  </>
-                )}
-                {hasUnwrangleKey && (
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    title="Remover chave"
-                    onClick={() => void handleRemoveUnwrangleKey()}
-                    disabled={savingUnwrangleKey}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                )}
-              </div>
-
-              {unwrangleKeyMsg && <p className={styles.successText}>{unwrangleKeyMsg}</p>}
-              {unwrangleKeyError && <p className={styles.errorText}>{unwrangleKeyError}</p>}
-            </form>
-          </section>
+          {API_KEY_CARDS.map((card) => (
+            <ApiKeyCard
+              key={card.field}
+              userId={user.uid}
+              config={card}
+              saved={Boolean(savedKeys[card.field])}
+              onSavedChange={(saved) => setSavedKeys((prev) => ({ ...prev, [card.field]: saved }))}
+            />
+          ))}
 
           <section className={styles.card}>
             <div className={styles.cardHeader}>
@@ -1441,7 +578,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
               <div className={styles.usageBig}>
                 <span className={styles.usageBigNumber}>{usageToday}</span>
                 <span className={styles.usageBigLabel}>
-                  busca(s) hoje{hasSerpKey ? " com a sua chave" : ""}
+                  busca(s) hoje{savedKeys.serpApiKey ? " com a sua chave" : ""}
                 </span>
               </div>
               <div

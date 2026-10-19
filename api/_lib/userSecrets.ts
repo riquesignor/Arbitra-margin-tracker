@@ -78,8 +78,11 @@ export async function getUserApiKeyForProvider(
   provider: SearchProviderId
 ): Promise<string | undefined> {
   const field = PROVIDER_SECRET_FIELD[provider];
-  if (!field) return undefined;
+  return field ? readSecretField(uid, field) : undefined;
+}
 
+/** Lê um campo de `users/{uid}/secrets/keys`. `undefined` se vazio ou se a leitura falhar — nunca lança. */
+async function readSecretField(uid: string, field: string): Promise<string | undefined> {
   try {
     const snap = await getAdminDb()
       .collection("users")
@@ -107,19 +110,6 @@ export async function getUserApiKeyForProvider(
  * mesmo contrato de retorno (`undefined` = não configurado ou leitura
  * falhou — nunca lança).
  */
-export async function getUserScraperApiKey(uid: string): Promise<string | undefined> {
-  try {
-    const snap = await getAdminDb()
-      .collection("users")
-      .doc(uid)
-      .collection(SECRETS_SUBCOLLECTION)
-      .doc(SECRETS_DOC_ID)
-      .get();
-
-    const value = snap.data()?.scraperApiKey as string | undefined;
-    return value?.trim() || undefined;
-  } catch (err) {
-    console.warn(`[secrets] não consegui ler a chave "scraperApiKey" de ${uid}:`, err);
-    return undefined;
-  }
+export function getUserScraperApiKey(uid: string): Promise<string | undefined> {
+  return readSecretField(uid, "scraperApiKey");
 }

@@ -47,11 +47,17 @@ beforeEach(() => {
   state.written = null;
 });
 
+// Todo provider é BYOK desde que a chave ScraperAPI passou a ser do usuário
+// (PLATFORM_COST_PROVIDERS vazio em searchQuota.ts) — vale só o teto
+// anti-abuso. O teto por plano (50/200/500) fica dormente até algum provider
+// voltar a gastar crédito da plataforma.
+const BYOK_LIMIT = 25000;
+
 describe("consumeSearchQuota", () => {
-  it("reserva e devolve o novo total quando cabe no teto do plano", async () => {
+  it("reserva e devolve o novo total quando cabe no teto", async () => {
     const result = await consumeSearchQuota("uid-1", "scraperapi", 10);
 
-    expect(result).toEqual({ used: 10, limit: 50 });
+    expect(result).toEqual({ used: 10, limit: BYOK_LIMIT });
     expect(state.written).toEqual({ searchCount: 10, updatedAt: expect.any(Number) });
   });
 
@@ -68,7 +74,7 @@ describe("consumeSearchQuota", () => {
     "BLOQUEIA antes de gastar API quando a reserva estouraria o teto — é o ponto todo da correção " +
       "(a cota antiga era client-side e o próprio usuário zerava o contador)",
     async () => {
-      state.currentCount = 45;
+      state.currentCount = BYOK_LIMIT - 5;
 
       await expect(consumeSearchQuota("uid-1", "scraperapi", 10)).rejects.toThrow(QuotaExceededError);
       // Nada escrito: a reserva falhou inteira, não pela metade.
@@ -77,43 +83,28 @@ describe("consumeSearchQuota", () => {
   );
 
   it("o erro carrega used/limit pra virar 429 com número na mensagem", async () => {
-    state.currentCount = 50;
+    state.currentCount = BYOK_LIMIT;
 
     await expect(consumeSearchQuota("uid-1", "scraperapi", 1)).rejects.toMatchObject({
-      used: 50,
-      limit: 50,
+      used: BYOK_LIMIT,
+      limit: BYOK_LIMIT,
     });
   });
 
-  it("teto acompanha o plano do usuário (starter 200, pro 500)", async () => {
-    state.plan = "starter";
-    await expect(consumeSearchQuota("uid-1", "scraperapi", 1)).resolves.toMatchObject({ limit: 200 });
-
+  it("todo provider atual é BYOK e usa o mesmo teto, independente do plano", async () => {
     state.plan = "pro";
-    await expect(consumeSearchQuota("uid-1", "scraperapi", 1)).resolves.toMatchObject({ limit: 500 });
-  });
-
-  it("plano desconhecido/ausente cai no teto mais restritivo — falha fechada, não aberta", async () => {
-    state.plan = undefined;
-    await expect(consumeSearchQuota("uid-1", "scraperapi", 1)).resolves.toMatchObject({ limit: 50 });
-
-    state.plan = "plano-que-não-existe";
-    await expect(consumeSearchQuota("uid-1", "scraperapi", 1)).resolves.toMatchObject({ limit: 50 });
-  });
-
-  it(
-    "motor interno + IA também conta como custo da plataforma (a raspagem passa pelo proxy ScraperAPI, " +
-      "mesmo com a IA sendo BYOK)",
-    async () => {
-      await expect(consumeSearchQuota("uid-1", "vision_internal", 1)).resolves.toMatchObject({ limit: 50 });
-      await expect(consumeSearchQuota("uid-1", "vision_mistral", 1)).resolves.toMatchObject({ limit: 50 });
-    }
-  );
-
-  it("provider BYOK (usuário paga a própria busca) usa teto alto, só como freio de abuso", async () => {
-    for (const provider of ["serpapi", "searchapi_lens", "google_lens_products", "rapidapi_amazon"] as const) {
+    const providers = [
+      "scraperapi",
+      "vision_internal",
+      "vision_mistral",
+      "serpapi",
+      "searchapi_lens",
+      "google_lens_products",
+      "rapidapi_amazon",
+    ] as const;
+    for (const provider of providers) {
       const result = await consumeSearchQuota("uid-1", provider, 1);
-      expect(result.limit).toBe(25000);
+      expect(result.limit).toBe(BYOK_LIMIT);
     }
   });
 });

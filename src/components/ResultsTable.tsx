@@ -921,7 +921,7 @@ export default function ResultsTable({
           {
             icon: Percent,
             value: medianMarginPct,
-            format: (n: number) => `${(n * 100).toFixed(1).replace(".", ",")}%`,
+            format: (n: number) => pct(n),
             label: "Margem mediana",
           },
           { icon: ShieldAlert, value: totalToAvoid, label: "A evitar" },

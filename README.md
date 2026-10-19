@@ -20,7 +20,7 @@ Ferramenta de arbitragem de preço pra revendedores brasileiros: sobe um catálo
 
 ## Pré-requisitos
 
-- Node.js ≥ 20.6
+- Node.js ≥ 20.6 (versão de referência em `.nvmrc` — `nvm use` seleciona a certa)
 - Uma conta Firebase (Auth + Firestore) — grátis no plano Spark
 - [Vercel CLI](https://vercel.com/docs/cli) para rodar as funções serverless localmente
 
@@ -69,6 +69,24 @@ Abre em `http://localhost:3000`. Rodar só `npm run dev` (Vite puro, `http://loc
 | `npm run typecheck`   | `tsc --noEmit` no frontend e no backend                  |
 | `npm test`            | Roda a suíte de testes (Vitest)                          |
 | `npm run lint`        | ESLint                                                  |
+
+## Qualidade
+
+A CI (`.github/workflows/ci.yml`) roda em todo push e PR, na ordem: typecheck (frontend e `api/`), lint, testes e build de produção. Push pra `main` também dispara o deploy na Vercel, então vale rodar `npm run typecheck && npm test` antes de subir.
+
+- Os testes (Vitest) cobrem a lógica pura: cálculo de margem, parsing de catálogo, ranking/similaridade, cache, cota, retry e deduplicação da busca.
+- O lint ainda roda sem bloquear (`continue-on-error`) até a base ficar limpa — ver comentário no `ci.yml`.
+
+## Rodando em várias máquinas (Windows/Linux, pen drive exFAT)
+
+Line endings são forçados como LF (`.gitattributes`). Em Linux, exFAT não aceita os symlinks do `node_modules`, então rode uma vez por máquina:
+
+```bash
+./scripts/setup-linux-devenv.sh          # monta node_modules fora do pen drive e instala
+./scripts/install-linux-automount.sh     # opcional: monta sozinho ao plugar o pen drive
+```
+
+O script confere a versão do Node pelo `.nvmrc` antes de instalar.
 
 ## Estrutura
 

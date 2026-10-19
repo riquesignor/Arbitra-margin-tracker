@@ -3,6 +3,7 @@ import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity, isUsableSearchTerm } from "../textSimilarity.js";
 import { pickBestCandidate } from "../rankCandidates.js";
 import { GOOGLE_SHOPPING_MATCHERS, type MarketplaceMatcher } from "./googleShoppingProvider.js";
+import { fetchWithRetry } from "../fetchWithRetry.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 const CONCURRENCY = 2; // mesma cota SerpApi da busca por texto — ver googleShoppingProvider.ts
@@ -114,7 +115,7 @@ export async function searchGoogleLensProductsShared(
       url.searchParams.set("country", "br");
       url.searchParams.set("api_key", apiKey);
 
-      const response = await fetch(url.toString());
+      const response = await fetchWithRetry(() => fetch(url.toString()));
       if (!response.ok) {
         errorCount++;
         lastApiError =

@@ -490,7 +490,7 @@ describe("searchVisionInternalShared", () => {
 
         expect(describeProductImage).toHaveBeenCalledTimes(1);
         expect(fetchStoreOffers).toHaveBeenCalledTimes(1);
-        expect(fetchStoreOffers).toHaveBeenCalledWith("prato de plástico redondo", expect.anything());
+        expect(fetchStoreOffers).toHaveBeenCalledWith("prato de plástico redondo", expect.anything(), undefined);
         expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.9 });
       }
     );
@@ -506,7 +506,7 @@ describe("searchVisionInternalShared", () => {
 
       expect(describeProductImage).toHaveBeenCalledTimes(1);
       expect(fetchStoreOffers).toHaveBeenCalledTimes(1);
-      expect(fetchStoreOffers).toHaveBeenCalledWith("descrição gerada pela ia", expect.anything());
+      expect(fetchStoreOffers).toHaveBeenCalledWith("descrição gerada pela ia", expect.anything(), undefined);
     });
 
     it(
@@ -578,8 +578,8 @@ describe("searchVisionInternalShared", () => {
         // IA roda 1x só (o reforço reaproveita a mesma descrição já gerada,
         // só troca a query de busca — não descreve a foto de novo).
         expect(describeProductImage).toHaveBeenCalledTimes(1);
-        expect(fetchStoreOffers).toHaveBeenNthCalledWith(1, "prato de plástico redondo", expect.anything());
-        expect(fetchStoreOffers).toHaveBeenNthCalledWith(2, "Prato bebê plástico redondo rosa", expect.anything());
+        expect(fetchStoreOffers).toHaveBeenNthCalledWith(1, "prato de plástico redondo", expect.anything(), undefined);
+        expect(fetchStoreOffers).toHaveBeenNthCalledWith(2, "Prato bebê plástico redondo rosa", expect.anything(), undefined);
         expect(result.results.amazon["SKU-9"]).toMatchObject({ confidence: 0.9, link: "l2", approximate: false });
       }
     );
@@ -686,7 +686,7 @@ describe("searchVisionInternalShared", () => {
 
         const result = await searchVisionInternalShared([ITEM_WITH_PHOTO], MATCHERS_COM_GERAL, "fake-gemini-key", GEMINI_BACKEND);
 
-        expect(fetchGoogleShoppingCandidatesForQuery).toHaveBeenCalledWith("fone bluetooth preto");
+        expect(fetchGoogleShoppingCandidatesForQuery).toHaveBeenCalledWith("fone bluetooth preto", undefined);
         // Chave PRÓPRIA "geral" — não empresta o slot de amazon/mercadolivre
         // (diferente do fallback aproximado dos outros mecanismos, que não
         // têm um marketplace "geral" de verdade pra usar).
@@ -723,7 +723,12 @@ describe("searchVisionInternalShared", () => {
 
       // Só o candidato "Magazine Luiza" (fora das lojas focadas) chega a ser comparado visualmente.
       expect(compareProductImages).toHaveBeenCalledTimes(1);
-      expect(compareProductImages).toHaveBeenCalledWith(expect.anything(), "https://loja/magalu.jpg", expect.anything());
+      expect(compareProductImages).toHaveBeenCalledWith(
+        expect.anything(),
+        "https://loja/magalu.jpg",
+        expect.anything(),
+        undefined
+      );
       expect(result.results.geral["SKU-1"]).toMatchObject({ price: 60, matchedSource: "Magazine Luiza" });
     });
 
@@ -868,7 +873,8 @@ describe("searchVisionInternalShared — MISTRAL_BACKEND (comparação em lote)"
       expect(compareProductImagesBatchMistral).toHaveBeenCalledWith(
         ITEM_WITH_PHOTO.imageUrl,
         ["https://loja/c1.jpg", "https://loja/c2.jpg"],
-        "fake-mistral-key"
+        "fake-mistral-key",
+        undefined
       );
       expect(result.results.amazon["SKU-1"]).toMatchObject({ confidence: 0.95, link: "l2" });
     }

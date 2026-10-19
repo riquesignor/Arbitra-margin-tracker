@@ -42,16 +42,7 @@ import {
   type CatalogUploadRecord,
 } from "../lib/catalogHistory";
 import { getTodayUsage } from "../lib/usageQuota";
-import {
-  getUserSerpApiKey,
-  getUserRapidApiKey,
-  getUserSearchApiKey,
-  getUserUnwrangleApiKey,
-  getUserGeminiApiKey,
-  getUserMistralApiKey,
-  getUserNvidiaApiKey,
-  getUserScraperApiKey,
-} from "../lib/userSecrets";
+import { getUserApiKeys, type UserApiKeys } from "../lib/userSecrets";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import type { SharedCatalog } from "../lib/sharedCatalogs";
@@ -782,6 +773,11 @@ export default function Dashboard({
   // (ver JSX do painel de PDF pendente) — não é feature planejada pro
   // produto final.
   const [forceFreshSearch, setForceFreshSearch] = useState(false);
+  // "Reprocessar" (handleForceReprocess) liga isto: o usuário pediu preço
+  // novo, então o servidor ignora o cache de preços (TTL de 12h). Volta a
+  // false no início de qualquer outra busca (processFile/catálogo
+  // compartilhado), pra não vazar pro próximo upload.
+  const forceServerRefreshRef = useRef(false);
 
   const [lastUpload, setLastUpload] = useState<LastUpload | null>(null);
   const [uploadHistory, setUploadHistory] = useState<CatalogUploadRecord[]>([]);
@@ -811,44 +807,20 @@ export default function Dashboard({
   // substitui o antigo card estático "Como o cálculo roda".
   const [speedSummary, setSpeedSummary] = useState<ProviderSpeedSummary[]>(() => getSpeedSummary());
 
-  // BYOK — chave SerpApi própria do usuário (Conta). Presente = busca usa
-  // a cota da própria conta SerpApi do usuário, não a compartilhada do
-  // app, e por isso não entra no enforcement de `usage_daily` abaixo.
-  const [serpApiKey, setSerpApiKey] = useState<string | null>(null);
-
-  // BYOK — chave RapidAPI própria (Amazon direto). Mesma lógica da
-  // SerpApi acima, provider diferente.
-  const [rapidApiKey, setRapidApiKey] = useState<string | null>(null);
-
-  // BYOK — chave SearchApi.io própria (2ª fonte de busca por imagem).
-  const [searchApiKey, setSearchApiKey] = useState<string | null>(null);
-
-  // BYOK — chave Unwrangle própria (alternativa paga ao Mercado Livre
-  // público). Não é lida via `activeProviderKey` normal — só usada no
-  // fluxo de fallback (ver mlFallbackOffer/handleRetryWithUnwrangle).
-  const [unwrangleApiKey, setUnwrangleApiKey] = useState<string | null>(null);
-
-  // BYOK — chave Gemini própria (motor interno + IA, busca por foto sem
-  // SerpApi/SearchApi.io). Mesma lógica das chaves acima.
-  const [geminiApiKey, setGeminiApiKey] = useState<string | null>(null);
-
-  // BYOK — chave Mistral própria (motor interno + IA, provider
-  // "vision_mistral", 2ª opção de backend ao lado do Gemini acima).
-  // Mesma lógica das chaves acima, campo separado (ver userSecrets.ts).
-  const [mistralApiKey, setMistralApiKey] = useState<string | null>(null);
-
-  // BYOK — chave NVIDIA própria (BETA, motor interno + IA, provider
-  // "vision_nvidia", 3ª opção de backend). Mesma lógica das chaves acima,
-  // campo separado (ver userSecrets.ts).
-  const [nvidiaApiKey, setNvidiaApiKey] = useState<string | null>(null);
-
-  // BYOK — chave ScraperAPI própria (set/2026, virou BYOK — antes era
-  // secret de servidor da plataforma). Mesma lógica das chaves acima;
-  // usada pelo provider "scraperapi" E como fallback cross-cutting de
-  // outros (motor interno + IA, download de imagem bloqueada — ver
-  // api/_lib/userSecrets.ts > getUserScraperApiKey, resolvida no servidor
-  // independente de qual provider foi selecionado).
-  const [scraperApiKey, setScraperApiKey] = useState<string | null>(null);
+  // Chaves BYOK do usuário (cadastradas em Conta), lidas numa ida só ao
+  // Firestore. Servem pra saber quais mecanismos estão disponíveis — as
+  // buscas não mandam a chave, o servidor lê pelo uid (api/_lib/userSecrets.ts).
+  // A Gemini é a exceção: a extração de PDF por IA roda no navegador.
+  // Unwrangle só entra no fallback de erro 403 do Mercado Livre público.
+  const [apiKeys, setApiKeys] = useState<UserApiKeys>({});
+  const serpApiKey = apiKeys.serpApiKey ?? null;
+  const rapidApiKey = apiKeys.rapidApiKey ?? null;
+  const searchApiKey = apiKeys.searchApiKey ?? null;
+  const unwrangleApiKey = apiKeys.unwrangleApiKey ?? null;
+  const geminiApiKey = apiKeys.geminiApiKey ?? null;
+  const mistralApiKey = apiKeys.mistralApiKey ?? null;
+  const nvidiaApiKey = apiKeys.nvidiaApiKey ?? null;
+  const scraperApiKey = apiKeys.scraperApiKey ?? null;
 
   // Oferta de "tentar de novo com sua chave Unwrangle" — preenchida só
   // quando "mercadolivre_direct" falha com o erro conhecido de HTTP 403
@@ -936,66 +908,10 @@ export default function Dashboard({
 
   useEffect(() => {
     if (!userId) {
-      setSerpApiKey(null);
+      setApiKeys({});
       return;
     }
-    getUserSerpApiKey(userId).then(setSerpApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setRapidApiKey(null);
-      return;
-    }
-    getUserRapidApiKey(userId).then(setRapidApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setSearchApiKey(null);
-      return;
-    }
-    getUserSearchApiKey(userId).then(setSearchApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setUnwrangleApiKey(null);
-      return;
-    }
-    getUserUnwrangleApiKey(userId).then(setUnwrangleApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setGeminiApiKey(null);
-      return;
-    }
-    getUserGeminiApiKey(userId).then(setGeminiApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setMistralApiKey(null);
-      return;
-    }
-    getUserMistralApiKey(userId).then(setMistralApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setNvidiaApiKey(null);
-      return;
-    }
-    getUserNvidiaApiKey(userId).then(setNvidiaApiKey);
-  }, [userId]);
-
-  useEffect(() => {
-    if (!userId) {
-      setScraperApiKey(null);
-      return;
-    }
-    getUserScraperApiKey(userId).then(setScraperApiKey);
+    void getUserApiKeys(userId).then(setApiKeys);
   }, [userId]);
 
   useEffect(() => {
@@ -1170,6 +1086,7 @@ export default function Dashboard({
       setError("Selecione ao menos um marketplace antes de usar um catálogo da biblioteca.");
       return;
     }
+    forceServerRefreshRef.current = false;
 
     setError(null);
     setHistoryInfo(null);
@@ -1446,7 +1363,8 @@ export default function Dashboard({
             // que ignoram o campo no servidor de qualquer forma, mas
             // mandar só quando relevante deixa o payload mais claro de ler
             // num log de rede.
-            SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) ? candidateSource : undefined
+            SLOW_AI_VISION_PROVIDERS.has(effectiveProvider) ? candidateSource : undefined,
+            forceFreshSearch || forceServerRefreshRef.current
           );
         } catch (err) {
           // Cancelamento pedido pelo usuário: sai do laço mantendo o que
@@ -1675,6 +1593,7 @@ export default function Dashboard({
       setError("Selecione ao menos um marketplace antes de enviar o catálogo.");
       return;
     }
+    forceServerRefreshRef.current = false;
 
     setError(null);
     setIsParseError(false);
@@ -1752,6 +1671,7 @@ export default function Dashboard({
 
   async function handleForceReprocess() {
     if (!lastUpload) return;
+    forceServerRefreshRef.current = true;
     setError(null);
     setIsParseError(false);
     setHistoryInfo(null);
@@ -2259,7 +2179,7 @@ export default function Dashboard({
                       checked={forceFreshSearch}
                       onChange={(e) => setForceFreshSearch(e.target.checked)}
                     />
-                    Ignorar histórico (forçar nova busca) — teste de diagnóstico
+                    Forçar nova busca — ignora o histórico e o cache de preços
                   </label>
                   <div className={styles.pageRangeActions}>
                     <button

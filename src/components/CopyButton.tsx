@@ -30,7 +30,7 @@ export default function CopyButton({ text, label = "Copiar" }: Props) {
     <button
       type="button"
       className={copied ? styles.buttonCopied : styles.button}
-      onClick={handleCopy}
+      onClick={() => void handleCopy()}
       aria-label={copied ? "Copiado" : `${label} ${text}`}
       title={copied ? "Copiado" : label}
     >

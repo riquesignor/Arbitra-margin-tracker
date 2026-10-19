@@ -27,8 +27,27 @@ else
   sudo mount --bind "$CACHE_DIR" "$TARGET"
 fi
 
-echo "Instalando dependências..."
 cd "$PROJECT_DIR"
+
+# Versão do Node vem do .nvmrc (mesma fonte da CI). Máquina nova costuma ter
+# Node antigo do sistema (já apareceu Node 10 via snap), que quebra o npm
+# install com erro confuso — melhor parar aqui com a mensagem certa.
+REQUIRED_NODE_MAJOR="$(tr -dc '0-9' < .nvmrc)"
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  set +u
+  # shellcheck disable=SC1091
+  . "$HOME/.nvm/nvm.sh"
+  nvm install >/dev/null && nvm use >/dev/null
+  set -u
+fi
+CURRENT_NODE_MAJOR="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || echo 0)"
+if [ "${CURRENT_NODE_MAJOR:-0}" -lt "$REQUIRED_NODE_MAJOR" ]; then
+  echo "Node $REQUIRED_NODE_MAJOR+ necessário (encontrado: $(node -v 2>/dev/null || echo nenhum))." >&2
+  echo "Instale o nvm (https://github.com/nvm-sh/nvm) e rode este script de novo." >&2
+  exit 1
+fi
+
+echo "Instalando dependências (Node $(node -v))..."
 npm install
 
 echo "Pronto. node_modules real está em: $CACHE_DIR"

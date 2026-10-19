@@ -15,7 +15,7 @@ export const WATCH_CACHE_MAX_AGE_MS = 2 * 60 * 60 * 1000;
  * TTL curto pra match APROXIMADO (set/2026, ver docs/auditoria-2026-09.md
  * > item 13). Um match aproximado é, por definição, um palpite: pode ser
  * outra loja, ou similaridade baixa demais pra afirmar que é o mesmo
- * produto (ver `approximate` em types.ts). Guardá-lo pelas mesmas 2h de um
+ * produto (ver `approximate` em types.ts). Guardá-lo pelo mesmo TTL (12h) de um
  * match bom significa que um palpite ruim gruda no SKU e volta igual em
  * toda nova busca da tarde inteira — inclusive depois do usuário melhorar
  * a foto do catálogo ou trocar de mecanismo, que é justamente quando ele
@@ -51,7 +51,7 @@ const CACHE_READ_CHUNK = 300;
 // APIs diferentes (ver SearchProviderId em types.ts) e cada uma tem seu
 // próprio critério de match/preço — misturar cache entre elas mostraria
 // preço "amazon" que na verdade veio da RapidAPI quando o usuário pediu
-// SerpApi (ou vice-versa). TTL de 2h já torna a mudança de formato de
+// SerpApi (ou vice-versa). TTL de 12h já torna a mudança de formato de
 // chave inofensiva (entradas antigas só expiram sem serem lidas de novo).
 function docId(provider: SearchProviderId, marketplace: MarketplaceId, sku: string): string {
   return `${provider}__${marketplace}__${sku}`;

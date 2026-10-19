@@ -14,7 +14,7 @@ import {
 import type { Screen } from "../types";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { listSharedCatalogsForPlan, type SharedCatalog } from "../lib/sharedCatalogs";
-import { getUserSerpApiKey } from "../lib/userSecrets";
+import { getUserApiKeys } from "../lib/userSecrets";
 import { median } from "../lib/marginCalculator";
 import { marginTone, pct } from "../lib/format";
 import { getPlan } from "../config/plans";
@@ -111,7 +111,7 @@ export default function Home({
       setHasSerpKey(null);
       return;
     }
-    getUserSerpApiKey(userId).then((key) => setHasSerpKey(Boolean(key)));
+    void getUserApiKeys(userId).then((keys) => setHasSerpKey(Boolean(keys.serpApiKey)));
   }, [userId]);
 
   const dateLabel = new Intl.DateTimeFormat("pt-BR", {

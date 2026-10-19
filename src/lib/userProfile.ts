@@ -14,7 +14,7 @@ export interface UserProfile {
    * Flag denormalizada — NUNCA a chave em si. `user_secrets/{uid}` não
    * tem (nem deve ter) override de admin na security rule, então não dá
    * pra saber "esse usuário tem chave?" lendo aquela coleção como admin.
-   * `saveUserSerpApiKey`/`deleteUserSerpApiKey` (userSecrets.ts) mantêm
+   * `saveUserApiKey`/`deleteUserApiKey` (userSecrets.ts) mantêm
    * este campo em sincronia via writeBatch atômico sempre que a chave
    * muda. Ver ADR-0002, Action Item 1.
    */

@@ -4,6 +4,7 @@ import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 import { resolveSearchQuery } from "../searchQuery.js";
 import { type MarketplaceMatcher } from "./googleShoppingProvider.js";
+import { fetchWithRetry } from "../fetchWithRetry.js";
 
 /**
  * BYOK (set/2026 — antes era secret de servidor, ver git blame). Cada
@@ -43,8 +44,18 @@ const GOOGLE_SHOPPING_ENDPOINT = "https://api.scraperapi.com/structured/google/s
  */
 const SCRAPERAPI_TIMEOUT_MS = 8000;
 
-/** `fetch` com teto de tempo — usado nas 4 chamadas deste arquivo. AbortError vira erro comum (mensagem clara), pego pelo try/catch de quem chama, igual qualquer outra falha de rede. */
-async function fetchWithTimeout(url: string): Promise<Response> {
+/**
+ * `fetch` com teto de tempo — usado nas 4 chamadas deste arquivo. Reenvia
+ * UMA vez só em HTTP 5xx (`retryOnThrow: false`): timeout NÃO é reenviado,
+ * senão o teto de 8s acima dobraria e traria de volta a lentidão que ele
+ * corrigiu.
+ */
+function fetchWithTimeout(url: string): Promise<Response> {
+  return fetchWithRetry(() => fetchWithTimeoutOnce(url), { retryOnThrow: false });
+}
+
+/** Uma tentativa com teto de tempo. AbortError vira erro comum (mensagem clara), pego pelo try/catch de quem chama, igual qualquer outra falha de rede. */
+async function fetchWithTimeoutOnce(url: string): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SCRAPERAPI_TIMEOUT_MS);
   try {

@@ -3,6 +3,7 @@ import { mapWithConcurrency } from "../concurrency.js";
 import { confidenceFromSimilarity } from "../textSimilarity.js";
 import { pickBestCandidate, popularityScore } from "../rankCandidates.js";
 import { resolveSearchQuery } from "../searchQuery.js";
+import { fetchWithRetry } from "../fetchWithRetry.js";
 
 const ENDPOINT = "https://serpapi.com/search.json";
 // Baixo de propósito: plano free da SerpApi tem 50 buscas/HORA de
@@ -147,7 +148,7 @@ export async function searchGoogleShoppingShared(
       url.searchParams.set("hl", "pt-br");
       url.searchParams.set("api_key", apiKey);
 
-      const response = await fetch(url.toString());
+      const response = await fetchWithRetry(() => fetch(url.toString()));
       if (!response.ok) {
         errorCount++;
         // 429 na SerpApi especificamente é documentado como "sem busca
@@ -314,7 +315,7 @@ export async function fetchSerpApiShoppingCandidatesForQuery(
     url.searchParams.set("hl", "pt-br");
     url.searchParams.set("api_key", apiKey);
 
-    const response = await fetch(url.toString());
+    const response = await fetchWithRetry(() => fetch(url.toString()));
     if (!response.ok) {
       console.warn(`SerpApi (Google Shopping, candidatos crus) "${query}" retornou ${response.status}`);
       return [];

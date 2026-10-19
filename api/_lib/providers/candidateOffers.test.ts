@@ -149,7 +149,8 @@ describe("fetchCandidateOffers", () => {
     expect(ml.offers).toEqual([
       { title: "Furadeira no ML", price: 205, thumbnail: "https://img/ml.jpg" },
     ]);
-    expect(ml.offers[0]).not.toHaveProperty("link");
+    // O Google Shopping não traz link de anúncio do ML: o campo existe, mas vazio.
+    expect(ml.offers[0].link).toBeUndefined();
   });
 
   it("disjuntor: depois de a loja bloquear, a raspagem não é tentada de novo no mesmo processo", async () => {
@@ -215,7 +216,10 @@ describe("fetchCandidateOffers", () => {
   });
 
   it("candidatos do Google Shopping (fallback ML) são cacheados POR CHAVE — chave diferente não reaproveita o resultado de outra", async () => {
-    vi.mocked(fetchStoreOffers).mockResolvedValue([
+    // Array novo a cada chamada, como a raspagem real faz: `fetchCandidateOffers`
+    // preenche `offers` no objeto devolvido, então reaproveitar o MESMO objeto
+    // faria a 2ª chamada achar que o ML já tem oferta e nem chegar no fallback.
+    vi.mocked(fetchStoreOffers).mockImplementation(async () => [
       { marketplace: "mercadolivre", label: "Mercado Livre", offers: [] },
     ]);
     vi.mocked(fetchGoogleShoppingCandidatesForQuery).mockResolvedValue([
