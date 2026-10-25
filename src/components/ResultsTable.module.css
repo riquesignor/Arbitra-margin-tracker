@@ -844,6 +844,37 @@
   white-space: nowrap;
 }
 
+/* Linha abre o painel lateral do produto (ProductSheet). */
+.rowClickable {
+  cursor: pointer;
+}
+
+/* Nome do produto = botão que abre o painel (acesso por teclado; o clique na linha é só atalho). */
+.productNameButton {
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  cursor: pointer;
+}
+
+.productNameButton:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.productNameButton:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 2px;
+}
+
 .marketCell {
   font-family: var(--font-body);
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ToastContext, type ToastApi, type ToastOptions } from "../lib/toast";
 import styles from "./Toaster.module.css";
@@ -22,6 +23,17 @@ export default function ToastProvider({ children }: { children: ReactNode }) {
   // Firestore" ali dentro rodaria duas vezes também.
   const toastsRef = useRef<ActiveToast[]>([]);
   const counter = useRef(0);
+  // Com um <dialog> modal aberto (painel de produto), o resto da página
+  // fica inerte e atrás da camada superior — o aviso tem que ser desenhado
+  // DENTRO do diálogo pra aparecer e o "Desfazer" ser clicável. Quando o
+  // diálogo fecha, o aviso volta pro body.
+  const [host, setHost] = useState<HTMLDialogElement | null>(null);
+  useEffect(() => {
+    if (!host) return;
+    const back = () => setHost(null);
+    host.addEventListener("close", back);
+    return () => host.removeEventListener("close", back);
+  }, [host]);
 
   const commit = useCallback((next: ActiveToast[]) => {
     toastsRef.current = next;
@@ -43,6 +55,8 @@ export default function ToastProvider({ children }: { children: ReactNode }) {
       show: (options) => {
         counter.current += 1;
         const id = `toast-${counter.current}`;
+        const openDialogs = document.querySelectorAll<HTMLDialogElement>("dialog[open]");
+        setHost(openDialogs.length ? openDialogs[openDialogs.length - 1] : null);
         const next = [...toastsRef.current, { ...options, id }];
         // Excesso: o mais antigo sai como se tivesse expirado (efeito definitivo roda).
         const overflow = next.length > MAX_VISIBLE ? next.splice(0, next.length - MAX_VISIBLE) : [];
@@ -58,11 +72,14 @@ export default function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className={styles.region} role="region" aria-label="Avisos">
-        {toasts.map((t) => (
-          <ToastItem key={t.id} toast={t} onRemove={remove} />
-        ))}
-      </div>
+      {createPortal(
+        <div className={styles.region} role="region" aria-label="Avisos">
+          {toasts.map((t) => (
+            <ToastItem key={t.id} toast={t} onRemove={remove} />
+          ))}
+        </div>,
+        host ?? document.body
+      )}
     </ToastContext.Provider>
   );
 }

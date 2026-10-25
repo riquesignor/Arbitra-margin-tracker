@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { motion } from "framer-motion";
 import Papa from "papaparse";
 import {
@@ -38,6 +38,8 @@ import MarginBar from "./MarginBar";
 import WatchToggle from "./WatchToggle";
 import RollingNumber from "./RollingNumber";
 import CopyButton from "./CopyButton";
+import ProductSheet from "./ProductSheet";
+import { buildPortfolio } from "../lib/portfolio";
 import ProfitCharts from "./ProfitCharts";
 import styles from "./ResultsTable.module.css";
 
@@ -663,6 +665,18 @@ export default function ResultsTable({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [page, setPage] = useState(0);
   const [expandedSkus, setExpandedSkus] = useState<Set<string>>(new Set());
+  // Painel lateral de produto (ver ProductSheet.tsx) — SKU aberto, ou null.
+  const [sheetSku, setSheetSku] = useState<string | null>(null);
+  /** Clique na linha abre o painel — exceto em link/botão/campo dentro dela (ver anúncio, copiar SKU, monitorar…). */
+  function openFromRow(e: ReactMouseEvent<HTMLTableRowElement>, sku: string) {
+    if ((e.target as Element).closest("a, button, input, select, label, textarea")) return;
+    setSheetSku(sku);
+  }
+  const sheetOffers = useMemo(() => (sheetSku ? results.filter((r) => r.sku === sheetSku) : []), [results, sheetSku]);
+  const sheetHistory = useMemo(
+    () => (sheetSku ? buildPortfolio(history).find((p) => p.sku === sheetSku)?.priceHistory : undefined),
+    [history, sheetSku]
+  );
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -1061,6 +1075,8 @@ export default function ResultsTable({
                 {paginated.map((r, i) => (
                   <motion.tr
                     key={`${r.marketplace}-${r.sku}`}
+                    className={styles.rowClickable}
+                    onClick={(e) => openFromRow(e, r.sku)}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{
@@ -1080,7 +1096,9 @@ export default function ResultsTable({
                     </td>
                     <td className={styles.productCell}>
                       <div className={styles.productName} title={r.name}>
-                        {displayProductName(r.name)}
+                        <button type="button" className={styles.productNameButton} onClick={() => setSheetSku(r.sku)}>
+                          {displayProductName(r.name)}
+                        </button>
                         {r.approximate && (
                           <ApproximateBadge
                             matchedSource={r.matchedSource}
@@ -1171,7 +1189,13 @@ export default function ResultsTable({
                     marketplacesPresent.length === 2 ? byMarket.get(marketplacesPresent[1])?.marketplacePrice : undefined;
                   const diff = priceA !== undefined && priceB !== undefined ? priceB - priceA : null;
                   return (
-                    <motion.tr key={best.sku} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                    <motion.tr
+                      key={best.sku}
+                      className={styles.rowClickable}
+                      onClick={(e) => openFromRow(e, best.sku)}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                    >
                       <td className={styles.photoCell}>
                         <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                       </td>
@@ -1183,7 +1207,9 @@ export default function ResultsTable({
                       </td>
                       <td className={styles.productCell}>
                         <div className={styles.productName} title={best.name}>
+                          <button type="button" className={styles.productNameButton} onClick={() => setSheetSku(best.sku)}>
                           {displayProductName(best.name)}
+                        </button>
                           {group.some((r) => r.approximate) && (
                             <ApproximateBadge
                               matchedSource={group.find((r) => r.approximate)?.matchedSource}
@@ -1290,7 +1316,12 @@ export default function ResultsTable({
                   const isExpanded = expandedSkus.has(best.sku);
                   return (
                     <Fragment key={best.sku}>
-                      <motion.tr initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                      <motion.tr
+                        className={styles.rowClickable}
+                        onClick={(e) => openFromRow(e, best.sku)}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                      >
                         <td className={styles.photoCell}>
                           <ProductThumb src={best.imageUrl} label={best.matchedTitle ?? best.name} />
                         </td>
@@ -1302,7 +1333,9 @@ export default function ResultsTable({
                         </td>
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={best.name}>
-                            {displayProductName(best.name)}
+                            <button type="button" className={styles.productNameButton} onClick={() => setSheetSku(best.sku)}>
+                          {displayProductName(best.name)}
+                        </button>
                             {best.approximate && (
                               <ApproximateBadge
                                 matchedSource={best.matchedSource}
@@ -1371,7 +1404,11 @@ export default function ResultsTable({
                       </motion.tr>
                       {isExpanded &&
                         rest.map((r) => (
-                          <tr key={`${r.marketplace}-${r.sku}`} className={styles.subRow}>
+                          <tr
+                            key={`${r.marketplace}-${r.sku}`}
+                            className={`${styles.subRow} ${styles.rowClickable}`}
+                            onClick={(e) => openFromRow(e, r.sku)}
+                          >
                             <td className={styles.photoCell} />
                             <td />
                             <td className={styles.productCell}>
@@ -1450,6 +1487,15 @@ export default function ResultsTable({
           </div>
         )}
       </div>
+      {sheetSku && sheetOffers.length > 0 && (
+        <ProductSheet
+          offers={sheetOffers}
+          targetMarginPct={targetMarginPct}
+          priceHistory={sheetHistory}
+          watch={{ userId, planId, provider: searchProvider, watchedKeys, onChange: handleWatchChange }}
+          onClose={() => setSheetSku(null)}
+        />
+      )}
     </div>
   );
 }

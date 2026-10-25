@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { motion } from "framer-motion";
 import {
   Boxes,
@@ -29,6 +29,7 @@ import {
 } from "./ResultsTable";
 import WatchToggle from "./WatchToggle";
 import PriceSparkline from "./PriceSparkline";
+import ProductSheet from "./ProductSheet";
 import { getPlan } from "../config/plans";
 import styles from "./Portfolio.module.css";
 
@@ -40,6 +41,8 @@ interface Props {
   /** Preferência `autoCheckWatches` (Fase B, plano Pro) — controlada pelo App, salva em userPreferences. */
   autoCheckWatches?: boolean;
   onToggleAutoCheckWatches?: (next: boolean) => void;
+  /** Margem-alvo de Precificação — usada no painel lateral do produto. */
+  targetMarginPct: number;
 }
 
 const PAGE_SIZE = 50;
@@ -266,6 +269,7 @@ export default function Portfolio({
   planId = null,
   autoCheckWatches = false,
   onToggleAutoCheckWatches,
+  targetMarginPct,
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("todos");
@@ -287,6 +291,23 @@ export default function Portfolio({
   const [page, setPage] = useState(0);
 
   const portfolio = useMemo(() => buildPortfolio(history), [history]);
+
+  // Painel lateral de produto (ver ProductSheet.tsx). A linha da carteira é
+  // um resumo — as ofertas completas (com a conta da margem) vêm da busca
+  // salva mais recente que contém o SKU.
+  const [sheetSku, setSheetSku] = useState<string | null>(null);
+  function openFromRow(e: ReactMouseEvent<HTMLTableRowElement>, sku: string) {
+    if ((e.target as Element).closest("a, button, input, select, label, textarea")) return;
+    setSheetSku(sku);
+  }
+  const sheetItem = sheetSku ? portfolio.find((p) => p.sku === sheetSku) : undefined;
+  const sheetOffers = useMemo(() => {
+    if (!sheetSku) return [];
+    const latest = [...history]
+      .sort((a, b) => b.uploadedAt - a.uploadedAt)
+      .find((h) => h.results.some((r) => r.sku === sheetSku));
+    return latest ? latest.results.filter((r) => r.sku === sheetSku) : [];
+  }, [history, sheetSku]);
 
   // Aviso "faz tempo que você não busca" (out/2026) — empurrão pontual pra
   // reprocessar, sem automação nenhuma por trás (decisão explícita do
@@ -471,6 +492,8 @@ export default function Portfolio({
                     {paginated.map((item, i) => (
                       <motion.tr
                         key={item.sku}
+                        className={styles.rowClickable}
+                        onClick={(e) => openFromRow(e, item.sku)}
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.2, delay: Math.min(i, 12) * 0.02 }}
@@ -481,7 +504,13 @@ export default function Portfolio({
                         <td>{item.sku}</td>
                         <td className={styles.productCell}>
                           <div className={styles.productName} title={item.name}>
-                            {displayProductName(item.name)}
+                            <button
+                              type="button"
+                              className={styles.productNameButton}
+                              onClick={() => setSheetSku(item.sku)}
+                            >
+                              {displayProductName(item.name)}
+                            </button>
                           </div>
                           {item.link && (
                             <a
@@ -551,6 +580,15 @@ export default function Portfolio({
             )}
           </div>
         </>
+      )}
+      {sheetSku && sheetOffers.length > 0 && (
+        <ProductSheet
+          offers={sheetOffers}
+          targetMarginPct={targetMarginPct}
+          priceHistory={sheetItem?.priceHistory}
+          watch={{ userId, planId, provider: sheetItem?.provider, watchedKeys, onChange: handleWatchChange }}
+          onClose={() => setSheetSku(null)}
+        />
       )}
     </div>
   );

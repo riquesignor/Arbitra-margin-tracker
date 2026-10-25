@@ -193,6 +193,9 @@ export default function TooltipLayer() {
     >
       {active.text}
     </div>,
-    document.body
+    // Dentro de um <dialog> modal (painel de produto, confirmação) o
+    // tooltip precisa estar no próprio diálogo: o modal fica na camada
+    // superior do navegador e cobriria qualquer coisa desenhada no body.
+    active.target.closest("dialog[open]") ?? document.body
   );
 }

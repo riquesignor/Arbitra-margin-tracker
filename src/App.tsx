@@ -584,6 +584,7 @@ export default function App() {
                 userId={user?.uid ?? null}
                 planId={profile?.plan}
                 autoCheckWatches={preferences.autoCheckWatches}
+                targetMarginPct={pricingRules.targetMarginPct}
                 onToggleAutoCheckWatches={(next) => updatePreferences({ autoCheckWatches: next })}
               />
             )}

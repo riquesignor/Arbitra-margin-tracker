@@ -3,10 +3,11 @@ import styles from "./PriceSparkline.module.css";
 
 interface Props {
   points: { price: number; date: number }[];
+  /** Padrão 64×22 (célula da tabela); o painel de produto usa maior. */
+  width?: number;
+  height?: number;
 }
 
-const WIDTH = 64;
-const HEIGHT = 22;
 const PADDING_Y = 3;
 
 /**
@@ -17,7 +18,7 @@ const PADDING_Y = 3;
  * recentes. SVG customizado (sem lib de gráfico) pra ficar no mesmo
  * estilo do resto do app (ver MarginBar.tsx).
  */
-export default function PriceSparkline({ points }: Props) {
+export default function PriceSparkline({ points, width: WIDTH = 64, height: HEIGHT = 22 }: Props) {
   if (points.length < 2) return null;
 
   const prices = points.map((p) => p.price);
