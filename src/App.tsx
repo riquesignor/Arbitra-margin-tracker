@@ -15,7 +15,7 @@ import { listCatalogUploads, type CatalogUploadRecord } from "./lib/catalogHisto
 import type { SharedCatalog } from "./lib/sharedCatalogs";
 import { loadPricingRules, savePricingRules } from "./lib/pricingRulesStore";
 import { DEFAULT_PRICING_RULES, calculateMargins } from "./lib/marginCalculator";
-import { applyAccent, applyFontSize, applyTheme, getInitialTheme, resolveThemeMode, type Theme } from "./lib/theme";
+import { applyAccent, applyDensity, applyFontSize, applyTheme, getInitialTheme, resolveThemeMode, type Theme } from "./lib/theme";
 import {
   DEFAULT_PREFERENCES,
   loadUserPreferences,
@@ -55,6 +55,19 @@ function recalcMarginsForPriceMap(
   return Object.values(pricesByMarket).flatMap((priceMap) =>
     priceMap ? calculateMargins(rows, priceMap, rules) : []
   );
+}
+
+const LAST_SCREEN_KEY = "arbitra:lastScreen";
+/** Telas que fazem sentido reabrir sozinhas — nunca Admin/FAQ (link, não destino). */
+const RESUMABLE_SCREENS: Screen[] = ["home", "dashboard", "pricing", "results", "portfolio", "assistant", "suppliers", "account", "settings"];
+
+function readLastScreen(): Screen | null {
+  try {
+    const stored = localStorage.getItem(LAST_SCREEN_KEY) as Screen | null;
+    return stored && RESUMABLE_SCREENS.includes(stored) ? stored : null;
+  } catch {
+    return null;
+  }
 }
 
 export default function App() {
@@ -150,9 +163,31 @@ export default function App() {
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [resolvedTheme, setResolvedTheme] = useState<Theme>(() => getInitialTheme());
 
+  // "Abrir o app em" (Configurações → Fluxo de trabalho, out/2026): vale
+  // uma vez por carregamento, assim que as preferências do usuário logado
+  // chegam — e só se ele ainda estiver na tela de entrada (não arranca
+  // ninguém de onde já navegou nem de um link do FAQ).
+  const startScreenAppliedRef = useRef(false);
   useEffect(() => {
-    loadUserPreferences(user?.uid ?? null).then(setPreferences);
+    void loadUserPreferences(user?.uid ?? null).then((loaded) => {
+      setPreferences(loaded);
+      if (!user || startScreenAppliedRef.current) return;
+      startScreenAppliedRef.current = true;
+      const target = loaded.startScreen === "last" ? readLastScreen() : loaded.startScreen;
+      if (target && target !== "home") setScreen((current) => (current === "home" ? target : current));
+    });
   }, [user]);
+
+  // Lembra a última tela (pra opção "Onde parei") — só depois de aplicar
+  // a tela inicial, senão o "home" do primeiro render apagaria a anterior.
+  useEffect(() => {
+    if (!startScreenAppliedRef.current || screen === "faq") return;
+    try {
+      localStorage.setItem(LAST_SCREEN_KEY, screen);
+    } catch {
+      // sem storage — "Onde parei" cai no Início
+    }
+  }, [screen]);
 
   useEffect(() => {
     const resolved = resolveThemeMode(preferences.themeMode);
@@ -160,6 +195,7 @@ export default function App() {
     applyTheme(resolved);
     applyAccent(preferences.accent);
     applyFontSize(preferences.fontSize);
+    applyDensity(preferences.tableDensity);
   }, [preferences]);
 
   // "Sistema" acompanha o SO em tempo real, sem precisar de reload —

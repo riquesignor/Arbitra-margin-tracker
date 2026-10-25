@@ -1,4 +1,4 @@
-import type { AccentPalette, FontSizePreset, ThemeMode } from "./userPreferences";
+import type { AccentPalette, FontSizePreset, TableDensity, ThemeMode } from "./userPreferences";
 
 /** Valor efetivamente pintado — "system" (ver ThemeMode em userPreferences.ts) nunca chega até aqui, já vem resolvido. */
 export type Theme = "dark" | "light";
@@ -50,4 +50,9 @@ export function applyAccent(accent: AccentPalette): void {
 /** Aplica o preset de tamanho de texto no <html data-font-size="...">. */
 export function applyFontSize(fontSize: FontSizePreset): void {
   document.documentElement.dataset.fontSize = fontSize;
+}
+
+/** Aplica a densidade das tabelas no <html data-density="...">. */
+export function applyDensity(density: TableDensity): void {
+  document.documentElement.dataset.density = density;
 }

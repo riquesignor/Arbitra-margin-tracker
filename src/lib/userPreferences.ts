@@ -16,12 +16,20 @@ import { firebaseConfigured, getFirebaseDb } from "./firebase";
 export type ThemeMode = "light" | "dark" | "system";
 export type AccentPalette = "aco" | "petroleo" | "indigo" | "terracota";
 export type FontSizePreset = "compact" | "standard" | "large";
+/** Tela que abre quando o app carrega (out/2026). "last" = onde o usuário estava da última vez. */
+export type StartScreen = "home" | "dashboard" | "results" | "portfolio" | "last";
+export type TableDensity = "comfortable" | "compact";
 
 export interface UserPreferences {
   // --- Aparência ---
   themeMode: ThemeMode;
   accent: AccentPalette;
   fontSize: FontSizePreset;
+
+  // --- Fluxo de trabalho (out/2026) ---
+  startScreen: StartScreen;
+  /** Altura das linhas nas tabelas de Resultados, Meus produtos e Início — aplicado em <html data-density>. */
+  tableDensity: TableDensity;
 
   // --- Personalização (gráficos opcionais por tela, ver design-tokens.md
   // § Regras de tela adicionadas — "a leitura numérica nunca depende só
@@ -49,6 +57,9 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   themeMode: "dark",
   accent: "aco",
   fontSize: "standard",
+
+  startScreen: "home",
+  tableDensity: "comfortable",
 
   chartsPricing: true,
   chartsResults: true,

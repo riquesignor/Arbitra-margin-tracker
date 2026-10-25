@@ -22,6 +22,12 @@ export interface UserProfile {
   /** Mesmo padrão de `hasSerpApiKey` acima, pra chave RapidAPI (Amazon direto). */
   hasRapidApiKey?: boolean;
   /**
+   * Quais chaves BYOK a conta tem cadastradas (só nomes de provedor, nunca
+   * o valor) — montado em `listAllUsers` a partir das flags `has*ApiKey`
+   * do perfil, pra tela Admin mostrar todas, não só SerpApi/RapidAPI.
+   */
+  apiKeyProviders?: string[];
+  /**
    * Campos de billing (Mercado Pago, ver api/billing-create-subscription.ts
    * e api/billing-webhook.ts) — SÓ LEITURA no client. Quem escreve é
    * sempre o servidor via Admin SDK (ignora firestore.rules); a regra do
@@ -88,6 +94,18 @@ export async function ensureUserProfile(uid: string, email: string | null): Prom
  * firestore.rules: `users` permite `read` de todos os docs quando
  * `request.auth.uid` corresponde a um doc com `isAdmin == true`).
  */
+/** Flag do perfil → nome do provedor (ver profileFlag em userSecrets.ts). */
+const KEY_FLAG_LABEL: Record<string, string> = {
+  hasSerpApiKey: "SerpApi",
+  hasRapidApiKey: "RapidAPI",
+  hasSearchApiKey: "SearchApi.io",
+  hasUnwrangleApiKey: "Unwrangle",
+  hasGeminiApiKey: "Gemini",
+  hasMistralApiKey: "Mistral",
+  hasNvidiaApiKey: "NVIDIA",
+  hasScraperApiKey: "ScraperAPI",
+};
+
 export async function listAllUsers(): Promise<UserProfile[]> {
   if (!firebaseConfigured) return [];
 
@@ -107,6 +125,10 @@ export async function listAllUsers(): Promise<UserProfile[]> {
           createdAt: data.createdAt ?? 0,
           hasSerpApiKey: data.hasSerpApiKey ?? false,
           hasRapidApiKey: data.hasRapidApiKey ?? false,
+          mpSubscriptionStatus: data.mpSubscriptionStatus,
+          apiKeyProviders: Object.entries(KEY_FLAG_LABEL)
+            .filter(([flag]) => (data as Record<string, unknown>)[flag] === true)
+            .map(([, label]) => label),
         };
       })
       .sort((a, b) => (a.email ?? "").localeCompare(b.email ?? ""));

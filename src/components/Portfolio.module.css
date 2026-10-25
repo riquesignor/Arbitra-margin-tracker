@@ -615,3 +615,9 @@
   outline: 2px solid var(--color-text);
   outline-offset: 2px;
 }
+
+/* Densidade "Compacta" (Configurações → Fluxo de trabalho): mais linhas por tela. */
+:global(html[data-density="compact"]) .table td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}

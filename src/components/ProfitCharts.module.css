@@ -1,8 +1,7 @@
 .row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  gap: var(--space-6);
 }
 
 @media (max-width: 960px) {
@@ -11,12 +10,11 @@
   }
 }
 
+/* Livro-razão (out/2026): sem card — fio de tinta no topo, como as seções de Resultados. */
 .card {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
   min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-text);
 }
 
 .header {
@@ -27,27 +25,20 @@
 }
 
 .headerIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
-  flex-shrink: 0;
+  display: none;
 }
 
 .title {
-  font-size: 0.88rem;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
+  color: var(--color-text);
 }
 
 .meta {
   margin-left: auto;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--color-text-dim);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
 }
 
 /* Status — mesma semântica de cor dos badges da tabela. */
@@ -79,7 +70,7 @@
   grid-template-columns: minmax(80px, 34%) 1fr auto;
   align-items: center;
   gap: var(--space-3);
-  font-size: 0.78rem;
+  font-size: calc(12.5px * var(--font-scale));
 }
 
 .barName {
@@ -92,9 +83,7 @@
 .barTrack {
   display: block;
   height: 10px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated-2);
   overflow: hidden;
 }
 
@@ -153,7 +142,7 @@
 .dot {
   fill: var(--status-color);
   fill-opacity: 0.75;
-  stroke: var(--color-bg-elevated);
+  stroke: var(--color-bg);
   stroke-width: 1;
 }
 

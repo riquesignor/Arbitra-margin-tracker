@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   Palette,
@@ -8,10 +8,18 @@ import {
   Check,
   AlertTriangle,
   Loader2,
+  Workflow,
+  Home,
+  Search,
+  BarChart3,
+  Package,
+  History,
+  LogOut,
+  X,
 } from "lucide-react";
 import type { AuthUser } from "../lib/auth";
 import { changeEmail, changePassword, deleteAccount, signOutUser } from "../lib/auth";
-import { getPlan } from "../config/plans";
+import { getPlan, PLANS } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import { createSubscriptionCheckout } from "../lib/billingApi";
 import { brl, pct } from "../lib/format";
@@ -21,6 +29,8 @@ import { BADGE_CLASS, BADGE_LABEL } from "./ResultsTable";
 import type {
   AccentPalette,
   FontSizePreset,
+  StartScreen,
+  TableDensity,
   ThemeMode,
   UserPreferences,
 } from "../lib/userPreferences";
@@ -34,13 +44,14 @@ interface Props {
   initialSection?: Section;
 }
 
-export type Section = "aparencia" | "personalizacao" | "pagamento" | "conta";
+export type Section = "aparencia" | "fluxo" | "personalizacao" | "pagamento" | "conta";
 
-const SECTIONS: { id: Section; label: string; icon: typeof Palette }[] = [
-  { id: "aparencia", label: "Aparência", icon: Palette },
-  { id: "personalizacao", label: "Personalização", icon: SlidersHorizontal },
-  { id: "pagamento", label: "Pagamento", icon: CreditCard },
-  { id: "conta", label: "Dados da conta", icon: UserCog },
+const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette; isNew?: boolean }[] = [
+  { id: "aparencia", label: "Aparência", hint: "modo, cor e tamanho do texto", icon: Palette },
+  { id: "fluxo", label: "Fluxo de trabalho", hint: "onde o app abre e densidade", icon: Workflow, isNew: true },
+  { id: "personalizacao", label: "Tabelas e gráficos", hint: "o que aparece em cada tela", icon: SlidersHorizontal },
+  { id: "pagamento", label: "Plano e pagamento", hint: "assinatura e limites", icon: CreditCard },
+  { id: "conta", label: "Conta", hint: "email, senha e acesso", icon: UserCog },
 ];
 
 // Valores de design-tokens.md § Temas de cor (paleta "Remaster",
@@ -58,15 +69,28 @@ const PALETTES: { id: AccentPalette; label: string; primary: string; hover: stri
 ];
 
 const FONT_SIZES: { id: FontSizePreset; label: string; sample: string; body: string }[] = [
-  { id: "compact", label: "Compacto", sample: "0.86rem", body: "13px" },
-  { id: "standard", label: "Padrão", sample: "1rem", body: "14px" },
-  { id: "large", label: "Grande", sample: "1.16rem", body: "16px" },
+  { id: "compact", label: "Compacto", sample: "15px", body: "13px" },
+  { id: "standard", label: "Padrão", sample: "18px", body: "14px" },
+  { id: "large", label: "Grande", sample: "22px", body: "16px" },
 ];
 
-const THEME_MODES: { id: ThemeMode; label: string }[] = [
-  { id: "light", label: "Claro" },
-  { id: "dark", label: "Escuro" },
-  { id: "system", label: "Sistema" },
+const THEME_MODES: { id: ThemeMode; label: string; hint: string }[] = [
+  { id: "light", label: "Claro", hint: "papel claro, bom de dia" },
+  { id: "dark", label: "Escuro", hint: "cansa menos à noite" },
+  { id: "system", label: "Sistema", hint: "segue o computador" },
+];
+
+const START_SCREENS: { id: StartScreen; label: string; hint: string; icon: typeof Home }[] = [
+  { id: "home", label: "Início", hint: "resumo do catálogo e atalhos", icon: Home },
+  { id: "dashboard", label: "Nova busca", hint: "direto pra subir catálogo", icon: Search },
+  { id: "results", label: "Resultados", hint: "a última busca aberta", icon: BarChart3 },
+  { id: "portfolio", label: "Meus produtos", hint: "tendência e monitorados", icon: Package },
+  { id: "last", label: "Onde parei", hint: "a última tela que você usou", icon: History },
+];
+
+const DENSITIES: { id: TableDensity; label: string; hint: string }[] = [
+  { id: "comfortable", label: "Confortável", hint: "mais respiro entre linhas" },
+  { id: "compact", label: "Compacta", hint: "mais produtos por tela" },
 ];
 
 const PERSONALIZATION_TOGGLES: {
@@ -80,30 +104,24 @@ const PERSONALIZATION_TOGGLES: {
   {
     key: "chartsPricing",
     title: "Gráficos na tela de Precificação",
-    text: "curva de sensibilidade de preço e histograma de margem, ao lado dos números.",
+    text: "Curva de sensibilidade de preço e histograma de margem, ao lado dos números.",
   },
   {
     key: "chartsResults",
-    title: "Gráficos na tela de Resultados",
-    text: "barra de margem por linha e faixa de distribuição no topo da tabela.",
+    title: "Aba Análise em Resultados",
+    text: "Distribuição de margem, maiores lucros por unidade e custo × margem.",
   },
   {
     key: "compareEnginesSideBySide",
-    title: "Comparar mecanismos lado a lado",
-    text: "ao buscar em 2 marketplaces, mostra 2 colunas de preço + diferença em vez de 1 linha por oferta.",
+    title: "Comparar marketplaces lado a lado",
+    text: "Ao buscar em 2 marketplaces, mostra 2 colunas de preço + diferença em vez de 1 linha por oferta.",
   },
   {
     key: "groupOffersBySku",
     title: "Agrupar ofertas por SKU",
-    text: "1 produto por linha, com as ofertas individuais recolhidas embaixo.",
+    text: "1 produto por linha, com as ofertas de outros marketplaces recolhidas embaixo.",
   },
 ];
-
-const cardMotion = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] as const },
-};
 
 function Switch({ on, onToggle, label }: { on: boolean; onToggle: () => void; label: string }) {
   return (
@@ -120,6 +138,19 @@ function Switch({ on, onToggle, label }: { on: boolean; onToggle: () => void; la
   );
 }
 
+/** Linha de formulário no estilo do shadcn: rótulo + explicação à esquerda, controle à direita. */
+function Group({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
+  return (
+    <div className={styles.group}>
+      <div className={styles.groupText}>
+        <h3 className={styles.groupTitle}>{title}</h3>
+        {description && <p className={styles.groupDescription}>{description}</p>}
+      </div>
+      <div className={styles.groupControl}>{children}</div>
+    </div>
+  );
+}
+
 export default function Settings({
   preferences,
   onUpdatePreferences,
@@ -129,19 +160,19 @@ export default function Settings({
 }: Props) {
   const [section, setSection] = useState<Section>(initialSection);
   const plan = getPlan(profile?.plan);
+  const current = SECTIONS.find((s) => s.id === section)!;
 
   return (
-    <motion.div className={styles.container} {...cardMotion}>
-      <div className={styles.header}>
-        <span className={styles.eyebrow}>Preferências</span>
+    <div className={styles.container}>
+      <header className={styles.header}>
         <h1 className={styles.title}>Configurações</h1>
-        <p className={styles.subtitle}>
-          Cada seção é independente — mexer numa não afeta as outras.
+        <p className={styles.lead}>
+          Tudo aqui é salvo na hora e vale em qualquer computador em que você entrar com esta conta.
         </p>
-      </div>
+      </header>
 
       <div className={styles.layout}>
-        <nav className={styles.sectionNav}>
+        <nav className={styles.nav} aria-label="Seções das configurações">
           {SECTIONS.map((s) => {
             const Icon = s.icon;
             const active = section === s.id;
@@ -149,54 +180,56 @@ export default function Settings({
               <button
                 key={s.id}
                 type="button"
-                className={active ? styles.sectionItemActive : styles.sectionItem}
+                className={active ? styles.navItemActive : styles.navItem}
+                aria-current={active ? "page" : undefined}
                 onClick={() => setSection(s.id)}
               >
-                <Icon size={15} strokeWidth={2} />
-                {s.label}
+                <Icon size={16} strokeWidth={2} aria-hidden="true" />
+                <span className={styles.navText}>
+                  <span className={styles.navLabel}>
+                    {s.label}
+                    {s.isNew && <span className={styles.newTag}>novo</span>}
+                  </span>
+                  <span className={styles.navHint}>{s.hint}</span>
+                </span>
               </button>
             );
           })}
+          <div className={styles.navPlan}>
+            <span className={styles.navPlanLabel}>Seu plano</span>
+            <span className={styles.navPlanName}>{plan.name}</span>
+            {section !== "pagamento" && (
+              <button type="button" className={styles.inlineLink} onClick={() => setSection("pagamento")}>
+                ver detalhes
+              </button>
+            )}
+          </div>
         </nav>
 
-        <div className={styles.sectionBody}>
+        <motion.div
+          key={section}
+          className={styles.body}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className={styles.sectionHead}>
+            <h2 className={styles.sectionTitle}>{current.label}</h2>
+          </div>
           {section === "aparencia" && (
             <AparenciaSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
+          {section === "fluxo" && <FluxoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />}
           {section === "personalizacao" && (
             <PersonalizacaoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
           {section === "pagamento" && (
-            <PagamentoSection
-              planName={plan.name}
-              priceLabel={plan.priceLabel}
-              subscriptionStatus={profile?.mpSubscriptionStatus}
-            />
+            <PagamentoSection planId={plan.id} subscriptionStatus={profile?.mpSubscriptionStatus} />
           )}
           {section === "conta" && <ContaSection user={user} />}
-        </div>
-
-        <aside className={styles.previewCol}>
-          <ThemePreview />
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <h2 className={styles.cardHeaderTitle}>Seu plano</h2>
-            </div>
-            <div className={styles.cardBody}>
-              <div className={styles.planSummary}>
-                <span className={styles.planSummaryName}>{plan.name}</span>
-                <span className={styles.planSummaryPrice}>{plan.priceLabel}</span>
-              </div>
-              {section !== "pagamento" && (
-                <button type="button" className={styles.linkButton} onClick={() => setSection("pagamento")}>
-                  ver pagamento e planos
-                </button>
-              )}
-            </div>
-          </section>
-        </aside>
+        </motion.div>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -208,44 +241,77 @@ const PREVIEW_ROWS: { name: string; price: number; marginPct: number; recommenda
 const PREVIEW_TARGET = 0.25;
 
 /**
- * Tema/paleta/tamanho já se aplicam ao vivo no app inteiro (ver
- * applyAccent/applyTheme/applyFontSize em App.tsx), mas a tela de
- * Configurações não tem nenhum dos componentes mais usados — barra de
- * margem, badge de status, linha de produto. Este card mostra eles com as
+ * Tema/paleta/tamanho/densidade já se aplicam ao vivo no app inteiro (ver
+ * applyAccent/applyTheme/applyFontSize/applyDensity em App.tsx), mas a tela
+ * de Configurações não tem nenhum dos componentes mais usados — barra de
+ * margem, badge de status, linha de produto. Esta prévia mostra eles com as
  * preferências atuais, sem precisar sair daqui pra conferir.
  */
 function ThemePreview() {
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h2 className={styles.cardHeaderTitle}>Preview</h2>
-        <span className={styles.cardHeaderMeta}>telas de produto</span>
+    <aside className={styles.preview} aria-label="Prévia">
+      <div className={styles.previewHead}>
+        <span>Prévia</span>
+        <span className={styles.previewHeadMeta}>como fica nas telas</span>
       </div>
-      <div className={styles.previewBody}>
-        <div className={styles.previewStat}>
-          <span className={styles.previewStatLabel}>margem mediana</span>
-          <span className={styles.previewStatValue}>{pct(0.214)}</span>
-        </div>
-        {PREVIEW_ROWS.map((row) => (
-          <div key={row.name} className={styles.previewRow}>
-            <div className={styles.previewRowTop}>
-              <span className={styles.previewRowName}>{row.name}</span>
-              <span className={styles.previewRowPrice}>{brl(row.price)}</span>
-            </div>
-            <MarginBar marginPct={row.marginPct} targetMarginPct={PREVIEW_TARGET} recommendation={row.recommendation} />
-            <div className={styles.previewRowBottom}>
-              <span className={styles.previewRowMargin}>{pct(row.marginPct)}</span>
-              <span className={`${styles.previewBadge} ${BADGE_CLASS[row.recommendation]}`}>
-                {BADGE_LABEL[row.recommendation]}
-              </span>
-            </div>
-          </div>
-        ))}
-        <span className={styles.previewButton} aria-hidden="true">
+      <div className={styles.previewStat}>
+        <span className={styles.previewStatLabel}>Margem mediana</span>
+        <span className={styles.previewStatValue}>{pct(0.214)}</span>
+      </div>
+      <table className={styles.previewTable}>
+        <tbody>
+          {PREVIEW_ROWS.map((row) => (
+            <tr key={row.name}>
+              <td>
+                <span className={styles.previewName}>{row.name}</span>
+                <MarginBar marginPct={row.marginPct} targetMarginPct={PREVIEW_TARGET} recommendation={row.recommendation} />
+              </td>
+              <td className={styles.previewNum}>
+                {brl(row.price)}
+                <span className={`${styles.previewBadge} ${BADGE_CLASS[row.recommendation]}`}>
+                  {BADGE_LABEL[row.recommendation]}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className={styles.previewActions}>
+        <span className={styles.previewPrimary} aria-hidden="true">
           Nova busca
         </span>
+        <span className={styles.previewLink} aria-hidden="true">
+          link de destaque
+        </span>
       </div>
-    </section>
+    </aside>
+  );
+}
+
+/** Miniatura de tela (estilo "Appearance" do shadcn) pintada com as cores fixas de cada modo. */
+function ModeThumb({ mode }: { mode: ThemeMode }) {
+  if (mode === "system") {
+    return (
+      <span className={styles.modeThumbSplit} aria-hidden="true">
+        <ModeThumb mode="light" />
+        <ModeThumb mode="dark" />
+      </span>
+    );
+  }
+  return (
+    <span className={mode === "light" ? styles.thumbLight : styles.thumbDark} aria-hidden="true">
+      <span className={styles.thumbBar} />
+      <span className={styles.thumbLine} style={{ width: "70%" }} />
+      <span className={styles.thumbLine} style={{ width: "45%" }} />
+      <span className={styles.thumbRow}>
+        <span className={styles.thumbDot} />
+        <span className={styles.thumbLine} style={{ width: "60%" }} />
+      </span>
+      <span className={styles.thumbRow}>
+        <span className={styles.thumbDot} />
+        <span className={styles.thumbLine} style={{ width: "50%" }} />
+      </span>
+    </span>
   );
 }
 
@@ -257,89 +323,173 @@ function AparenciaSection({
   onUpdatePreferences: (partial: Partial<UserPreferences>) => void;
 }) {
   return (
-    <>
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Paleta</h2>
-          <span className={styles.cardHeaderMeta}>acento — neutros e status não mudam</span>
-        </div>
-        <div className={styles.cardBody}>
-          <div className={styles.paletteGrid}>
+    <div className={styles.withPreview}>
+      <div className={styles.groups}>
+        <Group title="Modo" description="Claro, escuro ou acompanhando o sistema do seu computador.">
+          <div className={styles.choiceGrid3} role="radiogroup" aria-label="Modo">
+            {THEME_MODES.map((m) => {
+              const active = preferences.themeMode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={active ? styles.choiceActive : styles.choice}
+                  onClick={() => onUpdatePreferences({ themeMode: m.id })}
+                >
+                  <ModeThumb mode={m.id} />
+                  <span className={styles.choiceLabel}>
+                    {m.label}
+                    {active && <Check size={13} strokeWidth={3} aria-hidden="true" />}
+                  </span>
+                  <span className={styles.choiceHint}>{m.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Group>
+
+        <Group
+          title="Cor de destaque"
+          description="Muda botões, links e seleção. Verde, amarelo e vermelho de status nunca mudam — continuam querendo dizer a mesma coisa."
+        >
+          <div className={styles.choiceGrid4} role="radiogroup" aria-label="Cor de destaque">
             {PALETTES.map((p) => {
               const active = preferences.accent === p.id;
               return (
                 <button
                   key={p.id}
                   type="button"
-                  className={active ? styles.paletteCardActive : styles.paletteCard}
+                  role="radio"
+                  aria-checked={active}
+                  className={active ? styles.choiceActive : styles.choice}
                   onClick={() => onUpdatePreferences({ accent: p.id })}
                 >
-                  <span className={styles.paletteSwatches}>
-                    <span className={styles.swatch} style={{ background: p.primary }} />
-                    <span className={styles.swatch} style={{ background: p.hover }} />
-                    <span className={styles.swatch} style={{ background: p.tint, border: "1px solid var(--color-border)" }} />
+                  <span className={styles.swatches} aria-hidden="true">
+                    <span style={{ background: p.primary }} />
+                    <span style={{ background: p.hover }} />
+                    <span style={{ background: p.tint }} />
                   </span>
-                  <span className={styles.paletteLabel}>{p.label}</span>
-                  <span className={styles.paletteContrast}>{p.contrast}</span>
-                  {active && (
-                    <span className={styles.paletteCheck}>
-                      <Check size={11} strokeWidth={3} />
-                    </span>
-                  )}
+                  <span className={styles.choiceLabel}>
+                    {p.label}
+                    {active && <Check size={13} strokeWidth={3} aria-hidden="true" />}
+                  </span>
+                  <span className={styles.choiceMono}>{p.contrast}</span>
                 </button>
               );
             })}
           </div>
-        </div>
-      </section>
+        </Group>
 
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Tamanho do texto</h2>
-        </div>
-        <div className={styles.cardBody}>
-          <div className={styles.fontSizeGrid}>
+        <Group title="Tamanho do texto" description="Vale pro app inteiro, inclusive tabelas e gráficos.">
+          <div className={styles.choiceGrid3} role="radiogroup" aria-label="Tamanho do texto">
             {FONT_SIZES.map((f) => {
               const active = preferences.fontSize === f.id;
               return (
                 <button
                   key={f.id}
                   type="button"
-                  className={active ? styles.fontSizeCardActive : styles.fontSizeCard}
+                  role="radio"
+                  aria-checked={active}
+                  className={active ? styles.choiceActive : styles.choice}
                   onClick={() => onUpdatePreferences({ fontSize: f.id })}
                 >
-                  <span className={styles.fontSizeSample} style={{ fontSize: f.sample }}>
+                  <span className={styles.fontSample} style={{ fontSize: f.sample }} aria-hidden="true">
                     Aa
                   </span>
-                  <span className={styles.fontSizeLabel}>{f.label}</span>
-                  <span className={styles.fontSizeMeta}>{f.body} de corpo</span>
+                  <span className={styles.choiceLabel}>
+                    {f.label}
+                    {active && <Check size={13} strokeWidth={3} aria-hidden="true" />}
+                  </span>
+                  <span className={styles.choiceMono}>{f.body} de corpo</span>
                 </button>
               );
             })}
           </div>
-        </div>
-      </section>
+        </Group>
+      </div>
+      <ThemePreview />
+    </div>
+  );
+}
 
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Modo</h2>
-        </div>
-        <div className={styles.cardBody}>
-          <div className={styles.modeRow}>
-            {THEME_MODES.map((m) => (
+function FluxoSection({
+  preferences,
+  onUpdatePreferences,
+}: {
+  preferences: UserPreferences;
+  onUpdatePreferences: (partial: Partial<UserPreferences>) => void;
+}) {
+  return (
+    <div className={styles.groups}>
+      <Group
+        title="Abrir o app em"
+        description="A tela que aparece quando você entra. Quem trabalha sempre no mesmo lugar economiza um clique toda vez."
+      >
+        <div className={styles.startGrid} role="radiogroup" aria-label="Abrir o app em">
+          {START_SCREENS.map((s) => {
+            const Icon = s.icon;
+            const active = preferences.startScreen === s.id;
+            return (
               <button
-                key={m.id}
+                key={s.id}
                 type="button"
-                className={preferences.themeMode === m.id ? styles.modeButtonActive : styles.modeButton}
-                onClick={() => onUpdatePreferences({ themeMode: m.id })}
+                role="radio"
+                aria-checked={active}
+                className={active ? styles.startActive : styles.start}
+                onClick={() => onUpdatePreferences({ startScreen: s.id })}
               >
-                {m.label}
+                <span className={styles.startIcon} aria-hidden="true">
+                  <Icon size={16} />
+                </span>
+                <span className={styles.startText}>
+                  <span className={styles.choiceLabel}>{s.label}</span>
+                  <span className={styles.choiceHint}>{s.hint}</span>
+                </span>
+                <span className={styles.radioDot} aria-hidden="true" />
               </button>
-            ))}
-          </div>
+            );
+          })}
         </div>
-      </section>
-    </>
+      </Group>
+
+      <Group
+        title="Densidade das tabelas"
+        description="Resultados, Meus produtos e Início. A compacta cabe quase o dobro de linhas na tela — bom pra catálogo grande."
+      >
+        <div className={styles.choiceGrid2} role="radiogroup" aria-label="Densidade das tabelas">
+          {DENSITIES.map((d) => {
+            const active = preferences.tableDensity === d.id;
+            return (
+              <button
+                key={d.id}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                className={active ? styles.choiceActive : styles.choice}
+                onClick={() => onUpdatePreferences({ tableDensity: d.id })}
+              >
+                <span className={d.id === "compact" ? styles.densityThumbCompact : styles.densityThumb} aria-hidden="true">
+                  {Array.from({ length: d.id === "compact" ? 6 : 4 }, (_, i) => (
+                    <span key={i}>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ))}
+                </span>
+                <span className={styles.choiceLabel}>
+                  {d.label}
+                  {active && <Check size={13} strokeWidth={3} aria-hidden="true" />}
+                </span>
+                <span className={styles.choiceHint}>{d.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Group>
+    </div>
   );
 }
 
@@ -351,14 +501,13 @@ function PersonalizacaoSection({
   onUpdatePreferences: (partial: Partial<UserPreferences>) => void;
 }) {
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h2 className={styles.cardHeaderTitle}>Personalização</h2>
-        <span className={styles.cardHeaderMeta}>a leitura numérica nunca depende só do gráfico</span>
-      </div>
-      <div className={styles.toggleList}>
+    <div className={styles.groups}>
+      <p className={styles.sectionNote}>
+        Desligar um gráfico nunca esconde dado — os números continuam nas tabelas.
+      </p>
+      <ul className={styles.toggleList}>
         {PERSONALIZATION_TOGGLES.map((t) => (
-          <div key={t.key} className={styles.toggleRow}>
+          <li key={t.key} className={styles.toggleRow}>
             <span className={styles.toggleText}>
               <span className={styles.toggleTitle}>{t.title}</span>
               <span className={styles.toggleSub}>{t.text}</span>
@@ -368,10 +517,10 @@ function PersonalizacaoSection({
               onToggle={() => onUpdatePreferences({ [t.key]: !preferences[t.key] })}
               label={t.title}
             />
-          </div>
+          </li>
         ))}
-      </div>
-    </section>
+      </ul>
+    </div>
   );
 }
 
@@ -382,18 +531,11 @@ const SUBSCRIPTION_STATUS_LABEL: Record<string, string> = {
   cancelled: "cancelada",
 };
 
-function PagamentoSection({
-  planName,
-  priceLabel,
-  subscriptionStatus,
-}: {
-  planName: string;
-  priceLabel: string;
-  subscriptionStatus?: string;
-}) {
+function PagamentoSection({ planId, subscriptionStatus }: { planId: UserProfile["plan"]; subscriptionStatus?: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isActive = subscriptionStatus === "authorized";
+  const plan = getPlan(planId);
 
   async function handleSubscribe() {
     setError(null);
@@ -407,43 +549,86 @@ function PagamentoSection({
     }
   }
 
+  const rows: { label: string; value: (p: (typeof PLANS)[number]) => ReactNode }[] = [
+    { label: "Buscas por dia (referência)", value: (p) => p.dailySearchLimit.toLocaleString("pt-BR") },
+    { label: "Produtos monitorados", value: (p) => p.maxWatches.toLocaleString("pt-BR") },
+    { label: "Buscas no histórico", value: (p) => p.features.historyLimit.toLocaleString("pt-BR") },
+    { label: "Relatório / PDF", value: (p) => <Yes on={p.features.printableReport} /> },
+    { label: "Assistente de produto", value: (p) => <Yes on={p.features.productAssistant} /> },
+    { label: "Checagem diária automática", value: (p) => <Yes on={p.features.autoWatchCheck} /> },
+  ];
+
   return (
-    <section className={styles.card}>
-      <div className={styles.cardHeader}>
-        <h2 className={styles.cardHeaderTitle}>Pagamento</h2>
-        {isActive ? (
-          <span className={styles.statusPillSuccess}>assinatura ativa</span>
-        ) : (
-          <span className={styles.statusPillWarning}>sem assinatura</span>
-        )}
-      </div>
-      <div className={styles.cardBody}>
-        <p className={styles.cardIntro}>
-          Cobrança recorrente via Mercado Pago — checkout hospedado por eles, o Arbitra nunca vê nem
-          guarda dado de cartão. Ao assinar, você é redirecionado pra página de pagamento do Mercado
-          Pago; o plano é atualizado automaticamente assim que a assinatura for aprovada.
-        </p>
-        <div className={styles.infoGrid}>
-          <div className={styles.infoGridRow}>
-            <span className={styles.infoGridLabel}>plano atual</span>
-            <span className={styles.infoGridValue}>
-              {planName} · {priceLabel}
-            </span>
+    <div className={styles.groups}>
+      <Group
+        title="Assinatura"
+        description="Cobrança recorrente pelo Mercado Pago — o checkout é deles, o Arbitra nunca vê dado de cartão. O plano muda sozinho quando o pagamento é aprovado."
+      >
+        <dl className={styles.ledger}>
+          <div>
+            <dt>Plano atual</dt>
+            <dd>
+              {plan.name} · {plan.priceLabel}
+            </dd>
           </div>
-          <div className={styles.infoGridRow}>
-            <span className={styles.infoGridLabel}>status da assinatura</span>
-            <span className={styles.infoGridValue}>
-              {subscriptionStatus ? SUBSCRIPTION_STATUS_LABEL[subscriptionStatus] ?? subscriptionStatus : "—"}
-            </span>
+          <div>
+            <dt>Status</dt>
+            <dd>
+              <span className={isActive ? styles.pillOk : styles.pillWarn}>
+                {subscriptionStatus ? SUBSCRIPTION_STATUS_LABEL[subscriptionStatus] ?? subscriptionStatus : "sem assinatura"}
+              </span>
+            </dd>
           </div>
+        </dl>
+        <div className={styles.actions}>
+          <button type="button" className={styles.primaryButton} onClick={() => void handleSubscribe()} disabled={loading}>
+            {loading && <Loader2 size={14} className="spin" aria-hidden="true" />}
+            {loading ? "Abrindo checkout…" : isActive ? "Gerenciar assinatura" : "Assinar agora"}
+          </button>
         </div>
-        <button type="button" className={styles.primaryButton} onClick={() => void handleSubscribe()} disabled={loading}>
-          {loading ? <Loader2 size={14} className="spin" /> : null}
-          {loading ? "Abrindo checkout…" : isActive ? "Gerenciar assinatura" : "Assinar agora"}
-        </button>
         {error && <p className={styles.errorText}>{error}</p>}
-      </div>
-    </section>
+      </Group>
+
+      <Group title="Comparar planos" description="O que cada plano libera. A coluna marcada é a sua.">
+        <div className={styles.planTableWrap}>
+          <table className={styles.planTable}>
+            <thead>
+              <tr>
+                <th scope="col">
+                  <span className={styles.srOnly}>Recurso</span>
+                </th>
+                {PLANS.map((p) => (
+                  <th key={p.id} scope="col" className={p.id === plan.id ? styles.planCurrent : undefined}>
+                    {p.name}
+                    {p.id === plan.id && <span className={styles.planYou}>seu plano</span>}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label}>
+                  <th scope="row">{r.label}</th>
+                  {PLANS.map((p) => (
+                    <td key={p.id} className={p.id === plan.id ? styles.planCurrent : undefined}>
+                      {r.value(p)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Group>
+    </div>
+  );
+}
+
+function Yes({ on }: { on: boolean }) {
+  return on ? (
+    <Check size={15} strokeWidth={2.5} className={styles.yes} aria-label="incluso" />
+  ) : (
+    <X size={14} className={styles.no} aria-label="não incluso" />
   );
 }
 
@@ -524,148 +709,140 @@ function ContaSection({ user }: { user: AuthUser | null }) {
   }
 
   return (
-    <>
-      {user?.hasPassword ? (
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Trocar senha</h2>
-        </div>
-        <form className={styles.cardBody} onSubmit={handleChangePassword}>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>senha atual</span>
-            <input
-              className={styles.input}
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>nova senha</span>
-            <input
-              className={styles.input}
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-            />
-          </label>
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>repetir nova senha</span>
-            <input
-              className={styles.input}
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-            />
-          </label>
-          <button className={styles.primaryButton} type="submit" disabled={savingPassword}>
-            {savingPassword ? <Loader2 size={14} className="spin" /> : null}
-            {savingPassword ? "Salvando…" : "Trocar senha"}
-          </button>
-          {passwordMsg && <p className={styles.successText}>{passwordMsg}</p>}
-          {passwordError && <p className={styles.errorText}>{passwordError}</p>}
-        </form>
-      </section>
-      ) : (
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Senha</h2>
-        </div>
-        <div className={styles.cardBody}>
-          <p className={styles.cardIntro}>
-            Sua conta usa login do Google — não há senha cadastrada aqui pra trocar.
-          </p>
-        </div>
-      </section>
-      )}
-
-      <section className={styles.card}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Trocar email de acesso</h2>
-        </div>
-        <div className={styles.cardBody}>
-          <div className={styles.infoGridRow}>
-            <span className={styles.infoGridLabel}>email atual</span>
-            <span className={styles.infoGridValue}>{user?.email ?? "—"}</span>
+    <div className={styles.groups}>
+      <Group title="Email de acesso" description="O email muda só depois que você clicar no link de confirmação enviado pro endereço novo.">
+        <dl className={styles.ledger}>
+          <div>
+            <dt>Email atual</dt>
+            <dd>{user?.email ?? "—"}</dd>
           </div>
-          {!showEmailForm ? (
+          <div>
+            <dt>Login</dt>
+            <dd>{user?.hasPassword ? "email e senha" : "conta Google"}</dd>
+          </div>
+        </dl>
+        {!showEmailForm ? (
+          <div className={styles.actions}>
             <button type="button" className={styles.secondaryButton} onClick={() => setShowEmailForm(true)}>
-              Alterar
+              Alterar email
             </button>
-          ) : (
-            <form className={styles.inlineForm} onSubmit={handleChangeEmail}>
+          </div>
+        ) : (
+          <form className={styles.form} onSubmit={(e) => void handleChangeEmail(e)}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Novo email</span>
+              <input className={styles.input} type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} required />
+            </label>
+            {user?.hasPassword ? (
               <label className={styles.field}>
-                <span className={styles.fieldLabel}>novo email</span>
+                <span className={styles.fieldLabel}>Senha atual (confirmação)</span>
                 <input
                   className={styles.input}
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
+                  type="password"
+                  value={emailPassword}
+                  onChange={(e) => setEmailPassword(e.target.value)}
+                  autoComplete="current-password"
                   required
                 />
               </label>
-              {user?.hasPassword ? (
-                <label className={styles.field}>
-                  <span className={styles.fieldLabel}>senha atual (confirmação)</span>
-                  <input
-                    className={styles.input}
-                    type="password"
-                    value={emailPassword}
-                    onChange={(e) => setEmailPassword(e.target.value)}
-                    autoComplete="current-password"
-                    required
-                  />
-                </label>
-              ) : (
-                <p className={styles.cardIntro}>
-                  Vamos pedir pra você confirmar de novo com o Google antes de trocar.
-                </p>
-              )}
-              <div className={styles.inlineFormActions}>
-                <button className={styles.primaryButton} type="submit" disabled={savingEmail}>
-                  {savingEmail ? "Enviando…" : "Enviar confirmação"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.linkButton}
-                  onClick={() => setShowEmailForm(false)}
-                  disabled={savingEmail}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          )}
-          {emailMsg && <p className={styles.successText}>{emailMsg}</p>}
-          {emailError && <p className={styles.errorText}>{emailError}</p>}
-        </div>
-      </section>
+            ) : (
+              <p className={styles.note}>Vamos pedir pra você confirmar de novo com o Google antes de trocar.</p>
+            )}
+            <div className={styles.actions}>
+              <button className={styles.primaryButton} type="submit" disabled={savingEmail}>
+                {savingEmail ? "Enviando…" : "Enviar confirmação"}
+              </button>
+              <button type="button" className={styles.secondaryButton} onClick={() => setShowEmailForm(false)} disabled={savingEmail}>
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
+        {emailMsg && <p className={styles.successText}>{emailMsg}</p>}
+        {emailError && <p className={styles.errorText}>{emailError}</p>}
+      </Group>
 
-      <section className={styles.dangerCard}>
-        <div className={styles.cardHeader}>
-          <h2 className={styles.cardHeaderTitle}>Excluir conta</h2>
+      <Group title="Senha" description={user?.hasPassword ? "Pelo menos 6 caracteres." : undefined}>
+        {user?.hasPassword ? (
+          <form className={styles.form} onSubmit={(e) => void handleChangePassword(e)}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Senha atual</span>
+              <input
+                className={styles.input}
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <div className={styles.fieldRow}>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Nova senha</span>
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>Repetir nova senha</span>
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+              </label>
+            </div>
+            <div className={styles.actions}>
+              <button className={styles.primaryButton} type="submit" disabled={savingPassword}>
+                {savingPassword && <Loader2 size={14} className="spin" aria-hidden="true" />}
+                {savingPassword ? "Salvando…" : "Trocar senha"}
+              </button>
+            </div>
+            {passwordMsg && <p className={styles.successText}>{passwordMsg}</p>}
+            {passwordError && <p className={styles.errorText}>{passwordError}</p>}
+          </form>
+        ) : (
+          <p className={styles.note}>Sua conta usa login do Google — não há senha cadastrada aqui pra trocar.</p>
+        )}
+      </Group>
+
+      <Group title="Sessão" description="Sai só deste navegador. Suas buscas e configurações continuam salvas.">
+        <div className={styles.actions}>
+          <button className={styles.secondaryButton} type="button" onClick={() => void signOutUser()}>
+            <LogOut size={14} aria-hidden="true" /> Sair desta conta
+          </button>
         </div>
-        <div className={styles.cardBody}>
-          <p className={styles.cardIntro}>
-            <AlertTriangle size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-            Apaga o login e o perfil salvo. Catálogos e histórico processados ficam órfãos no banco
-            — não tem como desfazer pelo app.
-          </p>
+      </Group>
+
+      <div className={styles.danger}>
+        <Group
+          title="Excluir conta"
+          description={
+            <>
+              <AlertTriangle size={13} className={styles.dangerIcon} aria-hidden="true" />
+              Apaga o login e o perfil salvo. Não tem como desfazer.
+            </>
+          }
+        >
           {!showDeleteForm ? (
-            <button type="button" className={styles.dangerButton} onClick={() => setShowDeleteForm(true)}>
-              Excluir conta
-            </button>
+            <div className={styles.actions}>
+              <button type="button" className={styles.dangerButton} onClick={() => setShowDeleteForm(true)}>
+                Excluir minha conta
+              </button>
+            </div>
           ) : (
-            <form className={styles.inlineForm} onSubmit={handleDeleteAccount}>
+            <form className={styles.form} onSubmit={(e) => void handleDeleteAccount(e)}>
               {user?.hasPassword ? (
                 <label className={styles.field}>
-                  <span className={styles.fieldLabel}>confirme sua senha</span>
+                  <span className={styles.fieldLabel}>Confirme sua senha</span>
                   <input
                     className={styles.input}
                     type="password"
@@ -676,36 +853,21 @@ function ContaSection({ user }: { user: AuthUser | null }) {
                   />
                 </label>
               ) : (
-                <p className={styles.cardIntro}>
-                  Vamos pedir pra você confirmar de novo com o Google antes de excluir.
-                </p>
+                <p className={styles.note}>Vamos pedir pra você confirmar de novo com o Google antes de excluir.</p>
               )}
-              <div className={styles.inlineFormActions}>
+              <div className={styles.actions}>
                 <button className={styles.dangerButton} type="submit" disabled={deleting}>
                   {deleting ? "Excluindo…" : "Confirmar exclusão"}
                 </button>
-                <button
-                  type="button"
-                  className={styles.linkButton}
-                  onClick={() => setShowDeleteForm(false)}
-                  disabled={deleting}
-                >
+                <button type="button" className={styles.secondaryButton} onClick={() => setShowDeleteForm(false)} disabled={deleting}>
                   Cancelar
                 </button>
               </div>
               {deleteError && <p className={styles.errorText}>{deleteError}</p>}
             </form>
           )}
-        </div>
-      </section>
-
-      <section className={styles.card}>
-        <div className={styles.cardBody}>
-          <button className={styles.linkButton} type="button" onClick={() => void signOutUser()}>
-            sair desta conta
-          </button>
-        </div>
-      </section>
-    </>
+        </Group>
+      </div>
+    </div>
   );
 }

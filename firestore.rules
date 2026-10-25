@@ -79,7 +79,8 @@ service cloud.firestore {
       allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'hasSerpApiKey', 'hasRapidApiKey', 'hasSearchApiKey',
-          'hasUnwrangleApiKey', 'hasGeminiApiKey', 'hasMistralApiKey'
+          'hasUnwrangleApiKey', 'hasGeminiApiKey', 'hasMistralApiKey',
+          'hasNvidiaApiKey', 'hasScraperApiKey'
         ]);
 
       // Exclusão da própria conta (src/lib/auth.ts > deleteAccount) —

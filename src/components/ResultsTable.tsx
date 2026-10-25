@@ -1,12 +1,8 @@
-import { Fragment, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { motion } from "framer-motion";
 import Papa from "papaparse";
 import {
-  Package,
   ImageOff,
-  TrendingUp,
-  Percent,
-  ShieldAlert,
   ExternalLink,
   ArrowUp,
   ArrowDown,
@@ -17,7 +13,6 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
-  BarChart3,
   Users,
   Crown,
   AlertTriangle,
@@ -26,6 +21,7 @@ import {
   X,
   RefreshCw,
   Printer,
+  Columns3,
 } from "lucide-react";
 import type { MarginResult, MarketplaceId, PlanId, Recommendation, SearchProviderId } from "../types";
 import { median } from "../lib/marginCalculator";
@@ -620,6 +616,97 @@ function SortableHeader({
   );
 }
 
+// Colunas que dá pra esconder (out/2026) — o essencial (foto, SKU,
+// produto, preço, margem, status) fica sempre; o resto é preferência de
+// leitura e fica salvo no navegador, igual "Columns" de tabela do shadcn.
+type HideableColumn = "marketplace" | "cost" | "suggested" | "confidence";
+const HIDEABLE_COLUMNS: { key: HideableColumn; label: string }[] = [
+  { key: "marketplace", label: "Marketplace" },
+  { key: "cost", label: "Custo" },
+  { key: "suggested", label: "Preço sugerido" },
+  { key: "confidence", label: "Confiança" },
+];
+const COLUMNS_STORAGE_KEY = "arbitra.results.columns";
+const ALL_COLUMNS: Record<HideableColumn, boolean> = { marketplace: true, cost: true, suggested: true, confidence: true };
+
+function loadColumns(): Record<HideableColumn, boolean> {
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+    return raw ? { ...ALL_COLUMNS, ...(JSON.parse(raw) as Partial<Record<HideableColumn, boolean>>) } : ALL_COLUMNS;
+  } catch {
+    return ALL_COLUMNS;
+  }
+}
+
+function saveColumns(columns: Record<HideableColumn, boolean>) {
+  try {
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columns));
+  } catch {
+    // Navegador sem storage (aba anônima/bloqueado) — vale só pra esta visita.
+  }
+}
+
+function ColumnsMenu({
+  columns,
+  onToggle,
+}: {
+  columns: Record<HideableColumn, boolean>;
+  onToggle: (key: HideableColumn) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const hiddenCount = HIDEABLE_COLUMNS.filter((c) => !columns[c.key]).length;
+
+  return (
+    <div className={styles.menuWrap} ref={wrapRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={styles.toolButton}
+        aria-expanded={open}
+        aria-haspopup="true"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Columns3 size={14} aria-hidden="true" /> Colunas
+        {hiddenCount > 0 && <span className={styles.toolBadge}>{hiddenCount} oculta{hiddenCount > 1 ? "s" : ""}</span>}
+        <ChevronDown size={13} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className={styles.menu}>
+          <span className={styles.menuLabel}>Mostrar colunas</span>
+          {HIDEABLE_COLUMNS.map((c) => (
+            <label key={c.key} className={styles.menuItem}>
+              <input type="checkbox" checked={columns[c.key]} onChange={() => onToggle(c.key)} />
+              {c.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Catálogos grandes (a motivação original do parser de PDF/CSV) passam
 // de 100-200 linhas fácil — renderizar tudo de uma vez deixa a tabela
 // pesada sem necessidade, já que só a página visível importa pra tela.
@@ -672,6 +759,7 @@ export default function ResultsTable({
     if ((e.target as Element).closest("a, button, input, select, label, textarea")) return;
     setSheetSku(sku);
   }
+  const rowClass = (sku: string) => (sku === sheetSku ? `${styles.rowClickable} ${styles.rowActive}` : styles.rowClickable);
   const sheetOffers = useMemo(() => (sheetSku ? results.filter((r) => r.sku === sheetSku) : []), [results, sheetSku]);
   const sheetHistory = useMemo(
     () => (sheetSku ? buildPortfolio(history).find((p) => p.sku === sheetSku)?.priceHistory : undefined),
@@ -874,27 +962,58 @@ export default function ResultsTable({
     setPrintBlocked(!opened);
   }
 
+  const statusCounts = useMemo(() => {
+    const counts: Record<FilterOption, number> = { todos: results.length, recomendado: 0, revisar: 0, evitar: 0, sem_custo: 0 };
+    for (const r of results) counts[r.recommendation] += 1;
+    return counts;
+  }, [results]);
+  // Status sem nenhum produto não vira botão (só polui a barra) — a não
+  // ser que seja o filtro ativo (ex.: "evitar" vindo de Precificação).
+  const filterOptions = (["todos", "recomendado", "revisar", "evitar", "sem_custo"] as FilterOption[]).filter(
+    (o) => o === "todos" || o === filter || statusCounts[o] > 0
+  );
+  const isFiltered = filter !== "todos" || search.trim() !== "";
+  function clearFilters() {
+    setSearch("");
+    setFilter("todos");
+  }
+
+  const hasAnalysis = showCharts && results.length > 0;
+  const [tab, setTab] = useState<"produtos" | "analise">("produtos");
+  const activeTab = hasAnalysis ? tab : "produtos";
+  /** Card de KPI clicável: aplica o status e volta pra aba de produtos. */
+  function focusStatus(option: FilterOption) {
+    setFilter((current) => (current === option ? "todos" : option));
+    setTab("produtos");
+  }
+
+  const [columns, setColumns] = useState<Record<HideableColumn, boolean>>(loadColumns);
+  function toggleColumn(key: HideableColumn) {
+    setColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      saveColumns(next);
+      return next;
+    });
+  }
+
+  const medianTone =
+    medianMarginPct == null ? "" : medianMarginPct >= targetMarginPct ? styles.toneGood : medianMarginPct >= 0 ? styles.toneWarn : styles.toneBad;
+  const share = (n: number) => (results.length > 0 ? `${Math.round((n / results.length) * 100)}% do catálogo` : "—");
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+      <header className={styles.header}>
         <div className={styles.headerMain}>
-          <span className={styles.eyebrow}>Catálogo analisado</span>
           <h1 className={styles.title}>Resultados</h1>
-          <p className={styles.subtitle}>
-            Cada produto com o preço encontrado no marketplace e a margem calculada pelas suas
-            regras de precificação.
+          <p className={styles.lead}>
+            Preço encontrado no marketplace e margem calculada pelas suas regras de precificação.
+            <span className={styles.leadMeta}>
+              fonte <b>{source ? SOURCE_LABEL[source] : "—"}</b> · meta <b>{pct(targetMarginPct, 0)}</b>
+              {marketplacesPresent.length > 0 && (
+                <> · {marketplacesPresent.map((m) => MARKETPLACE_LABEL[m]).join(", ")}</>
+              )}
+            </span>
           </p>
-        </div>
-        <div className={styles.headerCard}>
-          <span className={styles.headerCardRow}>
-            <span className={styles.headerCardDot} />
-            fonte{" "}
-            <b className={styles.headerCardStrong}>{source ? SOURCE_LABEL[source] : "—"}</b>
-          </span>
-          <span className={styles.headerCardRow}>
-            <span className={styles.headerCardDotSuccess} />
-            meta <b className={styles.headerCardStrong}>{(targetMarginPct * 100).toFixed(0)}%</b>
-          </span>
         </div>
         {history.length > 0 && onSelectHistoryMultiple && (
           <HistoryMultiSelect
@@ -903,145 +1022,204 @@ export default function ResultsTable({
             onChange={onSelectHistoryMultiple}
           />
         )}
-      </div>
+      </header>
 
-      {onSyncPricing && (
-        <div className={isPricingDirty ? styles.syncBannerDirty : styles.syncBanner}>
-          <span className={styles.syncBannerText}>
-            {isPricingDirty
-              ? "Sua Precificação (taxa de venda, margem-alvo etc) mudou desde a última vez que esta tela foi calculada."
-              : "Margem, preço sugerido e recomendação já refletem sua Precificação atual."}
-          </span>
+      {/* Só aparece quando há o que fazer — o estado "já sincronizado" virava ruído permanente na tela. */}
+      {onSyncPricing && isPricingDirty && (
+        <div className={styles.syncAlert} role="status">
+          <AlertTriangle size={16} className={styles.syncAlertIcon} aria-hidden="true" />
+          <div className={styles.syncAlertText}>
+            <b>Sua Precificação mudou.</b> Margem, preço sugerido e status desta tela ainda usam as regras
+            antigas.
+          </div>
           <button
             type="button"
             className={styles.syncButton}
             onClick={onSyncPricing}
-            disabled={!isPricingDirty}
-            title={
-              isPricingDirty
-                ? "Recalcula margem, preço sugerido e recomendação de todas as linhas com a Precificação atual"
-                : "Nada pra sincronizar — já está atualizado"
-            }
+            title="Recalcula margem, preço sugerido e recomendação de todas as linhas com a Precificação atual"
           >
-            <RefreshCw size={13} /> Sincronizar com Precificação
+            <RefreshCw size={13} aria-hidden="true" /> Sincronizar agora
           </button>
         </div>
       )}
 
-      <div className={styles.summaryRow}>
-        {[
-          { icon: Package, value: results.length, label: "Total de SKUs" },
-          { icon: TrendingUp, value: totalProfitable, label: "Recomendados" },
-          {
-            icon: Percent,
-            value: medianMarginPct,
-            format: (n: number) => pct(n),
-            label: "Margem mediana",
-          },
-          { icon: ShieldAlert, value: totalToAvoid, label: "A evitar" },
-        ].map((card, i) => (
-          <motion.div
-            key={card.label}
-            className={styles.card}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: i * 0.05, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <span className={styles.cardIcon}>
-              <card.icon size={16} />
-            </span>
-            <div className={styles.cardText}>
-              <div className={styles.cardValue}>
-                <RollingNumber value={card.value} format={card.format} />
-              </div>
-              <div className={styles.cardLabel}>{card.label}</div>
-            </div>
-          </motion.div>
-        ))}
+      <div className={styles.kpis}>
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Produtos analisados</span>
+          <span className={styles.kpiValue}>
+            <RollingNumber value={results.length} />
+          </span>
+          <span className={styles.kpiHint}>
+            {marketplacesPresent.length} {marketplacesPresent.length === 1 ? "marketplace" : "marketplaces"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className={filter === "recomendado" ? styles.kpiActive : styles.kpiButton}
+          onClick={() => focusStatus("recomendado")}
+          aria-pressed={filter === "recomendado"}
+          title="Mostrar só os recomendados na tabela"
+        >
+          <span className={styles.kpiLabel}>Recomendados</span>
+          <span className={`${styles.kpiValue} ${totalProfitable > 0 ? styles.toneGood : ""}`}>
+            <RollingNumber value={totalProfitable} />
+          </span>
+          <span className={styles.kpiHint}>{share(totalProfitable)} · bate a meta</span>
+        </button>
+        <div className={styles.kpi}>
+          <span className={styles.kpiLabel}>Margem mediana</span>
+          <span className={`${styles.kpiValue} ${medianTone}`}>
+            <RollingNumber value={medianMarginPct} format={(n: number) => pct(n)} />
+          </span>
+          <span className={styles.kpiHint}>meta {pct(targetMarginPct, 0)}</span>
+        </div>
+        <button
+          type="button"
+          className={filter === "evitar" ? styles.kpiActive : styles.kpiButton}
+          onClick={() => focusStatus("evitar")}
+          aria-pressed={filter === "evitar"}
+          title="Mostrar só os produtos a evitar na tabela"
+        >
+          <span className={styles.kpiLabel}>A evitar</span>
+          <span className={`${styles.kpiValue} ${totalToAvoid > 0 ? styles.toneBad : ""}`}>
+            <RollingNumber value={totalToAvoid} />
+          </span>
+          <span className={styles.kpiHint}>{share(totalToAvoid)} · margem negativa</span>
+        </button>
       </div>
 
-      {showCharts && results.length > 0 && (
-        <div className={styles.distributionCard}>
-          <div className={styles.distributionHeader}>
-            <span className={styles.distributionHeaderIcon}>
-              <BarChart3 size={13} />
-            </span>
-            <span className={styles.distributionTitle}>Distribuição de margem</span>
-            <span className={styles.distributionMeta}>{results.length} produto(s)</span>
-          </div>
-          <div className={styles.distributionBand}>
-            {distribution.map((b) => (
-              <div key={b.label} className={styles.distributionCol}>
-                <span className={styles.distributionValue}>{b.count}</span>
-                <span className={styles.distributionTrack}>
-                  <span
-                    className={styles.distributionFill}
-                    style={{ height: `${Math.max(3, Math.round((b.count / b.max) * 100))}%` }}
-                  />
-                </span>
-                <span className={styles.distributionLabel}>{b.label}</span>
-              </div>
-            ))}
-          </div>
+      {hasAnalysis && (
+        <div className={styles.tabs} role="tablist" aria-label="Visão dos resultados">
+          {(
+            [
+              { id: "produtos", label: "Produtos", count: results.length },
+              { id: "analise", label: "Análise" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`results-tab-${t.id}`}
+              aria-selected={activeTab === t.id}
+              aria-controls={`results-panel-${t.id}`}
+              tabIndex={activeTab === t.id ? 0 : -1}
+              className={activeTab === t.id ? styles.tabActive : styles.tab}
+              onClick={() => setTab(t.id)}
+              onKeyDown={(e) => {
+                if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+                const next = t.id === "produtos" ? "analise" : "produtos";
+                setTab(next);
+                document.getElementById(`results-tab-${next}`)?.focus();
+              }}
+            >
+              {t.label}
+              {"count" in t && <span className={styles.tabCount}>{t.count}</span>}
+            </button>
+          ))}
         </div>
       )}
 
-      {showCharts && results.length > 0 && (
-        <ProfitCharts results={results} targetMarginPct={targetMarginPct} />
+      {activeTab === "analise" && (
+        <div role="tabpanel" id="results-panel-analise" aria-labelledby="results-tab-analise" className={styles.analysis}>
+          <section>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>Distribuição de margem</h2>
+              <span className={styles.sectionMeta}>{results.length} produto(s)</span>
+            </div>
+            <div className={styles.distributionBand}>
+              {distribution.map((b) => (
+                <div key={b.label} className={styles.distributionCol}>
+                  <span className={styles.distributionValue}>{b.count}</span>
+                  <span className={styles.distributionTrack}>
+                    <span
+                      className={`${styles.distributionFill} ${b.label === "<0%" ? styles.distributionFillBad : ""}`}
+                      style={{ height: `${Math.max(2, Math.round((b.count / b.max) * 100))}%` }}
+                    />
+                  </span>
+                  <span className={styles.distributionLabel}>{b.label}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+          <ProfitCharts results={results} targetMarginPct={targetMarginPct} />
+        </div>
       )}
 
-      <div className={styles.panel}>
+      <div
+        className={styles.panel}
+        hidden={activeTab !== "produtos"}
+        {...(hasAnalysis ? { role: "tabpanel", id: "results-panel-produtos", "aria-labelledby": "results-tab-produtos" } : {})}
+      >
         <div className={styles.controls}>
           <span className={styles.searchWrap}>
-            <Search size={13} />
+            <Search size={14} aria-hidden="true" />
             <input
               className={styles.searchInput}
               placeholder="Buscar por SKU ou produto"
+              aria-label="Buscar por SKU ou produto"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && search) {
+                  e.stopPropagation();
+                  setSearch("");
+                }
+              }}
             />
+            {search && (
+              <button type="button" className={styles.searchClear} onClick={() => setSearch("")} aria-label="Limpar busca">
+                <X size={13} aria-hidden="true" />
+              </button>
+            )}
           </span>
-          {(["todos", "recomendado", "revisar", "evitar", "sem_custo"] as FilterOption[]).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className={filter === option ? styles.filterButtonActive : styles.filterButton}
-              onClick={() => setFilter(option)}
-            >
-              {option === "todos" ? "Todos" : BADGE_LABEL[option]}
-            </button>
-          ))}
-          {filtered.length > 0 && (
-            <button className={styles.exportButton} type="button" onClick={handleExportCsv}>
-              <Download size={13} /> Exportar CSV
-            </button>
-          )}
-          {filtered.length > 0 && canPrintReport && (
-            <button
-              className={styles.exportButton}
-              type="button"
-              onClick={handlePrintReport}
-              title={printBlocked ? "O navegador bloqueou a janela do relatório — libere pop-ups pra este site." : "Abre o relatório pronto pra imprimir ou salvar como PDF"}
-            >
-              <Printer size={13} /> {printBlocked ? "Libere pop-ups" : "Relatório / PDF"}
-            </button>
-          )}
+          <div className={styles.segmented} role="group" aria-label="Filtrar por status">
+            {filterOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={filter === option ? styles.segmentActive : styles.segment}
+                aria-pressed={filter === option}
+                onClick={() => setFilter(option)}
+              >
+                {option !== "todos" && <span className={`${styles.segmentDot} ${styles[`dot_${option}`]}`} aria-hidden="true" />}
+                {option === "todos" ? "Todos" : BADGE_LABEL[option]}
+                <span className={styles.segmentCount}>{statusCounts[option]}</span>
+              </button>
+            ))}
+          </div>
+          <div className={styles.toolbarEnd}>
+            {viewMode !== "sideBySide" && <ColumnsMenu columns={columns} onToggle={toggleColumn} />}
+            {filtered.length > 0 && (
+              <button
+                className={styles.toolButton}
+                type="button"
+                onClick={handleExportCsv}
+                title={isFiltered ? "Exporta só o recorte filtrado na tela" : "Exporta todos os produtos desta busca"}
+              >
+                <Download size={14} aria-hidden="true" /> CSV
+              </button>
+            )}
+            {filtered.length > 0 && canPrintReport && (
+              <button
+                className={styles.toolButton}
+                type="button"
+                onClick={handlePrintReport}
+                title={printBlocked ? "O navegador bloqueou a janela do relatório — libere pop-ups pra este site." : "Abre o relatório pronto pra imprimir ou salvar como PDF"}
+              >
+                <Printer size={14} aria-hidden="true" /> {printBlocked ? "Libere pop-ups" : "Relatório"}
+              </button>
+            )}
+          </div>
         </div>
 
-        {results.length > 0 && (
-          <p className={styles.countHint}>
-            Mostrando {filtered.length === 0 ? 0 : pageStart + 1}–
-            {Math.min(pageStart + PAGE_SIZE, filtered.length)} de {filtered.length}
-            {filtered.length !== results.length && ` (filtrado de ${results.length})`}
-          </p>
-        )}
-
         {filtered.length === 0 ? (
-          <p className={styles.empty}>
-            {source === null
-              ? "Nenhum resultado. Faça upload de um catálogo no Dashboard."
-              : results.length === 0
-                ? "A busca rodou (fonte: " +
+          <div className={styles.empty}>
+            {source === null ? (
+              <p>Nenhum resultado ainda. Rode uma busca em Nova busca pra ver os produtos aqui.</p>
+            ) : results.length === 0 ? (
+              <p>
+                {"A busca rodou (fonte: " +
                   (SOURCE_LABEL[source] ?? source) +
                   "), mas nenhum produto encontrou preço em nenhum marketplace selecionado. Causas " +
                   "comuns: chave do provider ativo inválida/sem cota (confira em Conta), produto com " +
@@ -1049,9 +1227,21 @@ export default function ResultsTable({
                   "motor interno (sem SerpApi/RapidAPI) — bloqueio de IP ou mudança de layout da loja. " +
                   "O motivo específico de cada tentativa fica registrado nos logs da FUNCTION DO " +
                   "SERVIDOR (Vercel → projeto → Logs, filtrar por /api/fetch-prices) — não no console " +
-                  "do navegador, essa busca roda no servidor."
-                : "Nenhum resultado com esse filtro ou busca — limpe o texto ou troque o status acima."}
-          </p>
+                  "do navegador, essa busca roda no servidor."}
+              </p>
+            ) : (
+              <>
+                <p className={styles.emptyTitle}>Nenhum produto com esse filtro</p>
+                <p>
+                  {search.trim() ? `Nada encontrado pra “${search.trim()}”` : "Nenhum produto nesse status"}
+                  {filter !== "todos" ? ` em ${BADGE_LABEL[filter]}.` : "."}
+                </p>
+                <button type="button" className={styles.toolButton} onClick={clearFilters}>
+                  Limpar busca e filtro
+                </button>
+              </>
+            )}
+          </div>
         ) : viewMode === "flat" ? (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -1060,12 +1250,12 @@ export default function ResultsTable({
                   <th className={styles.photoHeader} />
                   <th>SKU</th>
                   <th className={styles.productHeader}>Produto</th>
-                  <th>Marketplace</th>
-                  {PRICE_SORTABLE_COLUMNS.map((col) => (
+                  {columns.marketplace && <th>Marketplace</th>}
+                  {PRICE_SORTABLE_COLUMNS.filter((col) => col.key !== "supplierPrice" || columns.cost).map((col) => (
                     <SortableHeader key={col.key} col={col} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   ))}
-                  <th>Preço sugerido</th>
-                  {QUALITY_SORTABLE_COLUMNS.map((col) => (
+                  {columns.suggested && <th>Preço sugerido</th>}
+                  {QUALITY_SORTABLE_COLUMNS.filter((col) => col.key !== "confidence" || columns.confidence).map((col) => (
                     <SortableHeader key={col.key} col={col} sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
                   ))}
                   <th>Status</th>
@@ -1075,7 +1265,7 @@ export default function ResultsTable({
                 {paginated.map((r, i) => (
                   <motion.tr
                     key={`${r.marketplace}-${r.sku}`}
-                    className={styles.rowClickable}
+                    className={rowClass(r.sku)}
                     onClick={(e) => openFromRow(e, r.sku)}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1123,18 +1313,20 @@ export default function ResultsTable({
                         </span>
                       )}
                     </td>
-                    <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
-                    <CostCell value={r.supplierPrice} />
+                    {columns.marketplace && <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>}
+                    {columns.cost && <CostCell value={r.supplierPrice} />}
                     <td>
                       <MarketPrice result={r} />
                     </td>
-                    <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
+                    {columns.suggested && (
+                      <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
+                    )}
                     <MarginCell
                       marginPct={r.marginPct}
                       targetMarginPct={targetMarginPct}
                       recommendation={r.recommendation}
                     />
-                    <ConfidenceCell confidence={r.confidence} source={r.confidenceSource} />
+                    {columns.confidence && <ConfidenceCell confidence={r.confidence} source={r.confidenceSource} />}
                     <td>
                       <span className={`${styles.badge} ${BADGE_CLASS[r.recommendation]}`}>
                         {BADGE_LABEL[r.recommendation]}
@@ -1191,7 +1383,7 @@ export default function ResultsTable({
                   return (
                     <motion.tr
                       key={best.sku}
-                      className={styles.rowClickable}
+                      className={rowClass(best.sku)}
                       onClick={(e) => openFromRow(e, best.sku)}
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1298,10 +1490,10 @@ export default function ResultsTable({
                   <th className={styles.photoHeader} />
                   <th>SKU</th>
                   <th className={styles.productHeader}>Produto</th>
-                  <th>Marketplace</th>
-                  <th>Custo</th>
+                  {columns.marketplace && <th>Marketplace</th>}
+                  {columns.cost && <th>Custo</th>}
                   <th>Preço</th>
-                  <th>Preço sugerido</th>
+                  {columns.suggested && <th>Preço sugerido</th>}
                   <th>Margem</th>
                   <th>Status</th>
                 </tr>
@@ -1317,7 +1509,7 @@ export default function ResultsTable({
                   return (
                     <Fragment key={best.sku}>
                       <motion.tr
-                        className={styles.rowClickable}
+                        className={rowClass(best.sku)}
                         onClick={(e) => openFromRow(e, best.sku)}
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -1368,12 +1560,14 @@ export default function ResultsTable({
                             </button>
                           )}
                         </td>
-                        <td className={styles.marketCell}>{MARKETPLACE_LABEL[best.marketplace]}</td>
-                        <CostCell value={best.supplierPrice} />
+                        {columns.marketplace && <td className={styles.marketCell}>{MARKETPLACE_LABEL[best.marketplace]}</td>}
+                        {columns.cost && <CostCell value={best.supplierPrice} />}
                         <td>
                           <MarketPrice result={best} />
                         </td>
-                        <SuggestedPriceCell suggestedPrice={best.suggestedPrice} marketplacePrice={best.marketplacePrice} />
+                        {columns.suggested && (
+                          <SuggestedPriceCell suggestedPrice={best.suggestedPrice} marketplacePrice={best.marketplacePrice} />
+                        )}
                         <MarginCell
                           marginPct={best.marginPct}
                           targetMarginPct={targetMarginPct}
@@ -1428,12 +1622,14 @@ export default function ResultsTable({
                                 <span className={styles.noLink}>sem link</span>
                               )}
                             </td>
-                            <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>
-                            <CostCell value={r.supplierPrice} />
+                            {columns.marketplace && <td className={styles.marketCell}>{MARKETPLACE_LABEL[r.marketplace]}</td>}
+                            {columns.cost && <CostCell value={r.supplierPrice} />}
                             <td>
                               <MarketPrice result={r} />
                             </td>
-                            <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
+                            {columns.suggested && (
+                              <SuggestedPriceCell suggestedPrice={r.suggestedPrice} marketplacePrice={r.marketplacePrice} />
+                            )}
                             <td>
                               <span className={styles.marginValue}>
                                 {r.marginPct != null ? pct(r.marginPct) : "sem custo"}
@@ -1463,27 +1659,40 @@ export default function ResultsTable({
           </div>
         )}
 
-        {pageCount > 1 && (
+        {filtered.length > 0 && (
           <div className={styles.pagination}>
-            <button
-              type="button"
-              className={styles.pageButton}
-              disabled={currentPage === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-            >
-              <ChevronLeft size={14} /> Anterior
-            </button>
-            <span className={styles.pageInfo}>
-              Página {currentPage + 1} de {pageCount}
+            <span className={styles.countHint}>
+              {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} de {filtered.length}
+              {filtered.length !== results.length && ` · filtrado de ${results.length}`}
+              {isFiltered && (
+                <button type="button" className={styles.inlineClear} onClick={clearFilters}>
+                  limpar filtro
+                </button>
+              )}
             </span>
-            <button
-              type="button"
-              className={styles.pageButton}
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-            >
-              Próxima <ChevronRight size={14} />
-            </button>
+            {pageCount > 1 && (
+              <div className={styles.pager}>
+                <button
+                  type="button"
+                  className={styles.pageButton}
+                  disabled={currentPage === 0}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  <ChevronLeft size={14} /> Anterior
+                </button>
+                <span className={styles.pageInfo}>
+                  Página {currentPage + 1} de {pageCount}
+                </span>
+                <button
+                  type="button"
+                  className={styles.pageButton}
+                  disabled={currentPage >= pageCount - 1}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                >
+                  Próxima <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

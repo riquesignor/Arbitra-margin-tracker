@@ -598,3 +598,9 @@
     grid-column: 2;
   }
 }
+
+/* Densidade "Compacta" (Configurações → Fluxo de trabalho): mais linhas por tela. */
+:global(html[data-density="compact"]) .table td {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
