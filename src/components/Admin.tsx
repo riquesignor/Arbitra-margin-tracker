@@ -33,6 +33,8 @@ import { parsePdfCatalogFile } from "../lib/parsePdfCatalog";
 import { getTodayUsage } from "../lib/usageQuota";
 import { listCatalogUploads, type CatalogUploadRecord } from "../lib/catalogHistory";
 import { fetchAdminDiagnostics, type AdminDiagnostics } from "../lib/adminDiagnostics";
+import { useConfirm } from "../lib/confirm";
+import { useToast } from "../lib/toast";
 import styles from "./Admin.module.css";
 
 const DETAIL_CATALOG_LIMIT = 5;
@@ -58,6 +60,8 @@ interface DraftCatalog {
  * Storage). Gestão de plano por usuário é manual aqui, sem billing.
  */
 export default function Admin({ profile }: Props) {
+  const confirm = useConfirm();
+  const toast = useToast();
   const [catalogs, setCatalogs] = useState<SharedCatalog[]>([]);
   const [catalogsLoading, setCatalogsLoading] = useState(false);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -194,10 +198,16 @@ export default function Admin({ profile }: Props) {
     const to = PLANS.find((p) => p.id === plan)?.name ?? plan;
     // Muda acesso à biblioteca e o teto diário do usuário na hora — vale
     // uma confirmação explícita em vez de salvar no onChange do <select>.
-    if (!window.confirm(`Trocar o plano de ${target?.email ?? uid} de ${from} para ${to}?`)) return;
+    const ok = await confirm({
+      title: `Trocar o plano de ${target?.email ?? uid}?`,
+      message: `De ${from} para ${to}. Muda na hora o acesso à biblioteca e o teto diário de busca dessa conta.`,
+      confirmLabel: `Trocar para ${to}`,
+    });
+    if (!ok) return;
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, plan } : u)));
     try {
       await updateUserPlan(uid, plan);
+      toast.show({ message: `Plano de ${target?.email ?? uid} agora é ${to}.` });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       refreshUsers();
@@ -208,15 +218,32 @@ export default function Admin({ profile }: Props) {
     const email = users.find((u) => u.uid === uid)?.email ?? uid;
     // Admin lê o perfil de todo mundo, troca plano e mexe na biblioteca —
     // é a ação de maior risco desta tela, então nunca num clique só.
-    const message = isAdmin
-      ? `Dar acesso de ADMIN para ${email}?\n\nEssa conta vai poder ver todos os usuários, trocar planos e editar a biblioteca compartilhada.`
-      : uid === profile?.uid
-        ? `Remover o SEU próprio acesso de admin?\n\nVocê perde acesso a esta tela imediatamente e só outro admin consegue devolver.`
-        : `Remover o acesso de admin de ${email}?`;
-    if (!window.confirm(message)) return;
+    const ok = await confirm(
+      isAdmin
+        ? {
+            title: `Dar acesso de admin para ${email}?`,
+            message: "Essa conta vai poder ver todos os usuários, trocar planos e editar a biblioteca compartilhada.",
+            confirmLabel: "Dar acesso de admin",
+            tone: "danger",
+          }
+        : uid === profile?.uid
+          ? {
+              title: "Remover o seu próprio acesso de admin?",
+              message: "Você perde acesso a esta tela imediatamente e só outro admin consegue devolver.",
+              confirmLabel: "Remover meu acesso",
+              tone: "danger",
+            }
+          : {
+              title: `Remover o acesso de admin de ${email}?`,
+              confirmLabel: "Remover acesso",
+              tone: "danger",
+            }
+    );
+    if (!ok) return;
     setUsers((prev) => prev.map((u) => (u.uid === uid ? { ...u, isAdmin } : u)));
     try {
       await updateUserAdmin(uid, isAdmin);
+      toast.show({ message: isAdmin ? `${email} agora é admin.` : `${email} não é mais admin.` });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       refreshUsers();

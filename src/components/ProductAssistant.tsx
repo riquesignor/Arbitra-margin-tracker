@@ -17,6 +17,7 @@ import {
   saveAssistantChat,
   type AssistantChatRecord,
 } from "../lib/assistantChats";
+import { useConfirm } from "../lib/confirm";
 import styles from "./ProductAssistant.module.css";
 
 interface Props {
@@ -40,6 +41,7 @@ const MAX_TURNS_SENT = 29;
 
 export default function ProductAssistant({ userId, planId, onOpenAccount }: Props) {
   const plan = getPlan(planId);
+  const confirm = useConfirm();
   const [photo, setPhoto] = useState<{
     base64: string;
     mimeType: string;
@@ -176,7 +178,13 @@ export default function ProductAssistant({ userId, planId, onOpenAccount }: Prop
 
   async function removeChat(chat: AssistantChatRecord) {
     if (!userId) return;
-    if (!window.confirm(`Excluir a conversa "${chat.title}"? Isso não pode ser desfeito.`)) return;
+    const ok = await confirm({
+      title: `Excluir a conversa "${chat.title}"?`,
+      message: "As perguntas e respostas dessa conversa somem do histórico. Isso não pode ser desfeito.",
+      confirmLabel: "Excluir conversa",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteAssistantChat(userId, chat.id);
       setChats((prev) => prev.filter((c) => c.id !== chat.id));

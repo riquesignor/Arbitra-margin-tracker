@@ -52,6 +52,7 @@ import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import type { SharedCatalog } from "../lib/sharedCatalogs";
 import { getSpeedSummary, recordSample, type ProviderSpeedSummary } from "../lib/providerSpeedStats";
+import { useToast } from "../lib/toast";
 import styles from "./Dashboard.module.css";
 
 type UploadState = "idle" | "parsing" | "fetching" | "error";
@@ -745,6 +746,7 @@ export default function Dashboard({
   onPendingSharedCatalogConsumed,
   onNavigateToFaq,
 }: Props) {
+  const toast = useToast();
   const [state, setState] = useState<UploadState>("idle");
   // true quando o erro atual em `error` veio de CatalogParseError/PdfParseError
   // (formato do arquivo não reconhecido) — diferencia de erro de rede/cota/
@@ -1095,25 +1097,37 @@ export default function Dashboard({
   }
 
   /**
-   * Exclui uma busca do histórico — otimista (some da lista na hora),
-   * com rollback se a exclusão falhar no Firestore (mesmo padrão de
-   * Admin.tsx > handleDeleteCatalog). `stopPropagation` no clique é
-   * essencial: o botão de lixeira fica DENTRO da linha inteira, que por
-   * sua vez é clicável pra carregar o registro (ver renderização da
-   * seção 03) — sem isso, clicar em excluir também dispararia o load.
+   * Exclui uma busca do histórico com "Desfazer" (out/2026): some da lista
+   * na hora, mas o apagar de verdade no Firestore só roda quando o aviso
+   * expira sem o usuário desfazer (ver src/lib/toast.ts). O aviso mora na
+   * raiz do app, então isso vale mesmo se a pessoa trocar de tela antes.
+   * Fechar a aba antes de expirar = nada é apagado (falha segura).
    */
-  async function handleDeleteRecord(event: MouseEvent<HTMLButtonElement>, id: string) {
+  function handleDeleteRecord(event: MouseEvent<HTMLButtonElement>, id: string) {
     event.stopPropagation();
     if (!userId) return;
-    const previous = uploadHistory;
+    const record = uploadHistory.find((r) => r.id === id);
+    if (!record) return;
+    const putBack = () =>
+      setUploadHistory((prev) =>
+        prev.some((r) => r.id === id) ? prev : [...prev, record].sort((a, b) => b.uploadedAt - a.uploadedAt)
+      );
     setUploadHistory((prev) => prev.filter((r) => r.id !== id));
-    try {
-      await deleteCatalogUpload(userId, id);
-      onHistoryDeleted?.(id);
-    } catch (err) {
-      setUploadHistory(previous);
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    toast.show({
+      message: `"${record.fileName}" removido do histórico.`,
+      action: { label: "Desfazer", onClick: putBack },
+      onExpire: () => {
+        deleteCatalogUpload(userId, id)
+          .then(() => onHistoryDeleted?.(id))
+          .catch((err: unknown) => {
+            putBack();
+            toast.show({
+              tone: "error",
+              message: `Não consegui excluir "${record.fileName}": ${err instanceof Error ? err.message : String(err)}`,
+            });
+          });
+      },
+    });
   }
 
   /**
@@ -2539,7 +2553,7 @@ export default function Dashboard({
                               className={styles.deleteButton}
                               aria-label={`Remover ${c.fileName}`}
                               title="Excluir esta busca do histórico"
-                              onClick={(e) => void handleDeleteRecord(e, c.id)}
+                              onClick={(e) => handleDeleteRecord(e, c.id)}
                             >
                               <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
                             </button>

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Bell, BellOff, BellRing, Loader2 } from "lucide-react";
 import type { MarginResult, MarketplaceId, PlanId, SearchProviderId } from "../types";
 import { startWatching, stopWatching } from "../lib/watchlist";
+import { displayProductName } from "../lib/format";
+import { useToast } from "../lib/toast";
 import styles from "./WatchToggle.module.css";
 
 interface Props {
@@ -30,6 +32,7 @@ interface Props {
 export default function WatchToggle({ userId, planId, watching, item, provider, onChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   if (!userId) return null;
 
@@ -48,12 +51,27 @@ export default function WatchToggle({ userId, planId, watching, item, provider, 
     setError(null);
     setLoading(true);
     try {
+      const name = displayProductName(item.name);
       if (watching) {
         await stopWatching(userId!, item.sku, item.marketplace);
         onChange(item.sku, item.marketplace, false);
+        toast.show({
+          message: `Parou de monitorar ${name}.`,
+          action: {
+            label: "Desfazer",
+            onClick: () => {
+              void startWatching(userId!, planId, item as MarginResult, provider!)
+                .then(() => onChange(item.sku, item.marketplace, true))
+                .catch((err: unknown) =>
+                  toast.show({ tone: "error", message: err instanceof Error ? err.message : String(err) })
+                );
+            },
+          },
+        });
       } else {
         await startWatching(userId!, planId, item as MarginResult, provider!);
         onChange(item.sku, item.marketplace, true);
+        toast.show({ message: `Monitorando ${name}. Checagem e alertas ficam em Meus produtos.` });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

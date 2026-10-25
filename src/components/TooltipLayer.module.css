@@ -1,0 +1,34 @@
+/* Tooltip — bloco de tinta com texto em papel, mesmo par dos avisos (Toaster). */
+
+.tooltip {
+  position: fixed;
+  z-index: 300;
+  max-width: 300px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-family: var(--font-body);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: tooltipIn 0.12s ease-out;
+}
+
+@keyframes tooltipIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+  }
+}

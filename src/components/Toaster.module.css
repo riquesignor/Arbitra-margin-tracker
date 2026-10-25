@@ -1,0 +1,115 @@
+/*
+ * Avisos passageiros (out/2026) — mesma linguagem das telas redesenhadas
+ * (Início/Nova busca): bloco de tinta (--color-text) com texto em papel
+ * (--color-bg), fio no topo, sem sombra (design-tokens.md § Forma).
+ */
+
+.region {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  max-width: min(420px, calc(100vw - 2 * var(--space-4)));
+  pointer-events: none;
+}
+
+.toast,
+.toastError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: 10px 8px 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: calc(13.5px * var(--font-scale));
+  line-height: 1.45;
+  pointer-events: auto;
+  animation: toastIn 0.18s ease-out;
+}
+
+.toastError {
+  border-left: 4px solid var(--color-danger);
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.action {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+
+.action:hover {
+  background: color-mix(in srgb, var(--color-bg) 14%, transparent);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+.close:hover {
+  opacity: 1;
+}
+
+.action:focus-visible,
+.close:focus-visible {
+  outline: 2px solid var(--color-bg);
+  outline-offset: 2px;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toastError {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .region {
+    left: var(--space-4);
+    right: var(--space-4);
+    bottom: var(--space-4);
+    align-items: stretch;
+    max-width: none;
+  }
+}
