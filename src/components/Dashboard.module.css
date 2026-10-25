@@ -1,1086 +1,1034 @@
-/* Largura é controlada por `.app-shell__content` (index.css) — escala por breakpoint. */
+/*
+ * Nova busca — formulário em 2 passos + painel "Esta busca" + histórico
+ * (out/2026, Nova busca-html.zip > Busca.dc.html). Mesmo mapeamento de
+ * cor da Início (Home.module.css), pra o tema escuro e as paletas de
+ * acento funcionarem sem bloco próprio:
+ *   #1A2621 tinta     → --color-text      #F5F6F2 folha → --color-bg-elevated-2
+ *   #C3C7BB pauta     → --color-border-strong
+ *   #5A6660 / #8A8F82 → --color-text-muted / --color-text-dim
+ *   #8C2F1E           → --color-danger
+ * Tipografia segue o app: títulos na serif global, números em --font-mono.
+ */
+
 .container {
   width: 100%;
-}
-
-/* --- Header (eyebrow/título/subtítulo + card de status à direita) --- */
-
-.header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-6);
-  flex-wrap: wrap;
-  padding-bottom: var(--space-5);
-  margin-bottom: var(--space-6);
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.headerMain {
-  min-width: 0;
-}
-
-.eyebrow {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
+  padding: var(--space-3) 0 var(--space-8);
 }
 
 .title {
-  font-size: 1.9rem;
-  letter-spacing: -0.02em;
-  margin-bottom: var(--space-3);
-}
-
-.subtitle {
-  color: var(--color-text-muted);
-  max-width: 46ch;
-  line-height: 1.6;
-  font-size: 0.92rem;
-  margin: 0;
-}
-
-.headerCard {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-elevated);
-  flex-shrink: 0;
-}
-
-.headerCardRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.headerCardStrong {
+  margin: 0 0 6px;
+  font-size: calc(21px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--color-text);
-  font-weight: 500;
 }
 
-.headerCardDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.lead {
+  margin: 0 0 36px;
+  max-width: 64ch;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }
-
-.dotSuccess {
-  background: var(--color-success);
-}
-
-.dotAccent {
-  background: var(--color-accent);
-}
-
-/* --- Layout de duas colunas: conteúdo principal + aside --- */
 
 .layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 312px;
-  gap: var(--space-5);
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 56px;
 }
 
-.main,
-.aside {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
+.form {
+  flex: 999 1 560px;
   min-width: 0;
 }
 
-@media (max-width: 980px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
+.panelCol {
+  flex: 1 1 320px;
+  min-width: 0;
+  align-self: stretch;
 }
 
-/* --- Cartão genérico com header numerado (01/02/03) --- */
+/* ─────────── passos ─────────── */
 
-.card {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+.step + .step {
+  margin-top: 44px;
+}
+
+.stepTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 3px;
+  font-size: calc(15px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.stepNumber {
+  font-family: var(--font-mono);
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.stepLead {
+  margin: 0 0 18px 23px;
+  max-width: 58ch;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.stepBody {
+  margin-left: 23px;
+}
+
+.note {
+  margin: 8px 0 0;
+  max-width: 60ch;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.inlineIcon {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Modo: por texto / por foto */
+
+.modeToggle {
+  display: inline-flex;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
-.cardHeader {
+.modeOption,
+.modeOptionActive {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.cardHeaderNumber {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 2px 6px;
-  flex-shrink: 0;
-}
-
-.cardHeaderTitle {
-  font-size: 0.98rem;
+  min-height: 40px;
+  padding: 0 18px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.cardHeaderMeta {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  white-space: nowrap;
-  text-align: right;
-}
-
-.cardHeaderLink {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-family: var(--font-mono);
-  font-size: 0.74rem;
-  color: var(--color-text-dim);
-  white-space: nowrap;
-  text-decoration: none;
-  flex-shrink: 0;
-}
-
-.cardHeaderLink:hover {
-  color: var(--color-accent);
-}
-
-.cardBody {
-  padding: var(--space-5);
-}
-
-.cardFooter {
-  padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--color-border-soft);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* --- Seção 01: seleção de marketplace/provider (cartões, não chips) --- */
-
-.marketplaceGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-3);
-}
-
-.marketplaceCard,
-.marketplaceCardActive {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  padding: var(--space-3) var(--space-4);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
   cursor: pointer;
-  text-align: left;
-  transition: border-color var(--duration-fast) var(--ease-out),
-    background var(--duration-fast) var(--ease-out);
+  color: var(--color-text);
 }
 
-.marketplaceCard:hover {
-  border-color: var(--color-accent);
+.modeOption + .modeOption,
+.modeOption + .modeOptionActive,
+.modeOptionActive + .modeOption {
+  border-left: 1px solid var(--color-text);
 }
 
-.marketplaceCardActive {
-  background: var(--color-accent-dim);
-  border-color: var(--color-accent);
+.modeOptionActive {
+  background: var(--color-text);
+  color: var(--color-bg);
 }
 
-.marketplaceIconBox,
-.marketplaceIconBoxActive {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-dim);
+.modeOption:hover {
   background: var(--color-bg-hover);
-  flex-shrink: 0;
 }
 
-.marketplaceIconBoxActive {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
+.modeOption:has(input:focus-visible),
+.modeOptionActive:has(input:focus-visible) {
+  outline: 2px solid var(--color-text);
+  outline-offset: -4px;
 }
 
-.marketplaceCardText {
+/* Fonte de preço */
+
+.sourceList {
+  margin-top: 22px;
+  border-top: 1px solid var(--color-text);
+}
+
+.sourceRow,
+.sourceRowActive {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 14px 16px 14px 13px;
+  border-bottom: 1px solid var(--color-border-strong);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.sourceRowActive {
+  background: var(--color-bg-elevated-2);
+  border-left-color: var(--color-text);
+}
+
+.sourceRow:hover {
+  background: var(--color-bg-hover);
+}
+
+.sourceRadio {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--color-text);
+}
+
+.sourceText {
+  flex-grow: 1;
   min-width: 0;
 }
 
-.marketplaceCardLabel {
-  font-size: 0.9rem;
+.sourceName {
+  display: block;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+
+.sourceCovers {
+  display: block;
+  margin-top: 2px;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.sourceSpeed {
+  flex-shrink: 0;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.betaTag {
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--font-scale));
+  font-weight: 600;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  color: var(--color-text-muted);
+}
+
+.inlineRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 12px 0 0;
+  font-size: calc(13px * var(--font-scale));
+  color: var(--color-text);
+}
+
+.keyHint {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  max-width: 64ch;
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-warning-dim);
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.keyHint svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-warning);
+}
+
+.keyHint a {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* Marketplaces */
+
+.marketsFieldset {
+  margin: 26px 0 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.marketsLegend {
+  padding: 0 0 10px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
   color: var(--color-text);
 }
 
-.marketplaceCardNote {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--color-text-dim);
+.marketsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-/* Badge "Beta" (set/2026) — ao lado do label do card de motor, mesmo
-   propósito do .betaBadge em Account.module.css (rótulo de maturidade,
-   não aviso de erro — por isso cor accent, não warning). */
-.betaTag {
-  margin-left: var(--space-2);
+.market,
+.marketOn,
+.marketOff {
   display: inline-flex;
   align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.marketOn {
+  border-color: var(--color-text);
+  background: var(--color-bg-elevated-2);
+}
+
+.marketOff {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.market:hover {
+  border-color: var(--color-text);
+}
+
+.marketCheckbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-text);
+}
+
+/* ─────────── catálogo ─────────── */
+
+.dropzone,
+.dropzoneActive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  padding: 26px 24px;
+  border: 1px dashed var(--color-text-dim);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated-2);
+  cursor: pointer;
+}
+
+.dropzoneActive {
+  border-style: solid;
+  border-color: var(--color-text);
+}
+
+.dropzone:hover .dropButton {
+  background: var(--color-bg-hover);
+}
+
+.dropzone:has(input:focus-visible),
+.dropzoneActive:has(input:focus-visible) {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+.dropIcon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.dropText {
+  flex-grow: 1;
+  min-width: 180px;
+}
+
+.dropTitle {
+  display: block;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.dropHint {
+  display: block;
+  margin-top: 2px;
   font-family: var(--font-mono);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  border-radius: 999px;
-  padding: 1px 7px;
-  background: var(--color-accent-dim);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.dropButton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.fileCard,
+.fileCardInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+.fileCard,
+.pdfCard {
+  padding: 18px 20px;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-elevated-2);
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--color-text);
+}
+
+.fileText {
+  flex-grow: 1;
+  min-width: 140px;
+}
+
+.fileName {
+  display: block;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+}
+
+.fileMeta {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.smallButton {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.smallButton:hover:not(:disabled) {
+  border-color: var(--color-text);
+}
+
+.smallButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.pageRange {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 18px 0 6px;
+}
+
+.pageField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.pageField input {
+  width: 96px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: calc(14px * var(--font-scale));
+  color: var(--color-text);
+}
+
+.pageField input:focus {
+  outline: none;
+  border-color: var(--color-text);
+}
+
+.checkLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: calc(12.5px * var(--font-scale));
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.checkLine input {
+  accent-color: var(--color-text);
+}
+
+.convertRow {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--color-border-strong);
+}
+
+.convertRow .textButton {
+  margin-top: 6px;
+}
+
+/* ─────────── painel "Esta busca" ─────────── */
+
+.panel {
+  position: sticky;
+  top: 24px;
+  padding: 20px 22px 22px;
+  border: 1px solid var(--color-border-strong);
+  border-top: 3px solid var(--color-text);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--color-bg-elevated-2);
+}
+
+.panelTitle {
+  margin: 0 0 16px;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.count {
+  margin-bottom: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.countValue,
+.countValueEmpty {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: calc(50px * var(--font-scale));
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.countValueEmpty {
+  color: var(--color-text-muted);
+}
+
+.countNote {
+  display: block;
+  margin-top: 7px;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.facts {
+  margin: 0 0 18px;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.5;
+}
+
+.fact {
+  display: flex;
+  gap: 14px;
+  padding: 9px 0;
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.fact:last-child {
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.fact dt {
+  flex-shrink: 0;
+  width: 74px;
+  color: var(--color-text-muted);
+}
+
+.fact dd {
+  flex-grow: 1;
+  min-width: 0;
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.runButton,
+.runButtonOff,
+.runButtonBusy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: calc(15px * var(--font-scale));
+  font-weight: 600;
+}
+
+.runButton {
+  border: 1px solid var(--color-text);
+  background: var(--color-text);
+  color: var(--color-bg);
+  cursor: pointer;
+}
+
+.runButton:hover {
+  opacity: 0.86;
+}
+
+.runButtonOff {
+  border: 1px dashed var(--color-text-dim);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.runButtonBusy {
+  border: 1px solid var(--color-border-strong);
+  background: none;
+  color: var(--color-text);
+  cursor: default;
+}
+
+.blockReason {
+  margin: 9px 0 0;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-danger);
+}
+
+.progress {
+  margin-top: 14px;
+}
+
+.progressText {
+  margin: 0 0 8px;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-text);
+}
+
+.progressTrack {
+  height: 4px;
+  margin-bottom: 8px;
+  background: var(--color-border-strong);
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-text);
+  transition: width 0.3s ease;
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.noticeText,
+.errorText {
+  margin: 0;
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.55;
+  color: var(--color-text);
+}
+
+.errorText {
+  color: var(--color-danger);
+}
+
+.panelFoot {
+  margin: 14px 0 0;
+  font-size: calc(12px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.quotaWarn {
+  font-weight: 600;
+  color: var(--color-warning);
+}
+
+.textButton,
+.textButtonMuted {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.textButtonMuted {
+  font-weight: 400;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.textButton:hover:not(:disabled),
+.textButtonMuted:hover {
   color: var(--color-accent);
 }
 
-.marketplaceCardCheck {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  /* Quadrado (checkbox) — marketplaces somam; o motor, que é escolha
-     única, usa o indicador redondo de rádio (.providerRadio). */
-  border-radius: 4px;
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-  flex-shrink: 0;
+.textButton:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
-/*
- * Pop-up de seleção de fonte terceira pro motor interno + IA (set/2026,
- * ver VisionCandidateSource e o pop-up em Dashboard.tsx > CandidateSourceModal).
- * PRIMEIRO modal do app — nenhuma outra tela usa overlay fixo pra
- * conteúdo interativo (o único precedente, ResultsTable.tsx > lightbox, é
- * só visualização de imagem, sem escolha nenhuma) — mesmo padrão visual
- * (overlay escurecido + box central + clique fora fecha), só que com
- * conteúdo de formulário em vez de imagem.
- */
+/* ─────────── histórico ─────────── */
+
+.history {
+  margin-top: 60px;
+  padding-top: 34px;
+  border-top: 1px solid var(--color-border-strong);
+}
+
+.historyTitle {
+  margin: 0 0 2px;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.caption {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(14px * var(--font-scale));
+}
+
+.table thead tr {
+  border-bottom: 1px solid var(--color-text);
+}
+
+.table th {
+  padding: 0 12px 7px;
+  text-align: left;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+/* Sem `color` aqui: a célula de margem pinta com .toneGood/.toneBad. */
+.table td {
+  padding: 12px;
+  vertical-align: baseline;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table td.colMarkets {
+  font-size: calc(13px * var(--font-scale));
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.colAction {
+  width: 52px;
+}
+
+.table td.colAction {
+  padding: 0;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.marginCell {
+  font-weight: 600;
+}
+
+.fileLink {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.fileLink:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.rowDate {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.deleteButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.deleteButton:hover {
+  color: var(--color-danger);
+}
+
+.toneGood {
+  color: var(--color-success);
+}
+
+.toneWarn {
+  color: var(--color-warning);
+}
+
+.toneBad {
+  color: var(--color-danger);
+}
+
+/* ─────────── pop-up "API de apoio" (CandidateSourceModal) ─────────── */
+
 .candidateModalOverlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-5);
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(2px);
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.45);
 }
 
 .candidateModalBox {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: 16px;
   width: 100%;
-  max-width: 480px;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: var(--space-5);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-elevated);
+  max-width: 560px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--color-border-strong);
+  border-top: 3px solid var(--color-text);
+  background: var(--color-bg);
 }
 
 .candidateModalTitle {
-  margin: 0;
-  font-size: 1rem;
+  margin: 0 0 6px;
+  font-size: calc(16px * var(--font-scale));
   font-weight: 600;
   color: var(--color-text);
 }
 
 .candidateModalSubtitle {
-  margin: var(--space-1) 0 0;
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: var(--color-text-dim);
+  margin: 0;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }
 
-.candidateModalActions {
+.marketplaceGrid {
   display: flex;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+  flex-direction: column;
+  border-top: 1px solid var(--color-text);
 }
 
-/* Sub-grupo dentro do card 01 — grade de marketplace fica embaixo da
-   grade de provider quando o provider (SerpApi) cobre mais de um. */
-.subGroup {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border-soft);
-}
-
-/* --- Abas de grupo (Busca por texto / Busca por foto) --- */
-
-.providerGroupTabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  padding: 4px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-3);
-}
-
-.providerGroupTab,
-.providerGroupTabActive {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+.marketplaceCard,
+.marketplaceCardActive {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px 12px 11px;
   border: none;
+  border-bottom: 1px solid var(--color-border-strong);
+  border-left: 3px solid transparent;
   background: none;
-  color: var(--color-text-muted);
-  font-size: 0.86rem;
-  font-weight: 600;
-  text-align: center;
-  cursor: pointer;
-}
-
-.providerGroupTabActive {
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
-}
-
-/* --- "API de apoio" (fonte terceira do motor interno + IA) --- */
-
-.candidateSourceRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  background: var(--color-bg-elevated-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-4);
-  margin-top: var(--space-3);
-}
-
-.candidateSourceLabel {
-  font-size: 0.84rem;
-  color: var(--color-text-dim);
-}
-
-.candidateSourceLabel b {
+  font-family: inherit;
+  text-align: left;
   color: var(--color-text);
-}
-
-.candidateSourceChangeButton {
-  flex-shrink: 0;
-  background: var(--color-accent-dim);
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent);
-  border-radius: var(--radius-sm);
-  padding: 6px 14px;
-  font-size: 0.8rem;
-  font-weight: 700;
   cursor: pointer;
 }
 
-.candidateSourceChangeButton:hover {
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.providerGroupHint {
-  margin: 0 0 var(--space-3);
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--color-text-dim);
-}
-
-.subGroupLabel {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
-}
-
-/* --- Troca rápida de API dentro do modo "Busca por imagem" --- */
-
-.apiSwitchRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.apiChip,
-.apiChipActive {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  font-size: 0.76rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-    background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
-}
-
-.apiChip {
+.marketplaceCardActive {
   background: var(--color-bg-elevated-2);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-muted);
+  border-left-color: var(--color-text);
 }
 
-.apiChip:hover {
-  border-color: var(--color-accent);
-  color: var(--color-text);
+.marketplaceCard:hover {
+  background: var(--color-bg-hover);
 }
 
-.apiChipActive {
-  composes: apiChip;
-  background: var(--color-accent-dim);
-  border: 1px solid var(--color-accent);
-  color: var(--color-accent);
-}
-
-.subGroupHint {
-  margin: var(--space-3) 0 0;
-  font-size: 0.78rem;
-  line-height: 1.5;
-  color: var(--color-text-dim);
-}
-
-/* --- Seção 02: catálogo (dropzone em linha + status + biblioteca) --- */
-
-.dropzone {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-6);
-  border: 1.5px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-5);
-  background: var(--color-bg);
-  cursor: pointer;
-  overflow: hidden;
-}
-
-.dropzoneActive {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-glow-accent);
-}
-
-.dropzoneIconBox {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-.dropzoneText {
+.marketplaceCardText {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
 
-.dropzoneTitle {
-  font-size: 0.92rem;
+.marketplaceCardLabel {
+  font-size: calc(14px * var(--font-scale));
   font-weight: 600;
+}
+
+.marketplaceCardNote {
+  font-size: calc(12.5px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.marketplaceCardCheck {
+  margin-left: auto;
+  flex-shrink: 0;
   color: var(--color-text);
 }
 
-.dropzoneHint {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--color-text-dim);
-}
-
-.fileInput {
-  display: none;
+.candidateModalActions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .button {
-  flex-shrink: 0;
-  background: var(--gradient-accent);
-  color: var(--color-on-accent);
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-text);
   border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-5);
+  background: none;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
-  font-size: 0.88rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.dropzoneButton {
-  composes: button;
-  margin-left: auto;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-  margin: 0;
-}
-
-/* Contador "N já com preço" ao vivo durante o fetching (ver foundSoFar/
-   onProgress em Dashboard.tsx) — mais discreto que .status (sem ícone
-   girando, fonte menor), é só um complemento informativo, não o status
-   principal da operação. */
-.statusMuted {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  margin: 0;
-}
-
-.progressWrap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-}
-
-.progressTrack {
-  width: 100%;
-  max-width: 320px;
-  height: 4px;
-  border-radius: 999px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  overflow: hidden;
-}
-
-.progressFill {
-  height: 100%;
-  background: var(--gradient-accent);
-  transition: width 0.2s ease;
-}
-
-.error {
-  color: var(--color-danger);
-  font-size: 0.85rem;
-  margin: 0;
-}
-
-.warningNote {
-  color: var(--color-warning);
-  font-size: 0.82rem;
-  margin: 0;
-}
-
-/* Aviso de chave própria faltando, logo abaixo do grid de mecanismos
-   (ver PROVIDER_KEY_GUIDE / auditoria item 24). Tom de aviso, não de
-   erro: nada quebrou ainda — a pessoa só ainda não tem a chave. */
-.byokHint {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  margin: var(--space-4) 0 0;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
   color: var(--color-text);
-  font-size: 0.82rem;
-  line-height: 1.45;
-}
-
-.byokHint a {
-  color: var(--color-accent);
-  text-decoration: underline;
-}
-
-.pageRangePanel {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-5);
-}
-
-/* Conversor PDF → planilha (set/2026) — bloco separado por uma borda
-   tracejada dentro do painel de seleção de página, pra sinalizar "isso é
-   uma ação alternativa", não o caminho principal (processar). */
-.pageRangeConvertPanel {
-  margin-top: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px dashed var(--color-border);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.errorNote {
-  color: var(--color-danger);
-  font-size: 0.82rem;
-  margin: 0;
-}
-
-.pageRangeHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text);
-  font-size: 0.9rem;
-  margin-bottom: var(--space-4);
-}
-
-.pageRangeInputs {
-  display: flex;
-  gap: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.pageRangeInputs label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  font-size: 0.8rem;
-  color: var(--color-text-dim);
-}
-
-.pageRangeInputs input {
-  width: 90px;
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text);
-  padding: var(--space-2);
-  font-family: var(--font-mono);
-}
-
-.pageRangeInputs input:focus {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.pageRangeActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
-
-.linkButton {
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  cursor: pointer;
-  padding: 0;
-}
-
-.linkButton:hover {
-  color: var(--color-text);
-}
-
-/* --- Seção 03: tabela de catálogos processados --- */
-
-.tableHeadRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px 150px 140px 36px;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-text-dim);
-}
-
-.tableRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px 150px 140px 36px;
-  gap: var(--space-4);
-  align-items: center;
-  width: 100%;
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-  border-left: none;
-  border-right: none;
-  border-top: none;
-  background: none;
-  font-size: 0.83rem;
-  color: var(--color-text-muted);
-  text-align: left;
   cursor: pointer;
 }
 
-.tableRow:last-child {
-  border-bottom: none;
+/* ─────────── foco ─────────── */
+
+.runButton:focus-visible,
+.smallButton:focus-visible,
+.textButton:focus-visible,
+.textButtonMuted:focus-visible,
+.fileLink:focus-visible,
+.deleteButton:focus-visible,
+.marketplaceCard:focus-visible,
+.marketplaceCardActive:focus-visible,
+.button:focus-visible,
+.sourceRow:has(input:focus-visible),
+.sourceRowActive:has(input:focus-visible),
+.market:has(input:focus-visible),
+.marketOn:has(input:focus-visible) {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
 }
 
-.tableRow:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text);
+@media (prefers-reduced-motion: reduce) {
+  .progressFill {
+    transition: none;
+  }
 }
 
-.tableCellFile {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  min-width: 0;
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* ─────────── telas estreitas ─────────── */
 
-.tableCellFound {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
-}
+@media (max-width: 720px) {
+  .stepLead,
+  .stepBody {
+    margin-left: 0;
+  }
 
-.tableCellFoundFailed {
-  composes: tableCellFound;
-  color: var(--color-warning);
-}
+  .panel {
+    position: static;
+  }
 
-.tableCellMarkets {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+  .countValue,
+  .countValueEmpty {
+    font-size: calc(40px * var(--font-scale));
+  }
 
-.tableCellWhen {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
-}
+  .table .colMarkets {
+    display: none;
+  }
 
-.tableEmpty {
-  padding: var(--space-5);
-  text-align: center;
-  color: var(--color-text-dim);
-  font-size: 0.85rem;
-}
-
-.tableRowDelete {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-text-dim);
-  cursor: pointer;
-}
-
-.tableRowDelete:hover {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
-}
-
-/* --- Aside: pré-requisitos --- */
-
-.prereqRow {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-  font-size: 0.85rem;
-  line-height: 1.45;
-}
-
-.prereqRow:last-child {
-  border-bottom: none;
-}
-
-.prereqIcon,
-.prereqIconWarning {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.prereqIcon {
-  background: var(--color-success-dim);
-  color: var(--color-success);
-}
-
-.prereqIconWarning {
-  background: var(--color-warning-dim);
-  color: var(--color-warning);
-}
-
-.prereqLabel {
-  display: block;
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-.prereqSub {
-  font-size: 0.78rem;
-  color: var(--color-text-dim);
-}
-
-/* --- Aside: ícone no header de card (cota / velocidade) --- */
-
-.cardHeaderIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
-  flex-shrink: 0;
-}
-
-/* --- Aside: cota diária --- */
-
-.cardWarning {
-  composes: card;
-  border-color: var(--color-warning-border);
-}
-
-.cardWarning .cardHeaderIcon {
-  background: var(--color-warning-dim);
-  color: var(--color-warning);
-}
-
-.quotaBadgeWarning {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-warning);
-  flex-shrink: 0;
-}
-
-.quotaBody {
-  padding: var(--space-4) var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.quotaTrack {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  overflow: hidden;
-}
-
-.quotaFill {
-  height: 100%;
-  background: var(--gradient-accent);
-  transition: width 0.2s ease;
-}
-
-.quotaFillWarning {
-  composes: quotaFill;
-  background: var(--color-warning);
-}
-
-.quotaLabel {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--color-text-dim);
-}
-
-/* --- Aside: velocidade por mecanismo --- */
-
-.speedEmpty {
-  padding: var(--space-5);
-  margin: 0;
-  font-size: 0.82rem;
-  line-height: 1.5;
-  color: var(--color-text-dim);
-}
-
-.speedList {
-  padding: var(--space-4) var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-/* Rótulo em cima, barra + valor embaixo: os nomes de mecanismo ("Motor
-   interno + IA (Gemini)") não cabiam numa coluna fixa de 84px. */
-.speedRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas:
-    "label label"
-    "track value";
-  align-items: center;
-  column-gap: var(--space-3);
-  row-gap: 4px;
-}
-
-.speedRowLabel {
-  grid-area: label;
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.speedTrack {
-  grid-area: track;
-  display: block;
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  overflow: hidden;
-}
-
-.speedFill {
-  display: block;
-  height: 100%;
-  background: var(--gradient-accent);
-}
-
-.speedValue {
-  grid-area: value;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--color-text-dim);
-  text-align: right;
-}
-
-.speedCaption {
-  margin: var(--space-2) 0 0;
-  font-size: 0.76rem;
-  line-height: 1.5;
-  color: var(--color-text-dim);
-}
-
-/* --- Aside: seu histórico (estatísticas) --- */
-
-.statRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-5);
-  border-bottom: 1px solid var(--color-border-soft);
-}
-
-.statRow:last-child {
-  border-bottom: none;
-}
-
-.statLabel {
-  font-size: 0.82rem;
-  color: var(--color-text-muted);
-}
-
-.statValue {
-  font-family: var(--font-mono);
-  font-size: 1rem;
-}
-
-/* Legenda normal (não caixa alta) pra frase explicativa abaixo do rótulo
-   curto "Onde comparar". */
-.subGroupHint {
-  display: block;
-  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-}
-
-/* Motor de busca é seleção ÚNICA (troca o anterior) — indicador de
-   rádio, diferente do check dos marketplaces logo abaixo (que somam). */
-.providerRadio,
-.providerRadioOn {
-  margin-left: auto;
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--color-border-strong, var(--color-border));
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.providerRadioOn {
-  border-color: var(--color-accent);
-}
-
-.providerRadioOn::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--color-accent);
-}
-
-.cardHeaderLink {
-  margin-left: auto;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-
-.cardHeaderLink:hover {
-  color: var(--color-text);
+  .layout {
+    gap: var(--space-7);
+  }
 }

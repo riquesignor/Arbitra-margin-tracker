@@ -5,14 +5,12 @@ import {
   Loader2,
   AlertCircle,
   FileText,
-  History,
   Check,
   Store,
   ShoppingBag,
   Search,
   Camera,
   Trash2,
-  Gauge,
   Zap,
   Globe,
   X,
@@ -32,7 +30,14 @@ import { downloadCatalogRowsAsCsv } from "../lib/csvExport";
 import { fetchMultipleMarketplacePrices, MISS_REASON_LABEL, type MissReason } from "../lib/priceApi";
 import { missingKeyMessage, PROVIDER_KEY_GUIDE } from "../config/providerKeys";
 import { calculateMargins } from "../lib/marginCalculator";
-import { formatMs } from "../lib/format";
+import { formatMs, marginTone } from "../lib/format";
+import {
+  MARKETPLACE_NAME,
+  joinPt,
+  shortDate,
+  signedPct,
+  summarizeCatalog,
+} from "../lib/catalogSummary";
 import {
   computeFileHash,
   deleteCatalogUpload,
@@ -506,6 +511,39 @@ const SELECTABLE_PROVIDERS = SEARCH_PROVIDERS.filter((p) =>
   PROVIDER_GROUPS.some((g) => g.providerIds.includes(p.id))
 );
 
+/** Nome curto da fonte pro painel "Esta busca" (o rótulo completo fica na lista do passo 1). */
+const SHORT_PROVIDER_LABEL: Partial<Record<SearchProviderId, string>> = {
+  scraperapi: "ScraperAPI",
+  rapidapi_amazon: "RapidAPI (Amazon)",
+  mercadolivre_direct: "API do Mercado Livre",
+  mercadolivre_alt: "Unwrangle",
+  vision_internal: "Motor interno com Gemini",
+  vision_mistral: "Motor interno com Mistral",
+  vision_nvidia: "Motor interno com NVIDIA",
+  serpapi: "SerpApi",
+  google_lens_products: "Google Lens (SerpApi)",
+  searchapi_lens: "SearchApi.io",
+};
+
+const MODE_NOTE: Record<ProviderGroup, string> = {
+  texto: "Usa o nome do produto que está no catálogo. Mais rápida, e funciona bem em planilha ou PDF com texto.",
+  foto: "Usa a foto do produto. Mais lenta, mas resolve catálogo escaneado e nome mal escrito — confirma com IA antes de decidir o preço.",
+};
+
+/** Linhas da tabela "Catálogos já processados" (era o mesmo teto de 10 do card antigo). */
+const HISTORY_TABLE_LIMIT = 10;
+
+const TONE_CLASS = { good: styles.toneGood, warn: styles.toneWarn, bad: styles.toneBad } as const;
+
+/** Estimativa a partir da média medida neste navegador (providerSpeedStats.ts) — "cerca de", nunca promessa. */
+function formatEta(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `cerca de ${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `cerca de ${minutes} min ${rest} s` : `cerca de ${minutes} min`;
+}
+
 function groupOfProvider(id: SearchProviderId): ProviderGroup {
   return PROVIDER_GROUPS.find((g) => g.providerIds.includes(id))?.id ?? "texto";
 }
@@ -708,7 +746,6 @@ export default function Dashboard({
   onNavigateToFaq,
 }: Props) {
   const [state, setState] = useState<UploadState>("idle");
-  const [showPrereqDetails, setShowPrereqDetails] = useState(false);
   // true quando o erro atual em `error` veio de CatalogParseError/PdfParseError
   // (formato do arquivo não reconhecido) — diferencia de erro de rede/cota/
   // permissão, que não tem nada a ver com "seu catálogo está no formato
@@ -750,6 +787,13 @@ export default function Dashboard({
   const [candidateSource, setCandidateSource] = useState<VisionCandidateSource>("auto");
   const [candidateSourcePromptOpen, setCandidateSourcePromptOpen] = useState(false);
 
+  // Planilha já lida, esperando o "Rodar busca" (out/2026, redesign da
+  // Nova busca): antes a busca começava no instante em que o arquivo era
+  // escolhido. Agora o arquivo é lido na hora (é local e barato, e já
+  // acusa formato errado antes de gastar cota) e a busca só roda no
+  // clique, depois de o usuário ver o resumo em "Esta busca". PDF usa o
+  // `pendingPdf` abaixo pro mesmo papel.
+  const [stagedSheet, setStagedSheet] = useState<{ file: File; rows: CatalogRow[] } | null>(null);
   const [pendingPdf, setPendingPdf] = useState<File | null>(null);
   const [pdfPageCount, setPdfPageCount] = useState<number | null>(null);
   const [pageFrom, setPageFrom] = useState(1);
@@ -975,7 +1019,6 @@ export default function Dashboard({
                   ? scraperApiKey
                   : null;
   const hasRequiredKey = activeProvider.needsKey === null || Boolean(activeProviderKey);
-  const allPrereqsOk = Boolean(userId) && hasRequiredKey && selectedMarketplaces.length > 0;
 
   // Cota diária (ver config/plans.ts) — só informativo, nunca bloqueia a
   // busca (mesma filosofia BYOK do resto do app). `!` a partir de 80% —
@@ -1808,32 +1851,69 @@ export default function Dashboard({
     await finishWithRows(rows, meta, undefined, "scraperapi");
   }
 
+  /** Lê a planilha e deixa em espera (ver `stagedSheet`) — não busca preço. */
   async function handleCsv(file: File) {
+    setError(null);
+    setIsParseError(false);
+    setHistoryInfo(null);
+    setSkippedInfo(null);
+    setPendingPdf(null);
+    setPdfPageCount(null);
+    setStagedSheet(null);
+    // Planilha (.csv/.xlsx) nunca tem foto — troca pro mecanismo de busca
+    // por TEXTO já na escolha do arquivo, e como a busca só roda no clique
+    // de "Rodar busca", o provider certo já está aplicado até lá (antes
+    // precisava pedir pra reenviar o arquivo).
     if (IMAGE_MODE_PROVIDERS.has(searchProvider)) {
-      // Planilha (.csv/.xlsx) nunca tem foto — troca automaticamente pro
-      // mecanismo de busca por TEXTO (mesmo padrão de auto-troca já usado
-      // no fallback de OCR, ver finishWithRows) em vez de só bloquear com
-      // erro. Não processa nesta mesma chamada de propósito: `selectProvider`
-      // é `setState`, que só reflete no `searchProvider` do PRÓXIMO render —
-      // processar aqui ainda leria o provider antigo por closure. Pede pra
-      // reenviar, já com o mecanismo certo pré-selecionado.
       selectProvider(DEFAULT_TEXT_PROVIDER);
-      setError(
-        "\"Busca por foto\" precisa de imagem, que uma planilha (.csv/.xlsx) não tem — já troquei o " +
-          "mecanismo pra \"Busca por texto\". Suba o arquivo de novo pra processar."
-      );
+      setSkippedInfo("Planilha não tem foto de produto — troquei o mecanismo pra \"Por texto\".");
+    }
+    try {
+      setState("parsing");
+      const rows = await parseCatalogFile(file);
+      setStagedSheet({ file, rows });
+      setState("idle");
+    } catch (err) {
+      setState("error");
+      setIsParseError(err instanceof CatalogParseError);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  /** "Rodar busca" — dispara a busca do arquivo em espera (planilha ou PDF). */
+  async function handleRun() {
+    if (pendingPdf) {
+      await handleProcessPdf();
       return;
     }
-    await processFile(
-      file,
-      () => parseCatalogFile(file).then((rows) => ({ rows, skippedAmbiguous: 0 })),
-      "csv",
-      null
-    );
+    if (!stagedSheet) return;
+    if (IMAGE_MODE_PROVIDERS.has(searchProvider)) {
+      // Trocou pra "Por foto" depois de escolher a planilha.
+      selectProvider(DEFAULT_TEXT_PROVIDER);
+      setError("Planilha não tem foto — voltei pra busca \"Por texto\". Clique em Rodar busca de novo.");
+      return;
+    }
+    const { file, rows } = stagedSheet;
+    await processFile(file, () => Promise.resolve({ rows, skippedAmbiguous: 0 }), "csv", null);
+  }
+
+  function clearStaged() {
+    setStagedSheet(null);
+    setPendingPdf(null);
+    setPdfPageCount(null);
+    setError(null);
+    setIsParseError(false);
+    setHistoryInfo(null);
+    setSkippedInfo(null);
+    setConvertError(null);
   }
 
   async function handlePdfSelected(file: File) {
     setError(null);
+    setIsParseError(false);
+    setHistoryInfo(null);
+    setSkippedInfo(null);
+    setStagedSheet(null);
     try {
       const count = await getPdfPageCount(file);
       setPendingPdf(file);
@@ -1849,8 +1929,8 @@ export default function Dashboard({
     if (!pendingPdf) return;
     const file = pendingPdf;
     const pageRange: PageRange = { from: pageFrom, to: pageTo };
-    setPendingPdf(null);
-    setPdfPageCount(null);
+    // O PDF continua em espera durante a busca: se der certo, o App já
+    // troca pra Resultados; se der erro, "Rodar busca" tenta de novo.
     const withImages = IMAGE_MODE_PROVIDERS.has(searchProvider);
     await processFile(
       file,
@@ -1915,6 +1995,51 @@ export default function Dashboard({
     if (file) handleFile(file);
   }
 
+  const running = state === "parsing" || state === "fetching";
+  const hasStaged = Boolean(stagedSheet || pendingPdf);
+  const slowVision = SLOW_AI_VISION_PROVIDERS.has(searchProvider);
+  const marketplaceOptions = slowVision ? [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE] : AVAILABLE_MARKETPLACES;
+  const allowedMarketplaces: MarketplaceId[] = slowVision
+    ? [...activeProvider.marketplaces, "geral"]
+    : activeProvider.marketplaces;
+  const selectedLabels = marketplaceOptions.filter((m) => selectedMarketplaces.includes(m.id)).map((m) => m.label);
+  const providerSpeed = (id: SearchProviderId) => speedSummary.find((s) => s.provider === id) ?? null;
+  const activeSpeed = providerSpeed(searchProvider);
+  const shortProvider = SHORT_PROVIDER_LABEL[searchProvider] ?? activeProvider.label;
+
+  const runBlockReason = !userId
+    ? "Faça login em Conta pra poder buscar preço."
+    : !hasStaged && selectedMarketplaces.length === 0
+      ? "Escolha um marketplace e suba um catálogo."
+      : !hasStaged
+        ? "Suba um catálogo para rodar."
+        : selectedMarketplaces.length === 0
+          ? "Marque pelo menos um marketplace."
+          : stagedSheet && IMAGE_MODE_PROVIDERS.has(searchProvider)
+            ? "Planilha não tem foto de produto — volte pra busca \"Por texto\"."
+            : !hasRequiredKey && activeProvider.needsKey
+              ? missingKeyMessage(activeProvider.needsKey)
+              : null;
+
+  // Número grande do painel "Esta busca": o que vai ser (ou está sendo) buscado.
+  const summaryCount =
+    state === "fetching" && progress
+      ? { value: progress.total, note: `produtos em busca agora — ${progress.done} feitos, ${foundSoFar} com preço` }
+      : stagedSheet
+        ? { value: stagedSheet.rows.length, note: "produtos deste catálogo vão ser precificados" }
+        : pendingPdf
+          ? {
+              value: Math.max(0, pageTo - pageFrom + 1),
+              note: `páginas do PDF vão ser lidas (de ${pdfPageCount ?? "?"})`,
+            }
+          : null;
+  const productCountForEta = state === "fetching" && progress ? progress.total : stagedSheet?.rows.length ?? null;
+  const etaLabel =
+    productCountForEta != null && activeSpeed ? formatEta(productCountForEta * activeSpeed.avgMsPerItem) : "depende do catálogo";
+
+  const recentHistory = uploadHistory.slice(0, HISTORY_TABLE_LIMIT).map(summarizeCatalog);
+  const recentHistoryProducts = recentHistory.reduce((s, c) => s + c.productCount, 0);
+
   return (
     <motion.div
       className={styles.container}
@@ -1922,149 +2047,99 @@ export default function Dashboard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
     >
-      <div className={styles.header}>
-        <div className={styles.headerMain}>
-          <span className={styles.eyebrow}>Arbitragem de preços</span>
-          <h1 className={styles.title}>Bancada de precificação</h1>
-          <p className={styles.subtitle}>
-            Suba um catálogo em .csv, .xlsx ou .pdf, escolha onde comparar e a gente devolve preço de
-            mercado e margem produto por produto.
-          </p>
-        </div>
-        <div className={styles.headerCard}>
-          <span className={styles.headerCardRow}>
-            <span className={`${styles.headerCardDot} ${styles.dotSuccess}`} />
-            fonte <b className={styles.headerCardStrong}>{activeProvider.label}</b>
-          </span>
-          {/* Mesmo motivo do card "Cota diária" abaixo: o contador vale pra
-              todo mecanismo, não só SerpApi (auditoria item 23). */}
-          {userId && todayUsage !== null && (
-            <span className={styles.headerCardRow}>
-              <span className={`${styles.headerCardDot} ${styles.dotAccent}`} />
-              plano <b className={styles.headerCardStrong}>{plan.name}</b> · {todayUsage} busca(s)
-              hoje
-            </span>
-          )}
-        </div>
-      </div>
+      <h1 className={styles.title}>Nova busca</h1>
+      <p className={styles.lead}>
+        Escolha onde comparar, suba o catálogo do fornecedor e o Arbitra devolve preço de mercado e margem
+        produto por produto.
+      </p>
 
       <div className={styles.layout}>
-        <div className={styles.main}>
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderNumber}>01</span>
-              <h2 className={styles.cardHeaderTitle}>Qual API usar</h2>
-              <span className={styles.cardHeaderMeta}>
-                {selectedMarketplaces.length} marketplace(s)
-                {marketplaceLabels ? ` · ${marketplaceLabels}` : ""}
-              </span>
-            </div>
-            <div className={styles.cardBody}>
-              {/* Abas de grupo (set/2026) — ver PROVIDER_GROUPS. Substitui a
-                  antiga lista única de 5 opções (teste A/B): "texto" cobre
-                  planilha/CSV sem depender de foto, "foto" é o motor interno
-                  + IA. Ativa = groupOfProvider(searchProvider), não estado
-                  próprio (ver activeProviderGroup). */}
-              <div className={styles.providerGroupTabs}>
+        {/* ═══════ o formulário ═══════ */}
+        <div className={styles.form}>
+          <section className={styles.step} id="nova-busca-fonte">
+            <h2 className={styles.stepTitle}>
+              <span className={styles.stepNumber}>1</span>
+              Onde comparar preço
+            </h2>
+            <p className={styles.stepLead}>A fonte decide quais marketplaces ficam disponíveis logo abaixo.</p>
+
+            <div className={styles.stepBody}>
+              <div className={styles.modeToggle} role="radiogroup" aria-label="Como buscar o produto">
                 {PROVIDER_GROUPS.map((g) => {
                   const active = g.id === activeProviderGroup;
                   return (
-                    <button
-                      key={g.id}
-                      type="button"
-                      className={active ? styles.providerGroupTabActive : styles.providerGroupTab}
-                      onClick={() => selectProviderGroup(g.id)}
-                    >
-                      {g.label}
-                    </button>
+                    <label key={g.id} className={active ? styles.modeOptionActive : styles.modeOption}>
+                      <input
+                        type="radio"
+                        name="modo-busca"
+                        value={g.id}
+                        checked={active}
+                        onChange={() => selectProviderGroup(g.id)}
+                        disabled={running}
+                        className={styles.visuallyHidden}
+                      />
+                      {g.id === "texto" ? "Por texto" : "Por foto"}
+                    </label>
                   );
                 })}
               </div>
-              <p className={styles.providerGroupHint}>
-                {PROVIDER_GROUPS.find((g) => g.id === activeProviderGroup)!.hint}
-              </p>
+              <p className={styles.note}>{MODE_NOTE[activeProviderGroup]}</p>
 
-              <div className={styles.marketplaceGrid} role="radiogroup" aria-label="Mecanismo de busca">
-                {SELECTABLE_PROVIDERS.filter((p) => groupOfProvider(p.id) === activeProviderGroup).map(
-                  (p) => {
-                    const active = searchProvider === p.id;
-                    const Icon = p.icon;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
-                        onClick={() => selectProvider(p.id)}
-                        title={p.note}
-                      >
-                        <span
-                          className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
-                        >
-                          <Icon size={15} />
+              <div className={styles.sourceList} role="radiogroup" aria-label="Fonte de preço">
+                {SELECTABLE_PROVIDERS.filter((p) => groupOfProvider(p.id) === activeProviderGroup).map((p) => {
+                  const active = searchProvider === p.id;
+                  const speed = providerSpeed(p.id);
+                  return (
+                    <label key={p.id} className={active ? styles.sourceRowActive : styles.sourceRow}>
+                      <input
+                        type="radio"
+                        name="fonte-preco"
+                        value={p.id}
+                        checked={active}
+                        onChange={() => selectProvider(p.id)}
+                        disabled={running}
+                        className={styles.sourceRadio}
+                      />
+                      <span className={styles.sourceText}>
+                        <span className={styles.sourceName}>
+                          {p.label}
+                          {p.beta && <span className={styles.betaTag}>beta</span>}
                         </span>
-                        <span className={styles.marketplaceCardText}>
-                          <span className={styles.marketplaceCardLabel}>
-                            {p.label}
-                            {p.beta && <span className={styles.betaTag}>Beta</span>}
-                          </span>
+                        <span className={styles.sourceCovers}>{p.note}</span>
+                      </span>
+                      {speed && (
+                        <span className={styles.sourceSpeed} title={`Média medida neste navegador em ${speed.sampleCount} busca(s)`}>
+                          {formatMs(speed.avgMsPerItem)}/produto
                         </span>
-                        <span
-                          className={active ? styles.providerRadioOn : styles.providerRadio}
-                          aria-hidden="true"
-                        />
-                      </button>
-                    );
-                  }
-                )}
+                      )}
+                    </label>
+                  );
+                })}
               </div>
 
-              {/* "API de apoio" (set/2026 — correção de bug: o pop-up de fonte
-                  terceira, ver CandidateSourceModal, antes abria SOZINHO ao
-                  entrar num motor interno vindo de outro provider. Problema
-                  reportado: o overlay do modal cobria a grid de motores bem
-                  no momento em que o usuário ainda queria trocar entre
-                  Gemini/Mistral, e fechar o modal voltava sempre pro primeiro
-                  do grupo (Gemini) — na prática, dava pra abrir o motor mas
-                  não pra escolher Mistral. Agora o modal só abre por este
-                  botão "Mudar", nunca sozinho — trocar de motor (Gemini ↔
-                  Mistral) na grid acima nunca dispara o pop-up. */}
-              {SLOW_AI_VISION_PROVIDERS.has(searchProvider) && (
-                <div className={styles.candidateSourceRow}>
-                  <span className={styles.candidateSourceLabel}>
+              {/* "API de apoio" do motor interno + IA — o pop-up só abre por
+                  este botão, nunca sozinho (ver CandidateSourceModal). */}
+              {slowVision && (
+                <p className={styles.inlineRow}>
+                  <span>
                     API de apoio:{" "}
-                    <b>
-                      {CANDIDATE_SOURCE_OPTIONS.find((o) => o.id === candidateSource)?.label ?? "Automático"}
-                    </b>
+                    <b>{CANDIDATE_SOURCE_OPTIONS.find((o) => o.id === candidateSource)?.label ?? "Automático"}</b>
                   </span>
-                  <button
-                    type="button"
-                    className={styles.candidateSourceChangeButton}
-                    onClick={() => setCandidateSourcePromptOpen(true)}
-                  >
+                  <button type="button" className={styles.textButton} onClick={() => setCandidateSourcePromptOpen(true)}>
                     Mudar
                   </button>
-                </div>
+                </p>
               )}
 
-              {/* Onboarding do BYOK (set/2026, auditoria item 24): o aviso de
-                  chave faltando só existia DEPOIS da busca falhar e mandava
-                  "vá em Conta" sem dizer onde criar a chave nem se é paga.
-                  Aqui ele aparece no instante em que o mecanismo é escolhido,
-                  com link direto e o custo — as duas dúvidas que faziam a
-                  pessoa parar no meio. */}
+              {/* Onboarding do BYOK: avisa no instante em que o mecanismo é
+                  escolhido, com link e custo, sem esperar a busca falhar. */}
               {userId && !hasRequiredKey && activeProvider.needsKey && (
-                <p className={styles.byokHint}>
-                  <AlertCircle size={13} />
+                <p className={styles.keyHint}>
+                  <AlertCircle size={13} aria-hidden="true" />
                   <span>
-                    Este mecanismo roda com a <b>sua</b> chave{" "}
-                    {PROVIDER_KEY_GUIDE[activeProvider.needsKey].name} ({PROVIDER_KEY_GUIDE[activeProvider.needsKey].cost}).{" "}
-                    <a
-                      href={PROVIDER_KEY_GUIDE[activeProvider.needsKey].url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
+                    Este mecanismo roda com a <b>sua</b> chave {PROVIDER_KEY_GUIDE[activeProvider.needsKey].name} (
+                    {PROVIDER_KEY_GUIDE[activeProvider.needsKey].cost}).{" "}
+                    <a href={PROVIDER_KEY_GUIDE[activeProvider.needsKey].url} target="_blank" rel="noreferrer">
                       Criar chave
                     </a>{" "}
                     e cadastrar em Conta, no card "{PROVIDER_KEY_GUIDE[activeProvider.needsKey].card}".
@@ -2072,108 +2147,114 @@ export default function Dashboard({
                 </p>
               )}
 
-              {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider) && (
-                <div className={styles.subGroup}>
-                  <span className={styles.subGroupLabel}>Onde comparar</span>
-                  <span className={styles.subGroupHint}>
-                    {activeProvider.label} cobre os dois — marque um ou os dois.
-                  </span>
-                  <div className={styles.marketplaceGrid}>
-                    {(SLOW_AI_VISION_PROVIDERS.has(searchProvider)
-                      ? [...AVAILABLE_MARKETPLACES, GENERAL_STORES_MARKETPLACE]
-                      : AVAILABLE_MARKETPLACES
-                    ).map((m) => {
-                      const active = selectedMarketplaces.includes(m.id);
-                      const Icon = m.icon;
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          className={active ? styles.marketplaceCardActive : styles.marketplaceCard}
-                          onClick={() => toggleMarketplace(m.id)}
-                          title={m.note}
-                        >
-                          <span
-                            className={active ? styles.marketplaceIconBoxActive : styles.marketplaceIconBox}
-                          >
-                            <Icon size={15} />
-                          </span>
-                          <span className={styles.marketplaceCardText}>
-                            <span className={styles.marketplaceCardLabel}>{m.label}</span>
-                          </span>
-                          {active && (
-                            <span className={styles.marketplaceCardCheck}>
-                              <Check size={11} strokeWidth={3} />
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {SLOW_AI_VISION_PROVIDERS.has(searchProvider) && selectedMarketplaces.includes("geral") && (
-                    <p className={styles.subGroupHint}>
-                      "Lojas gerais" marcado: quando Amazon/Mercado Livre não confirmarem o produto por
-                      foto, o motor interno + IA tenta achar em qualquer outra loja (Shopee, Magalu, loja
-                      própria...) antes de desistir — entra marcado "Aproximado" na tela de Resultados,
-                      numa coluna própria.
-                    </p>
-                  )}
+              <fieldset className={styles.marketsFieldset}>
+                <legend className={styles.marketsLegend}>Marketplaces desta busca</legend>
+                <div className={styles.marketsRow}>
+                  {marketplaceOptions.map((m) => {
+                    const allowed = allowedMarketplaces.includes(m.id);
+                    const checked = allowed && selectedMarketplaces.includes(m.id);
+                    return (
+                      <label
+                        key={m.id}
+                        className={!allowed ? styles.marketOff : checked ? styles.marketOn : styles.market}
+                        title={m.note}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!allowed || running}
+                          onChange={() => toggleMarketplace(m.id)}
+                          className={styles.marketCheckbox}
+                        />
+                        {m.label}
+                      </label>
+                    );
+                  })}
                 </div>
-              )}
+                <p className={styles.note}>
+                  {MULTI_MARKETPLACE_PROVIDERS.has(searchProvider)
+                    ? "Esta fonte cobre os dois. Marque um ou os dois."
+                    : activeProvider.marketplaces.includes("amazon")
+                      ? "Esta fonte só alcança a Amazon. Para incluir o Mercado Livre, troque de fonte acima."
+                      : "Esta fonte só alcança o Mercado Livre. Para incluir a Amazon, troque de fonte acima."}
+                </p>
+                {slowVision && selectedMarketplaces.includes("geral") && (
+                  <p className={styles.note}>
+                    "Lojas gerais" marcado: quando Amazon e Mercado Livre não confirmarem o produto por foto, o
+                    motor tenta achar em qualquer outra loja (Shopee, Magalu, loja própria...) antes de desistir —
+                    entra marcado "Aproximado" em Resultados.
+                  </p>
+                )}
+              </fieldset>
             </div>
           </section>
 
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderNumber}>02</span>
-              <h2 className={styles.cardHeaderTitle}>Catálogo</h2>
-            </div>
-            <div className={styles.cardBody}>
-              {pendingPdf ? (
-                <motion.div
-                  className={styles.pageRangePanel}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                >
-                  <div className={styles.pageRangeHeader}>
-                    <FileText size={16} />
-                    <span>
-                      {pendingPdf.name} · {pdfPageCount} páginas
+          <section className={styles.step}>
+            <h2 className={styles.stepTitle}>
+              <span className={styles.stepNumber}>2</span>
+              Catálogo do fornecedor
+            </h2>
+            <p className={styles.stepLead}>
+              Planilha .csv ou .xlsx com sku, nome e custo. Em PDF, o Arbitra pergunta o intervalo de páginas.
+            </p>
+
+            <div className={styles.stepBody}>
+              {stagedSheet ? (
+                <div className={styles.fileCard}>
+                  <FileText size={20} aria-hidden="true" className={styles.fileIcon} />
+                  <span className={styles.fileText}>
+                    <span className={styles.fileName}>{stagedSheet.file.name}</span>
+                    <span className={styles.fileMeta}>{stagedSheet.rows.length} produtos lidos</span>
+                  </span>
+                  <button type="button" className={styles.smallButton} onClick={clearStaged} disabled={running}>
+                    Trocar catálogo
+                  </button>
+                </div>
+              ) : pendingPdf ? (
+                <div className={styles.pdfCard}>
+                  <div className={styles.fileCardInner}>
+                    <FileText size={20} aria-hidden="true" className={styles.fileIcon} />
+                    <span className={styles.fileText}>
+                      <span className={styles.fileName}>{pendingPdf.name}</span>
+                      <span className={styles.fileMeta}>{pdfPageCount} páginas</span>
                     </span>
+                    <button type="button" className={styles.smallButton} onClick={clearStaged} disabled={running}>
+                      Trocar catálogo
+                    </button>
                   </div>
-                  <div className={styles.pageRangeInputs}>
-                    <label>
+                  <div className={styles.pageRange}>
+                    <label className={styles.pageField}>
                       Página inicial
                       <input
                         type="number"
                         min={1}
                         max={pdfPageCount ?? 1}
                         value={pageFrom}
+                        disabled={running}
                         onChange={(e) => setPageFrom(Number(e.target.value) || 1)}
                       />
                     </label>
-                    <label>
+                    <label className={styles.pageField}>
                       Página final
                       <input
                         type="number"
                         min={1}
                         max={pdfPageCount ?? 1}
                         value={pageTo}
+                        disabled={running}
                         onChange={(e) => setPageTo(Number(e.target.value) || 1)}
                       />
                     </label>
                   </div>
                   {IMAGE_MODE_PROVIDERS.has(searchProvider) && (
-                    <p className={styles.warningNote}>
-                      <Camera size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                      Modo imagem ativo — vai renderizar cada página e subir uma foto por produto
-                      antes de buscar. Mais lento que busca por texto.
+                    <p className={styles.note}>
+                      <Camera size={13} aria-hidden="true" className={styles.inlineIcon} />
+                      Busca por foto: cada página é renderizada e cada produto ganha uma foto antes da busca. Mais
+                      lento que por texto.
                     </p>
                   )}
-                  {/* ⚠️ TEMPORÁRIO/DIAGNÓSTICO — ver forceFreshSearch (declaração
-                      do state). Remover junto com a flag se o teste não
-                      mudar nada. */}
-                  <label className={styles.warningNote} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  {/* ⚠️ TEMPORÁRIO/DIAGNÓSTICO — ver forceFreshSearch (declaração do state). */}
+                  <label className={styles.checkLine}>
                     <input
                       type="checkbox"
                       checked={forceFreshSearch}
@@ -2181,56 +2262,30 @@ export default function Dashboard({
                     />
                     Forçar nova busca — ignora o histórico e o cache de preços
                   </label>
-                  <div className={styles.pageRangeActions}>
-                    <button
-                      className={styles.button}
-                      type="button"
-                      onClick={() => void handleProcessPdf()}
-                    >
-                      Processar páginas {pageFrom}–{pageTo}
-                    </button>
-                    <button
-                      className={styles.linkButton}
-                      type="button"
-                      onClick={() => {
-                        setPendingPdf(null);
-                        setPdfPageCount(null);
-                      }}
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-
-                  {/* Conversor PDF → planilha (set/2026) — só faz sentido
-                      junto do grupo "texto": quem tá no motor de FOTO já
-                      processa a foto direto, não precisa de planilha
-                      intermediária nenhuma. */}
+                  {/* Conversor PDF → planilha: só no grupo "texto" — quem busca por foto não precisa de planilha. */}
                   {activeProviderGroup === "texto" && (
-                    <div className={styles.pageRangeConvertPanel}>
-                      <p className={styles.warningNote}>
-                        <AlertCircle size={13} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                        Sem foto do produto, a busca por texto sozinha tem mais chance de confundir
-                        produtos parecidos — revise a planilha antes de usar.
+                    <div className={styles.convertRow}>
+                      <p className={styles.note}>
+                        Sem foto do produto, a busca por texto tem mais chance de confundir produtos parecidos —
+                        revise a planilha antes de usar.
                       </p>
                       <button
-                        className={styles.linkButton}
+                        className={styles.textButton}
                         type="button"
-                        disabled={convertingToSpreadsheet}
+                        disabled={convertingToSpreadsheet || running}
                         onClick={() => void handleConvertPdfToSpreadsheet()}
                       >
                         {convertingToSpreadsheet
                           ? "Convertendo…"
                           : `Só converter em planilha (páginas ${pageFrom}–${pageTo}, sem buscar preço)`}
                       </button>
-                      {convertError && <p className={styles.errorNote}>{convertError}</p>}
+                      {convertError && <p className={styles.errorText}>{convertError}</p>}
                     </div>
                   )}
-                </motion.div>
+                </div>
               ) : (
                 <label
-                  className={
-                    dragActive ? `${styles.dropzone} ${styles.dropzoneActive}` : styles.dropzone
-                  }
+                  className={dragActive ? styles.dropzoneActive : styles.dropzone}
                   onDragOver={(e) => {
                     e.preventDefault();
                     setDragActive(true);
@@ -2238,91 +2293,112 @@ export default function Dashboard({
                   onDragLeave={() => setDragActive(false)}
                   onDrop={handleDrop}
                 >
-                  <span className={styles.dropzoneIconBox}>
-                    <UploadCloud size={20} strokeWidth={2} />
-                  </span>
-                  <span className={styles.dropzoneText}>
-                    <span className={styles.dropzoneTitle}>
-                      Arraste o arquivo aqui ou escolha do computador
+                  <UploadCloud size={26} strokeWidth={1.5} aria-hidden="true" className={styles.dropIcon} />
+                  <span className={styles.dropText}>
+                    <span className={styles.dropTitle}>
+                      {state === "parsing" ? "Lendo catálogo…" : "Arraste o arquivo aqui"}
                     </span>
-                    <span className={styles.dropzoneHint}>
-                      .csv ou .xlsx com sku/nome/custo · .pdf de catálogo (pede intervalo de páginas)
-                    </span>
+                    <span className={styles.dropHint}>.csv, .xlsx ou .pdf</span>
                   </span>
-                  <span className={styles.dropzoneButton}>Escolher arquivo</span>
+                  <span className={styles.dropButton}>Escolher do computador</span>
                   <input
-                    className={styles.fileInput}
+                    className={styles.visuallyHidden}
                     type="file"
                     accept=".csv,.xlsx,.xlsm,.pdf"
-                    onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                    disabled={running}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if (file) handleFile(file);
+                    }}
                   />
                 </label>
               )}
             </div>
+          </section>
+        </div>
 
-            {(state !== "idle" || error || historyInfo || skippedInfo || mlFallbackOffer || failedRetryOffer || imageUploadFailedOffer || !userId || !hasRequiredKey) && (
-              <div className={styles.cardFooter}>
-                {state === "parsing" && (
-                  <p className={styles.status}>
-                    <Loader2 size={14} className="spin" /> Lendo catálogo…
-                  </p>
-                )}
-                {state === "fetching" && (
-                  <div className={styles.progressWrap}>
-                    <p className={styles.status}>
-                      <Loader2 size={14} className="spin" /> Buscando preço ({marketplaceLabels})
-                      {progress ? ` — ${progress.done}/${progress.total} produtos` : "…"}
-                    </p>
-                    {/* Contador ao vivo (ver onProgress/foundSoFar) — resolve o "rodou 5
-                        minutos e só no final mostrou 2" (catálogo grande, motor interno + IA):
-                        agora dá pra ver quantos JÁ deram certo sem esperar o lote inteiro
-                        terminar, lote a lote. Só aparece depois do 1º lote resolver (evita
-                        piscar "0 de X" no instante inicial, quando nada rodou ainda). */}
-                    {progress && progress.done > 0 && (
-                      <p className={styles.statusMuted}>
-                        {foundSoFar} de {progress.done} já com preço encontrado até agora
-                      </p>
-                    )}
-                    {progress && progress.total > 0 && (
-                      <div className={styles.progressTrack}>
-                        <div
-                          className={styles.progressFill}
-                          style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
-                        />
-                      </div>
-                    )}
-                    {/* "Parar busca" (set/2026) — catálogo grande roda por
-                        minutos e, até aqui, a única saída era recarregar a
-                        página, o que jogava fora TODO o resultado parcial.
-                        Parar aqui mantém o que já foi encontrado. */}
-                    <button className={styles.linkButton} type="button" onClick={handleStopSearch}>
-                      Parar busca e ficar com o que já achei
-                    </button>
+        {/* ═══════ a ordem de busca ═══════ */}
+        <aside className={styles.panelCol}>
+          <div className={styles.panel}>
+            <h2 className={styles.panelTitle}>Esta busca</h2>
+
+            <div className={styles.count} aria-live="polite">
+              <span className={summaryCount ? styles.countValue : styles.countValueEmpty}>
+                {summaryCount ? summaryCount.value.toLocaleString("pt-BR") : "—"}
+              </span>
+              <span className={styles.countNote}>{summaryCount ? summaryCount.note : "nenhum catálogo escolhido ainda"}</span>
+            </div>
+
+            <dl className={styles.facts}>
+              <div className={styles.fact}>
+                <dt>Fonte</dt>
+                <dd>{shortProvider}</dd>
+              </div>
+              <div className={styles.fact}>
+                <dt>Comparar</dt>
+                <dd>{selectedLabels.length > 0 ? joinPt(selectedLabels) : "nenhum marketplace"}</dd>
+              </div>
+              <div className={styles.fact}>
+                <dt>Busca</dt>
+                <dd>{activeProviderGroup === "texto" ? "por texto" : "por foto"}</dd>
+              </div>
+              <div className={styles.fact}>
+                <dt>Tempo</dt>
+                <dd>{etaLabel}</dd>
+              </div>
+            </dl>
+
+            {running ? (
+              <button type="button" className={styles.runButtonBusy} disabled>
+                <Loader2 size={15} className="spin" aria-hidden="true" />
+                {state === "parsing" ? "Lendo catálogo…" : "Buscando preço…"}
+              </button>
+            ) : runBlockReason ? (
+              <>
+                <button type="button" className={styles.runButtonOff} disabled>
+                  Rodar busca
+                </button>
+                <p className={styles.blockReason}>{runBlockReason}</p>
+              </>
+            ) : (
+              <button type="button" className={styles.runButton} onClick={() => void handleRun()}>
+                Rodar busca
+              </button>
+            )}
+
+            {state === "fetching" && (
+              <div className={styles.progress}>
+                <p className={styles.progressText}>
+                  Buscando preço ({marketplaceLabels}){progress ? ` — ${progress.done}/${progress.total} produtos` : "…"}
+                </p>
+                {progress && progress.total > 0 && (
+                  <div className={styles.progressTrack}>
+                    <div
+                      className={styles.progressFill}
+                      style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+                    />
                   </div>
                 )}
+                <button className={styles.textButton} type="button" onClick={handleStopSearch}>
+                  Parar busca e ficar com o que já achei
+                </button>
+              </div>
+            )}
+
+            {(error || historyInfo || skippedInfo || mlFallbackOffer || failedRetryOffer || imageUploadFailedOffer) && (
+              <div className={styles.notices}>
                 {error && (
-                  <p className={styles.error}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                  <p className={styles.errorText}>
                     {error}{" "}
-                    {/* Reprocessa o MESMO arquivo já guardado em `lastUpload` (setado logo no
-                        início de processFile, antes de qualquer guard) — cobre tanto o guard de
-                        OCR (que já troca `searchProvider` sozinho, ver finishWithRows) quanto
-                        qualquer outro erro recuperável sem precisar re-selecionar o arquivo. */}
                     {lastUpload && (
-                      <button
-                        className={styles.linkButton}
-                        type="button"
-                        onClick={() => void handleForceReprocess()}
-                      >
+                      <button className={styles.textButton} type="button" onClick={() => void handleForceReprocess()}>
                         Reprocessar agora
                       </button>
-                    )}
-                    {/* Só quando o erro é de FORMATO (CatalogParseError/PdfParseError,
-                        ver isParseError) — erro de rede/cota não tem a ver com o
-                        catálogo estar fora do padrão, não faz sentido linkar pra lá. */}
+                    )}{" "}
                     {isParseError && onNavigateToFaq && (
                       <button
-                        className={styles.linkButton}
+                        className={styles.textButton}
                         type="button"
                         onClick={() => {
                           window.location.hash = "catalogo-ideal";
@@ -2335,322 +2411,149 @@ export default function Dashboard({
                   </p>
                 )}
                 {mlFallbackOffer && (
-                  <p className={styles.warningNote}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    Quer tentar de novo usando sua chave Unwrangle no lugar do Mercado Livre público?{" "}
-                    <button
-                      className={styles.linkButton}
-                      type="button"
-                      onClick={() => void handleRetryWithUnwrangle()}
-                    >
+                  <p className={styles.noticeText}>
+                    Tentar de novo usando sua chave Unwrangle no lugar do Mercado Livre público?{" "}
+                    <button className={styles.textButton} type="button" onClick={() => void handleRetryWithUnwrangle()}>
                       Tentar com Unwrangle
                     </button>
                   </p>
                 )}
                 {failedRetryOffer && (
-                  <p className={styles.warningNote}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
+                  <p className={styles.noticeText}>
                     {failedRetryOffer.skus.length} produto(s) ficaram sem preço porque o lote deles falhou.{" "}
-                    <button
-                      className={styles.linkButton}
-                      type="button"
-                      onClick={() => void handleRetryFailed()}
-                    >
+                    <button className={styles.textButton} type="button" onClick={() => void handleRetryFailed()}>
                       Tentar de novo só esses {failedRetryOffer.skus.length}
                     </button>
                   </p>
                 )}
                 {imageUploadFailedOffer && (
-                  <p className={styles.warningNote}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    Os {imageUploadFailedOffer.rows.length} produto(s) já lidos deste PDF continuam disponíveis
-                    — buscar o preço deles por texto (ScraperAPI) agora, sem reprocessar o arquivo?{" "}
-                    <button
-                      className={styles.linkButton}
-                      type="button"
-                      onClick={() => void handleRetryAsText()}
-                    >
+                  <p className={styles.noticeText}>
+                    Os {imageUploadFailedOffer.rows.length} produto(s) já lidos deste PDF continuam disponíveis — buscar o
+                    preço deles por texto (ScraperAPI) agora, sem reprocessar o arquivo?{" "}
+                    <button className={styles.textButton} type="button" onClick={() => void handleRetryAsText()}>
                       Buscar por texto agora
                     </button>
                   </p>
                 )}
                 {historyInfo && (
-                  <p className={styles.status}>
-                    <History size={14} /> {historyInfo}{" "}
-                    <button
-                      className={styles.linkButton}
-                      type="button"
-                      onClick={() => void handleForceReprocess()}
-                    >
+                  <p className={styles.noticeText}>
+                    {historyInfo}{" "}
+                    <button className={styles.textButton} type="button" onClick={() => void handleForceReprocess()}>
                       Reprocessar mesmo assim
                     </button>
                   </p>
                 )}
-                {skippedInfo && (
-                  <p className={styles.warningNote}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    {skippedInfo}
-                  </p>
-                )}
-                {(!userId || !hasRequiredKey) && (
-                  <p className={styles.warningNote}>
-                    <AlertCircle size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-                    {!userId
-                      ? "Faça login ou crie uma conta em Conta pra poder buscar preço."
-                      : activeProvider.needsKey
-                        ? missingKeyMessage(activeProvider.needsKey)
-                        : "Chave de API ausente."}
-                  </p>
-                )}
+                {skippedInfo && <p className={styles.noticeText}>{skippedInfo}</p>}
               </div>
             )}
-          </section>
 
-          {userId && (
-            <section className={styles.card}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardHeaderNumber}>03</span>
-                <h2 className={styles.cardHeaderTitle}>Catálogos processados</h2>
-                <span className={styles.cardHeaderMeta}>{uploadHistory.length} registro(s)</span>
-              </div>
-              {historyLoading && (
-                <div className={styles.tableEmpty}>Carregando histórico…</div>
+            <p className={styles.panelFoot}>
+              {userId && todayUsage !== null && (
+                <span className={quotaWarning ? styles.quotaWarn : undefined}>
+                  Você usou {todayUsage.toLocaleString("pt-BR")} das {effectiveQuotaLimit.toLocaleString("pt-BR")} buscas
+                  de hoje
+                  {serverQuotaLimit !== null && serverQuotaLimit > plan.dailySearchLimit ? " (com sua própria chave)" : ""}.{" "}
+                </span>
               )}
-              {!historyLoading && uploadHistory.length === 0 && (
-                <div className={styles.tableEmpty}>Nenhum catálogo processado ainda.</div>
-              )}
-              {!historyLoading && uploadHistory.length > 0 && (
+              {lastSearchCost !== null && lastSearchCost > 0 && <>A última consumiu {lastSearchCost}. </>}
+              {activeSpeed && (
                 <>
-                  <div className={styles.tableHeadRow}>
-                    <span>arquivo</span>
-                    <span>com preço</span>
-                    <span>marketplaces</span>
-                    <span>quando</span>
-                    <span />
-                  </div>
-                  {uploadHistory.slice(0, 10).map((record) => {
-                    const foundCount = record.results.length;
-                    const failed = foundCount === 0;
-                    return (
-                      <div
-                        key={record.id}
-                        className={styles.tableRow}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => loadHistoryRecord(record)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            loadHistoryRecord(record);
-                          }
-                        }}
-                      >
-                        <span className={styles.tableCellFile}>
-                          <FileText size={13} /> {record.fileName}
-                        </span>
-                        <span className={failed ? styles.tableCellFoundFailed : styles.tableCellFound}>
-                          {foundCount} / {record.rows.length}
-                        </span>
-                        <span className={styles.tableCellMarkets}>
-                          {(record.marketplaces ?? []).join(" + ") || "—"}
-                        </span>
-                        <span className={styles.tableCellWhen}>
-                          {new Date(record.uploadedAt).toLocaleString("pt-BR")}
-                        </span>
-                        <button
-                          type="button"
-                          className={styles.tableRowDelete}
-                          title="Excluir esta busca do histórico"
-                          onClick={(e) => void handleDeleteRecord(e, record.id)}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {shortProvider}, cerca de {formatMs(activeSpeed.avgMsPerItem)} por produto.{" "}
                 </>
               )}
-            </section>
-          )}
-        </div>
-
-        <aside className={styles.aside}>
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <h2 className={styles.cardHeaderTitle}>Pré-requisitos</h2>
-              {allPrereqsOk && (
-                <button
-                  type="button"
-                  className={styles.cardHeaderLink}
-                  onClick={() => setShowPrereqDetails((v) => !v)}
-                  aria-expanded={showPrereqDetails}
-                >
-                  {showPrereqDetails ? "recolher" : "detalhes"}
-                </button>
-              )}
-            </div>
-            {allPrereqsOk && !showPrereqDetails ? (
-              <div className={styles.prereqRow}>
-                <span className={styles.prereqIcon}>
-                  <Check size={11} strokeWidth={3} />
-                </span>
-                <span>
-                  <span className={styles.prereqLabel}>Tudo pronto pra buscar</span>
-                  <span className={styles.prereqSub}>conta, chave e marketplace ok</span>
-                </span>
-              </div>
-            ) : (
-            <>
-            <div className={styles.prereqRow}>
-              <span className={userId ? styles.prereqIcon : styles.prereqIconWarning}>
-                {userId ? <Check size={11} strokeWidth={3} /> : <AlertCircle size={11} />}
-              </span>
-              <span>
-                <span className={styles.prereqLabel}>Conta conectada</span>
-                <span className={styles.prereqSub}>
-                  {userId ? "sessão ativa" : "faça login em Conta"}
-                </span>
-              </span>
-            </div>
-            <div className={styles.prereqRow}>
-              <span className={hasRequiredKey ? styles.prereqIcon : styles.prereqIconWarning}>
-                {hasRequiredKey ? <Check size={11} strokeWidth={3} /> : <AlertCircle size={11} />}
-              </span>
-              <span>
-                <span className={styles.prereqLabel}>
-                  {activeProvider.needsKey === "serpApiKey"
-                    ? "Chave SerpApi própria"
-                    : activeProvider.needsKey === "rapidApiKey"
-                      ? "Chave RapidAPI própria"
-                      : activeProvider.needsKey === "searchApiKey"
-                        ? "Chave SearchApi.io própria"
-                        : activeProvider.needsKey === "geminiApiKey"
-                          ? "Chave Gemini própria"
-                          : activeProvider.needsKey === "mistralApiKey"
-                            ? "Chave Mistral própria"
-                            : activeProvider.needsKey === "nvidiaApiKey"
-                              ? "Chave NVIDIA própria (beta)"
-                              : activeProvider.needsKey === "scraperApiKey"
-                                ? "Chave ScraperAPI própria"
-                                : "Chave de API"}
-                </span>
-                <span className={styles.prereqSub}>
-                  {activeProvider.needsKey === null
-                    ? "não precisa — endpoint público"
-                    : hasRequiredKey
-                      ? "cadastrada"
-                      : /* Custo real por mecanismo (set/2026) — antes dizia sempre
-                           "grátis", errado pro ScraperAPI (trial, depois pago). */
-                        `${PROVIDER_KEY_GUIDE[activeProvider.needsKey].cost} — cadastre em Conta`}
-                </span>
-              </span>
-            </div>
-            <div className={styles.prereqRow}>
-              <span
-                className={
-                  selectedMarketplaces.length > 0 ? styles.prereqIcon : styles.prereqIconWarning
-                }
+              <button
+                type="button"
+                className={styles.textButtonMuted}
+                onClick={() => document.getElementById("nova-busca-fonte")?.scrollIntoView({ behavior: "smooth" })}
               >
-                {selectedMarketplaces.length > 0 ? (
-                  <Check size={11} strokeWidth={3} />
-                ) : (
-                  <AlertCircle size={11} />
-                )}
-              </span>
-              <span>
-                <span className={styles.prereqLabel}>Marketplace escolhido</span>
-                <span className={styles.prereqSub}>
-                  {marketplaceLabels || "selecione ao menos um"}
-                </span>
-              </span>
-            </div>
-            </>
-            )}
-          </section>
-
-          {/* Cota (set/2026, auditoria item 23): o card era exclusivo de quem
-              usava SerpApi, mas o contador do servidor vale pra TODO
-              mecanismo — quem rodava motor interno/ScraperAPI gastava cota
-              sem nada na tela dizendo isso. O teto exibido vem do servidor
-              (`_usage.limit`) quando já houve uma busca; antes dela, cai
-              pro limite do plano, que é o palpite certo pra quem ainda não
-              rodou nada. */}
-          {userId && todayUsage !== null && (
-            <section className={quotaWarning ? styles.cardWarning : styles.card}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardHeaderIcon}>
-                  <Gauge size={13} />
-                </span>
-                <h2 className={styles.cardHeaderTitle}>Cota diária</h2>
-                <span className={quotaWarning ? styles.quotaBadgeWarning : styles.cardHeaderMeta}>
-                  {quotaWarning && <AlertCircle size={11} />}
-                  {Math.round(quotaPct * 100)}%
-                </span>
-              </div>
-              <div className={styles.quotaBody}>
-                <div className={styles.quotaTrack}>
-                  <div
-                    className={quotaWarning ? styles.quotaFillWarning : styles.quotaFill}
-                    style={{ width: `${Math.round(quotaPct * 100)}%` }}
-                  />
-                </div>
-                <span className={styles.quotaLabel}>
-                  {todayUsage} / {effectiveQuotaLimit} busca(s) hoje
-                  {serverQuotaLimit !== null && serverQuotaLimit > plan.dailySearchLimit
-                    ? " · com sua própria chave"
-                    : ` · plano ${plan.name}`}
-                </span>
-                {lastSearchCost !== null && lastSearchCost > 0 && (
-                  <span className={styles.quotaLabel}>
-                    Última busca consumiu <b>{lastSearchCost}</b> — contagem do servidor, já descontando o
-                    que veio do cache.
-                  </span>
-                )}
-              </div>
-            </section>
-          )}
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Zap size={13} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Velocidade por mecanismo</h2>
-            </div>
-            {speedSummary.length === 0 ? (
-              <p className={styles.speedEmpty}>
-                Ainda sem dado — aparece aqui depois da primeira busca com cada mecanismo (medido
-                neste navegador, ms por produto).
-              </p>
-            ) : (
-              <div className={styles.speedList}>
-                {(() => {
-                  const maxMs = Math.max(...speedSummary.map((s) => s.avgMsPerItem));
-                  return speedSummary.map((s) => {
-                    const label = SEARCH_PROVIDERS.find((p) => p.id === s.provider)?.label ?? s.provider;
-                    return (
-                      <div key={s.provider} className={styles.speedRow}>
-                        <span className={styles.speedRowLabel} title={label}>{label}</span>
-                        <span className={styles.speedTrack}>
-                          <span
-                            className={styles.speedFill}
-                            style={{ width: `${Math.max(6, Math.round((s.avgMsPerItem / maxMs) * 100))}%` }}
-                          />
-                        </span>
-                        <span className={styles.speedValue}>{formatMs(s.avgMsPerItem)}</span>
-                      </div>
-                    );
-                  });
-                })()}
-                <p className={styles.speedCaption}>
-                  média de ms por produto, medida nas suas últimas buscas — mais curto é mais rápido.
-                </p>
-              </div>
-            )}
-          </section>
-
+                Trocar fonte
+              </button>
+            </p>
+          </div>
         </aside>
       </div>
+
+      {/* ═══════ histórico ═══════ */}
+      {userId && (
+        <section className={styles.history}>
+          <h2 className={styles.historyTitle}>Catálogos já processados</h2>
+          {historyLoading ? (
+            <p className={styles.caption}>Carregando histórico…</p>
+          ) : recentHistory.length === 0 ? (
+            <p className={styles.caption}>Nenhum catálogo processado ainda.</p>
+          ) : (
+            <>
+              <p className={styles.caption}>
+                {recentHistory.length} {recentHistory.length === 1 ? "catálogo" : "catálogos"}
+                {uploadHistory.length > recentHistory.length ? ` mais recentes de ${uploadHistory.length}` : ""},{" "}
+                {recentHistoryProducts.toLocaleString("pt-BR")} produtos. Reabrir um deles não consome busca.
+              </p>
+              <div className={styles.tableScroll}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th scope="col">Arquivo</th>
+                      <th scope="col" className={styles.num}>Produtos</th>
+                      <th scope="col" className={styles.num}>Com preço</th>
+                      <th scope="col" className={styles.colMarkets}>Marketplaces</th>
+                      <th scope="col" className={styles.num}>Margem</th>
+                      <th scope="col" className={styles.colAction}>
+                        <span className={styles.visuallyHidden}>Ações</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentHistory.map((c) => {
+                      const record = uploadHistory.find((r) => r.id === c.id)!;
+                      return (
+                        <tr key={c.id}>
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.fileLink}
+                              onClick={() => loadHistoryRecord(record)}
+                              title={`Abrir ${c.fileName} em Resultados`}
+                            >
+                              {c.fileName}
+                            </button>
+                            <span className={styles.rowDate}>{shortDate(c.uploadedAt)}</span>
+                          </td>
+                          <td className={styles.num}>{c.productCount.toLocaleString("pt-BR")}</td>
+                          <td className={`${styles.num} ${c.pricedCount === 0 ? styles.toneBad : ""}`}>
+                            {c.pricedCount.toLocaleString("pt-BR")}
+                          </td>
+                          <td className={styles.colMarkets}>
+                            {c.marketplaces.map((m) => MARKETPLACE_NAME[m]).join(", ") || "—"}
+                          </td>
+                          <td
+                            className={`${styles.num} ${styles.marginCell} ${
+                              c.margin != null ? TONE_CLASS[marginTone(c.margin, rules.targetMarginPct)] : ""
+                            }`}
+                            title={c.margin == null ? "Catálogo sem preço de custo — margem não calculada" : undefined}
+                          >
+                            {c.margin != null ? signedPct(c.margin) : "—"}
+                          </td>
+                          <td className={styles.colAction}>
+                            <button
+                              type="button"
+                              className={styles.deleteButton}
+                              aria-label={`Remover ${c.fileName}`}
+                              title="Excluir esta busca do histórico"
+                              onClick={(e) => void handleDeleteRecord(e, c.id)}
+                            >
+                              <Trash2 size={16} strokeWidth={1.5} aria-hidden="true" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+      )}
 
       {candidateSourcePromptOpen && (
         <CandidateSourceModal

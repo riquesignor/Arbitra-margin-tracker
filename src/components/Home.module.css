@@ -1,463 +1,551 @@
-/* Largura controlada por `.app-shell__content` (index.css). */
+/*
+ * Início — régua de margem + livro-razão (out/2026, Home-html.zip).
+ * Valores do mockup → tokens do app (tokens.css), pra o tema escuro e
+ * as paletas de acento funcionarem sem bloco próprio:
+ *   #E9EAE4 fundo        → --color-bg (a página, sem cards)
+ *   #1A2621 tinta        → --color-text (fios fortes, botão principal)
+ *   #5A6660 texto fraco  → --color-text-muted
+ *   #C3C7BB fio fino     → --color-border-strong
+ *   #8C2F1E / #2F5D3A    → --color-danger / --color-success
+ *   faixas 8% de opacidade → --color-danger-dim / --color-success-dim
+ *   #8A8F82 linha da meta → --color-text-dim
+ * Tipografia segue a regra do app (escolha do usuário): títulos na serif
+ * global, números em --font-mono.
+ */
+
 .container {
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
 }
 
-/* --- Hero: saudação + CTAs + stats --- */
+/* ─────────── régua ─────────── */
 
-.heroCard {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
-  gap: var(--space-6);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
+.rulerSection {
+  padding: var(--space-3) 0 var(--space-7);
 }
 
-@media (max-width: 900px) {
-  .heroCard {
-    grid-template-columns: 1fr;
-  }
+.title {
+  margin: 0 0 6px;
+  font-size: calc(21px * var(--font-scale));
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
 }
 
-.heroMain {
-  min-width: 0;
+.lead {
+  margin: 0 0 var(--space-2);
+  max-width: 62ch;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
 }
 
-.eyebrow {
+.figure {
+  margin: 18px 0 0;
+  padding: 0;
+}
+
+.ruler {
+  position: relative;
+}
+
+.rulerTop {
+  position: relative;
+  height: calc(100px * var(--font-scale));
+}
+
+.median {
+  position: absolute;
+  bottom: 28px;
+  white-space: nowrap;
+}
+
+.medianLabel {
+  display: block;
+  margin-bottom: 1px;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.medianValue {
   display: block;
   font-family: var(--font-mono);
-  font-size: 0.7rem;
+  font-size: calc(56px * var(--font-scale));
   font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--color-text-dim);
-  margin-bottom: var(--space-3);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
 }
 
-/* Degrau "hero" (design-tokens.md § Tipografia: 46/600/-4%) — único
-   lugar do app que usa esse tamanho, é a saudação de entrada da Home. */
-.heroTitle {
-  font-size: 2.875rem;
-  letter-spacing: -0.04em;
-  margin-bottom: var(--space-3);
+.medianTick {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 26px;
+  background: var(--color-text);
 }
 
-.heroSubtitle {
+.refLabel {
+  position: absolute;
+  bottom: 2px;
+  padding-left: 7px;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  white-space: nowrap;
   color: var(--color-text-muted);
-  max-width: 62ch;
-  line-height: 1.6;
-  font-size: 0.92rem;
-  margin: 0 0 var(--space-5);
 }
 
-.heroActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+/* Meta colada no zero: "zero" vai pra esquerda da própria linha. */
+.refLabelLeft {
+  padding-left: 0;
+  padding-right: 7px;
+  transform: translateX(-100%);
 }
 
-.primaryButton {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  background: var(--gradient-accent);
-  color: var(--color-on-accent);
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-5);
-  font-size: 0.9rem;
+.bar {
+  position: relative;
+  height: 20px;
+}
+
+.zoneBad,
+.zoneGood {
+  position: absolute;
+  top: 0;
+  height: 20px;
+}
+
+.zoneBad {
+  left: 0;
+  background: var(--color-danger-dim);
+}
+
+.zoneGood {
+  right: 0;
+  background: var(--color-success-dim);
+}
+
+.baseline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--color-text);
+}
+
+.zeroLine {
+  position: absolute;
+  top: -5px;
+  width: 1px;
+  height: 25px;
+  background: var(--color-text);
+}
+
+.metaLine {
+  position: absolute;
+  top: -5px;
+  width: 0;
+  height: 25px;
+  border-left: 1px dashed var(--color-text-dim);
+}
+
+.marker {
+  position: absolute;
+  top: 2px;
+  width: 9px;
+  height: 18px;
+  margin-left: -4px;
+  background: currentColor;
+}
+
+.labels {
+  position: relative;
+  margin-top: 10px;
+}
+
+.catLabel {
+  position: absolute;
+  width: 128px;
+}
+
+.catName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(12px * var(--font-scale));
   font-weight: 600;
-  cursor: pointer;
+  line-height: 1.3;
+  color: var(--color-text);
 }
 
+.catValue {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Rótulo centrado no ponto, mas sem vazar pelas bordas da régua. */
+.align_center {
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.align_start {
+  transform: translateX(-6px);
+  text-align: left;
+}
+
+.align_end {
+  transform: translateX(calc(-100% + 6px));
+  text-align: right;
+}
+
+.summary {
+  margin: 22px 0 0;
+  max-width: 68ch;
+  font-size: calc(15px * var(--font-scale));
+  line-height: 1.65;
+  color: var(--color-text);
+}
+
+.mutedLink {
+  color: var(--color-text-muted);
+}
+
+.mutedLink:hover {
+  color: var(--color-accent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: 28px;
+}
+
+.primaryButton,
 .secondaryButton {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  background: none;
-  color: var(--color-text-muted);
-  border: 1px solid var(--color-border);
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 22px;
+  border: 1px solid var(--color-text);
   border-radius: var(--radius-md);
-  padding: var(--space-3) var(--space-5);
-  font-size: 0.9rem;
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale));
   font-weight: 600;
   cursor: pointer;
 }
 
+.primaryButton {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+.primaryButton:hover {
+  opacity: 0.86;
+}
+
+.secondaryButton {
+  background: none;
+  color: var(--color-text);
+}
+
 .secondaryButton:hover {
-  color: var(--color-text);
-  border-color: var(--color-text-dim);
+  background: var(--color-bg-hover);
 }
 
-.heroStats {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  border-left: 1px solid var(--color-border-soft);
-  padding-left: var(--space-6);
-  justify-content: center;
+/* Sem catálogo ainda */
+
+.emptyRuler {
+  margin-top: 18px;
 }
 
-@media (max-width: 900px) {
-  .heroStats {
-    border-left: none;
-    border-top: 1px solid var(--color-border-soft);
-    padding-left: 0;
-    padding-top: var(--space-5);
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-}
-
-.statRow {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.statValue {
-  font-family: var(--font-display);
-  font-size: 1.4rem;
-  letter-spacing: -0.02em;
+.emptyLead {
+  margin: 0 0 var(--space-4);
+  font-size: calc(15px * var(--font-scale));
+  line-height: 1.65;
   color: var(--color-text);
 }
 
-.statLabel {
-  font-size: 0.76rem;
-  color: var(--color-text-dim);
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 760px;
+  border-top: 1px solid var(--color-text);
 }
 
-/* --- Como funciona --- */
-
-.stepsCard {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5) var(--space-6);
-}
-
-.stepsTitle {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-bottom: var(--space-4);
-}
-
-.stepsRow {
+.step {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-5);
-}
-
-@media (max-width: 780px) {
-  .stepsRow {
-    grid-template-columns: 1fr;
-  }
-}
-
-.stepCol {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  position: relative;
-  padding-left: var(--space-6);
-}
-
-.stepIcon {
-  position: absolute;
-  left: 0;
-  top: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-dim);
-  color: var(--color-accent);
+  grid-template-columns: 32px 200px 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--color-border-strong);
 }
 
 .stepNumber {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--color-text-dim);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
 }
 
 .stepTitle {
-  font-size: 0.9rem;
+  font-size: calc(14px * var(--font-scale));
   font-weight: 600;
   color: var(--color-text);
 }
 
 .stepText {
-  font-size: 0.82rem;
+  font-size: calc(13px * var(--font-scale));
   line-height: 1.55;
   color: var(--color-text-muted);
 }
 
-/* --- Duas colunas: Suas buscas / Catálogos disponíveis --- */
+/* ─────────── livro-razão ─────────── */
 
-.twoCol {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: var(--space-5);
-  align-items: start;
-}
-
-@media (max-width: 980px) {
-  .twoCol {
-    grid-template-columns: 1fr;
-  }
-}
-
-.asideCol {
+.ledger {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 56px;
+  padding-bottom: var(--space-8);
+}
+
+.ledgerMain {
+  flex: 999 1 560px;
   min-width: 0;
 }
 
-.panel {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+.ledgerSide {
+  flex: 1 1 300px;
+  min-width: 0;
 }
 
-.panelHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.panelTitle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 0.92rem;
+.sectionLabel {
+  margin: 0 0 2px;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
-  margin: 0;
-}
-
-.panelHeaderLink {
-  margin-left: auto;
-  background: none;
-  border: none;
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-  cursor: pointer;
-  padding: 0;
-}
-
-.panelHeaderLink:hover {
   color: var(--color-text);
 }
 
-.planBadge {
-  margin-left: auto;
+.caption {
+  margin: 0 0 var(--space-3);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--color-accent);
-  background: var(--color-accent-dim);
-  border-radius: 999px;
-  padding: 3px 10px;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(14px * var(--font-scale));
+}
+
+.table caption {
+  caption-side: top;
+  text-align: left;
+  padding-bottom: var(--space-3);
+  margin: 0;
+}
+
+.table thead tr {
+  border-bottom: 1px solid var(--color-text);
+}
+
+.table th {
+  padding: 0 12px 7px;
+  text-align: left;
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text-muted);
   white-space: nowrap;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+/* Sem `color` aqui: a cor do texto vem da página, e a célula de margem
+   pinta com .toneGood/.toneBad (especificidade menor que .table td). */
+.table td {
+  padding: 13px 12px;
+  vertical-align: baseline;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table td.colMarkets {
+  font-size: calc(13px * var(--font-scale));
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.marginCell {
+  font-weight: 600;
+}
+
+.catalogLink {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  text-align: left;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.catalogLink:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.rowDate {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.footnote {
+  margin: 14px 0 0;
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
 }
 
 .emptyText {
-  margin: 0;
-  color: var(--color-text-dim);
-  font-size: 0.85rem;
-  line-height: 1.55;
-}
-
-.recentTable {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.recentRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) 64px;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border-radius: var(--radius-sm);
-  border: none;
-  background: none;
-  color: var(--color-text);
-  font-family: var(--font-body);
-  font-size: 0.82rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.recentRow:hover {
-  background: var(--color-bg-hover);
-}
-
-.recentName {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-dim);
-}
-
-.recentMeta {
-  color: var(--color-text-dim);
-  font-size: 0.78rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.recentMargin {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--color-accent);
-  text-align: right;
-}
-
-.panelFooterNote {
-  margin: 0;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border-soft);
-  font-size: 0.76rem;
-  color: var(--color-text-dim);
-  line-height: 1.5;
-}
-
-/* --- Biblioteca do plano --- */
-
-.libraryList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.libraryRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-1);
-}
-
-.libraryName {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82rem;
-  color: var(--color-text);
-}
-
-.libraryMeta {
-  margin-left: auto;
-  font-size: 0.74rem;
-  color: var(--color-text-dim);
-  white-space: nowrap;
-}
-
-.libraryUseButton {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  color: var(--color-accent);
-  font-size: 0.76rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-
-.libraryUseButton:hover {
-  border-color: var(--color-accent);
-}
-
-/* --- Callout de chave SerpApi --- */
-
-.keyCardOk,
-.keyCardWarning {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4) var(--space-5);
-  border: 1px solid var(--color-border);
-}
-
-.keyCardOk {
-  background: var(--color-success-dim);
-  border-color: var(--color-success-border);
-}
-
-.keyCardWarning {
-  background: var(--color-warning-dim);
-  border-color: var(--color-warning-border);
-}
-
-.keyCardIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: var(--color-bg-elevated);
-  color: var(--color-success);
-  flex-shrink: 0;
-}
-
-.keyCardWarning .keyCardIcon {
-  color: var(--color-warning);
-}
-
-.keyCardText {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-text);
-  min-width: 0;
-}
-
-.keyCardSub {
-  font-size: 0.76rem;
-  font-weight: 400;
+  margin: var(--space-2) 0 0;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.6;
   color: var(--color-text-muted);
 }
 
-.keyCardLink {
-  margin-left: auto;
-  flex-shrink: 0;
-  background: none;
+.inlineLink,
+.keyLink {
+  padding: 0;
   border: none;
-  color: var(--color-accent);
-  font-size: 0.8rem;
+  background: none;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
   font-weight: 600;
+  color: var(--color-text);
+  text-decoration: underline;
   cursor: pointer;
-  white-space: nowrap;
 }
 
-/* Tom da margem em relação à meta de Precificação (verde bate a meta,
-   âmbar positiva mas abaixo, vermelho negativa) — mesma régua de
-   Precificação e Resultados. */
+.inlineLink:hover,
+.keyLink:hover {
+  color: var(--color-accent);
+}
+
+.listEmpty {
+  border-top: 1px solid var(--color-text);
+  padding-top: var(--space-2);
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.readyList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--color-text);
+}
+
+.readyRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 11px 0;
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.readyName {
+  flex-grow: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.readyMeta {
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text-muted);
+}
+
+.runButton {
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: none;
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.runButton:hover {
+  border-color: var(--color-text);
+}
+
+.keyBlock {
+  margin-top: 34px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-text);
+}
+
+.keyText {
+  margin: 4px 0 10px;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+/* ─────────── tons de margem (texto e marcador via currentColor) ─────────── */
+
 .toneGood {
   color: var(--color-success);
 }
@@ -470,39 +558,43 @@
   color: var(--color-danger);
 }
 
-.statLink {
-  align-self: flex-start;
-  margin-top: 2px;
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  font-size: 0.74rem;
-  color: var(--color-accent);
-  cursor: pointer;
+/* ─────────── foco ─────────── */
+
+.primaryButton:focus-visible,
+.secondaryButton:focus-visible,
+.catalogLink:focus-visible,
+.inlineLink:focus-visible,
+.keyLink:focus-visible,
+.runButton:focus-visible,
+.mutedLink:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
 }
 
-.statLink:hover {
-  text-decoration: underline;
-}
+/* ─────────── telas estreitas ─────────── */
 
-.libraryEmpty {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
+@media (max-width: 720px) {
+  .medianValue {
+    font-size: calc(40px * var(--font-scale));
+  }
 
-.libraryEmptyActions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-}
+  .rulerTop {
+    height: calc(84px * var(--font-scale));
+  }
 
-.libraryEmptyActions .panelHeaderLink {
-  margin-left: 0;
-}
+  .colMarkets {
+    display: none;
+  }
 
-.libraryEmptyActions .keyCardLink {
-  margin-left: 0;
-  padding: 0;
+  .ledger {
+    gap: var(--space-7);
+  }
+
+  .step {
+    grid-template-columns: 28px 1fr;
+  }
+
+  .stepText {
+    grid-column: 2;
+  }
 }

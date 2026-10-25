@@ -190,6 +190,18 @@ const FAQ_GROUPS: FaqGroup[] = [
           "indicado logo ao lado do percentual. Resultados marcados como \"Aproximado\" tiveram confiança baixa ou " +
           "vieram de uma loja diferente da esperada; vale conferir o anúncio antes de decidir preço em cima dele.",
       },
+      {
+        question: "Como a margem é calculada?",
+        anchor: "como-calcula-margem",
+        answer:
+          "Margem = (preço encontrado no marketplace − custo do produto − taxas do marketplace − frete − impostos) " +
+          "÷ custo do produto. Taxas, faixas de frete e impostos são os que você configura em Precificação; taxa e " +
+          "imposto incidem sobre o preço de venda. Como a conta é sobre o CUSTO, ela pode passar de −100% quando o " +
+          "preço de mercado não cobre nem as taxas. Se o anúncio é um lote (\"kit com 12\"), o app usa o preço por " +
+          "unidade. Na tela Início, cada catálogo entra na régua pela MEDIANA da margem dos produtos com preço " +
+          "encontrado (o melhor marketplace de cada produto) — mediana, não média, pra um único produto com preço " +
+          "estranho não puxar o catálogo inteiro.",
+      },
     ],
   },
   {
