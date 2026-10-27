@@ -1,19 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import {
-  ShieldAlert,
-  UserRound,
-  LogOut,
-  Search,
-  Calculator,
-  Library,
-  Gauge,
-  SlidersHorizontal,
-} from "lucide-react";
+import { ShieldAlert, LogOut, Search, Calculator, Library, Check, Minus } from "lucide-react";
 import { firebaseConfigured } from "../lib/firebase";
 import { signIn, signInWithGoogle, signOutUser, signUp, type AuthUser } from "../lib/auth";
 import { API_KEY_FIELDS, getUserApiKeys, type ApiKeyField } from "../lib/userSecrets";
 import ApiKeyCard, { type ApiKeyCardConfig } from "./ApiKeyCard";
+import CopyButton from "./CopyButton";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getPlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
@@ -260,6 +252,8 @@ const SCRAPERAPI_INTRO = (
 const API_KEY_CARDS: ApiKeyCardConfig[] = [
   {
     field: "serpApiKey",
+    summary: "Busca por texto e por foto na Amazon e no Mercado Livre — a principal.",
+    recommended: true,
     title: "SerpApi",
     intro: SERPAPI_INTRO,
     placeholder: "Cole sua chave SerpApi",
@@ -268,6 +262,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "rapidApiKey",
+    summary: "Busca por nome só na Amazon, mais barata que a SerpApi.",
     title: "RapidAPI (Amazon)",
     intro: RAPIDAPI_INTRO,
     placeholder: "Cole sua X-RapidAPI-Key",
@@ -276,6 +271,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "searchApiKey",
+    summary: "Segunda fonte de busca por foto, se a SerpApi falhar ou acabar a cota.",
     title: "SearchApi.io",
     intro: SEARCHAPI_INTRO,
     placeholder: "Cole sua chave SearchApi.io",
@@ -284,6 +280,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "geminiApiKey",
+    summary: "IA que reconhece a foto do produto (motor interno e Assistente).",
     title: "Gemini (motor interno + IA)",
     intro: GEMINI_INTRO,
     placeholder: "Cole sua chave Gemini",
@@ -292,6 +289,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "mistralApiKey",
+    summary: "Outra IA pro motor interno, pra comparar com a Gemini.",
     title: "Mistral (motor interno + IA)",
     intro: MISTRAL_INTRO,
     placeholder: "Cole sua chave Mistral",
@@ -300,6 +298,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "nvidiaApiKey",
+    summary: "Terceira opção de IA pro motor interno, em teste.",
     title: "NVIDIA (motor interno + IA)",
     intro: NVIDIA_INTRO,
     placeholder: "Cole sua chave NVIDIA",
@@ -309,6 +308,7 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "scraperApiKey",
+    summary: "Mecanismo ScraperAPI e reforço quando a loja bloqueia a busca.",
     title: "ScraperAPI",
     intro: SCRAPERAPI_INTRO,
     placeholder: "Cole sua ScraperAPI key",
@@ -318,11 +318,36 @@ const API_KEY_CARDS: ApiKeyCardConfig[] = [
   },
   {
     field: "unwrangleApiKey",
+    summary: "Plano B pago pro Mercado Livre, só quando a busca pública falha.",
     title: "Unwrangle (Mercado Livre alt.)",
     intro: UNWRANGLE_INTRO,
     placeholder: "Cole sua chave Unwrangle",
     savedMessage: "Chave salva — se a busca pública do Mercado Livre falhar, você poderá tentar de novo com ela.",
     removedMessage: "Chave removida.",
+  },
+];
+
+/** Chaves agrupadas pelo que liberam — a ordem é a de importância pra quem está começando. */
+const KEY_GROUPS: { title: string; text: string; fields: ApiKeyField[] }[] = [
+  {
+    title: "Essencial",
+    text: "Com só esta chave a busca de preço já funciona inteira — texto e foto.",
+    fields: ["serpApiKey"],
+  },
+  {
+    title: "Alternativas de busca",
+    text: "Opcionais. Mais baratas ou de reserva, pra quando a principal acabar a cota.",
+    fields: ["rapidApiKey", "searchApiKey"],
+  },
+  {
+    title: "Inteligência artificial",
+    text: "Reconhecem a foto do produto. A Gemini também é a que o Assistente usa.",
+    fields: ["geminiApiKey", "mistralApiKey", "nvidiaApiKey"],
+  },
+  {
+    title: "Anti-bloqueio e reserva",
+    text: "Só valem se as lojas estiverem bloqueando a busca com frequência.",
+    fields: ["scraperApiKey", "unwrangleApiKey"],
   },
 ];
 
@@ -355,6 +380,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   // Uso diário (contador real, ver usageQuota.ts) — mesma fonte que o
   // Dashboard usa pro aviso "N busca(s) hoje".
   const [todayUsage, setTodayUsage] = useState<number | null>(null);
+  const [tab, setTab] = useState<"chaves" | "preferencias">("chaves");
 
   useEffect(() => {
     if (!user) return;
@@ -520,173 +546,168 @@ export default function Account({ user, profile, preferences, onUpdatePreference
   const plan = getPlan(profile?.plan);
   // `usage_daily` (ver usageQuota.ts) só guarda o contador do DIA ATUAL —
   // sem histórico por dia no back-end, então aqui só aparece dado real:
-  // uso de hoje contra o teto do plano (antes eram 13 barras inventadas).
+  // uso de hoje contra o teto do plano.
   const usageToday = todayUsage ?? 0;
   const usagePct = Math.min(1, usageToday / Math.max(1, plan.dailySearchLimit));
+  const has = (f: ApiKeyField) => Boolean(savedKeys[f]);
+  const savedCount = API_KEY_FIELDS.filter(has).length;
+  // O que cada combinação de chaves libera (ver SEARCH_PROVIDERS em Dashboard.tsx).
+  const canText = has("serpApiKey") || has("rapidApiKey") || has("scraperApiKey");
+  const canPhoto = has("serpApiKey") || has("searchApiKey") || has("geminiApiKey") || has("mistralApiKey") || has("nvidiaApiKey");
+  const canAssistant = has("geminiApiKey") && (has("serpApiKey") || has("scraperApiKey") || has("rapidApiKey"));
 
   return (
-    <motion.div className={styles.container} {...cardMotion}>
-      <div className={styles.header}>
-        <div className={styles.headerMain}>
-          <span className={styles.eyebrow}>Sua conta</span>
-          <h1 className={styles.title}>Conta e chave de busca</h1>
-          <p className={styles.subtitle}>
-            Sua chave SerpApi é o que libera a busca de preço. Cadastre uma vez — as buscas passam
-            a usar a cota da sua própria conta.
+    <div className={styles.container}>
+      <header className={styles.acctHeader}>
+        <div className={styles.acctHeaderMain}>
+          <h1 className={styles.acctTitle}>Conta</h1>
+          <p className={styles.lead}>
+            Suas chaves de busca e como a busca se comporta. As chaves ficam guardadas na sua conta — nunca
+            aparecem de novo na tela, nem pro administrador.
           </p>
         </div>
-        <div className={styles.headerCard}>
-          <span className={styles.headerCardIcon}>
-            <UserRound size={15} />
+        <div className={styles.identity}>
+          <span className={styles.identityAvatar} aria-hidden="true">
+            {(user.email ?? "?").slice(0, 1).toUpperCase()}
           </span>
-          <span className={styles.headerCardText}>
-            <span className={styles.headerCardLabel}>conectado como</span>
-            <span className={styles.headerCardValue}>{user.email}</span>
+          <span className={styles.identityText}>
+            <span className={styles.identityEmail}>{user.email}</span>
+            <span className={styles.identityMeta}>
+              plano {plan.name}
+              {profile?.isAdmin ? " · administrador" : ""} · ID {user.uid.slice(0, 8)}
+              <CopyButton text={user.uid} label="Copiar ID de suporte" />
+            </span>
           </span>
-          <button
-            className={styles.headerCardLogout}
-            type="button"
-            title="Sair desta conta"
-            onClick={() => void signOutUser()}
-          >
-            <LogOut size={14} />
+          <button className={styles.identityLogout} type="button" onClick={() => void signOutUser()}>
+            <LogOut size={14} aria-hidden="true" /> Sair
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className={styles.layout}>
-        <div className={styles.main}>
-          {API_KEY_CARDS.map((card) => (
-            <ApiKeyCard
-              key={card.field}
-              userId={user.uid}
-              config={card}
-              saved={Boolean(savedKeys[card.field])}
-              onSavedChange={(saved) => setSavedKeys((prev) => ({ ...prev, [card.field]: saved }))}
+      {/* ─── o que já funciona com as chaves cadastradas ─── */}
+      <div className={styles.readiness}>
+        <ReadyCell ok={canText} label="Busca por texto" hint={canText ? "pronta" : "falta SerpApi ou RapidAPI"} />
+        <ReadyCell ok={canPhoto} label="Busca por foto" hint={canPhoto ? "pronta" : "falta SerpApi ou uma IA"} />
+        <ReadyCell
+          ok={canAssistant}
+          label="Assistente de produto"
+          hint={canAssistant ? (plan.features.productAssistant ? "pronto" : "chaves ok · exige plano Pro") : "falta Gemini + SerpApi"}
+        />
+        <div className={styles.readyCell}>
+          <span className={styles.readyLabel}>Buscas hoje</span>
+          <span className={styles.readyValue}>
+            {usageToday}
+            <span className={styles.readyOf}> / {plan.dailySearchLimit}</span>
+          </span>
+          <span
+            className={styles.usageMeter}
+            role="meter"
+            aria-valuemin={0}
+            aria-valuemax={plan.dailySearchLimit}
+            aria-valuenow={usageToday}
+            aria-label="Uso de busca hoje"
+          >
+            <span
+              className={usagePct >= 0.8 ? styles.usageMeterFillWarning : styles.usageMeterFill}
+              style={{ width: `${Math.round(usagePct * 100)}%` }}
             />
-          ))}
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Gauge size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Uso diário de busca</h2>
-              <span className={styles.cardHeaderMeta}>hoje</span>
-            </div>
-            <div className={styles.cardBody}>
-              <div className={styles.usageBig}>
-                <span className={styles.usageBigNumber}>{usageToday}</span>
-                <span className={styles.usageBigLabel}>
-                  busca(s) hoje{savedKeys.serpApiKey ? " com a sua chave" : ""}
-                </span>
-              </div>
-              <div
-                className={styles.usageMeter}
-                role="meter"
-                aria-valuemin={0}
-                aria-valuemax={plan.dailySearchLimit}
-                aria-valuenow={usageToday}
-                aria-label="Uso de busca hoje"
-              >
-                <span
-                  className={usagePct >= 0.8 ? styles.usageMeterFillWarning : styles.usageMeterFill}
-                  style={{ width: `${Math.round(usagePct * 100)}%` }}
-                />
-              </div>
-              <p className={styles.usageCaption}>
-                {usageToday} de {plan.dailySearchLimit} buscas do plano {plan.name} hoje — o contador
-                zera todo dia. Com chave própria, o teto real é o da sua conta no provedor. O
-                histórico por dia ainda não é gravado, por isso não tem gráfico de dias anteriores.
-              </p>
-            </div>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <SlidersHorizontal size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Preferências opcionais</h2>
-            </div>
-            <div className={styles.toggleList}>
-              {OPTIONAL_PREFERENCES.map((p) => (
-                <div key={p.key} className={styles.toggleRow}>
-                  <span className={styles.toggleText}>
-                    <span className={styles.toggleTitle}>{p.title}</span>
-                    <span className={styles.toggleSub}>{p.text}</span>
-                  </span>
-                  <PrefSwitch
-                    on={preferences[p.key]}
-                    onToggle={() => {
-                      const next = !preferences[p.key];
-                      // Permissão de notificação só pode ser pedida a partir de
-                      // um clique do usuário — este é o momento natural.
-                      if (p.key === "notifyOnSearchComplete" && next && "Notification" in window && Notification.permission === "default") {
-                        void Notification.requestPermission();
-                      }
-                      onUpdatePreferences({ [p.key]: next });
-                    }}
-                    label={p.title}
-                  />
-                </div>
-              ))}
-            </div>
-          </section>
+          </span>
         </div>
-
-        <aside className={styles.aside}>
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <h2 className={styles.cardHeaderTitle}>Seu plano</h2>
-            </div>
-            <div className={styles.planHeaderBlock}>
-              <span className={styles.planName}>{plan.name}</span>
-              <span className={styles.planPrice}>{plan.priceLabel}</span>
-              <span className={styles.planDesc}>{plan.description}</span>
-            </div>
-            <div className={styles.infoRows}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>cota de busca</span>
-                <span className={styles.infoRowValue}>sua conta SerpApi</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>troca de plano</span>
-                <span className={styles.infoRowValue}>pelo admin</span>
-              </div>
-            </div>
-          </section>
-
-          <section className={styles.card}>
-            <div className={styles.cardHeader}>
-              <h2 className={styles.cardHeaderTitle}>Dados da conta</h2>
-            </div>
-            <div className={styles.infoRowsFlush}>
-              <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>email</span>
-                <span className={styles.infoRowValue}>{user.email}</span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>id de suporte</span>
-                <span className={styles.infoRowValueMono} title={user.uid}>
-                  {user.uid.slice(0, 8)}…
-                </span>
-              </div>
-              <div className={styles.infoRow}>
-                <span className={styles.infoRowLabel}>permissão</span>
-                <span className={styles.infoRowValue}>
-                  {profile?.isAdmin ? "administrador" : "usuário"}
-                </span>
-              </div>
-            </div>
-            <div className={styles.signOutRow}>
-              <button className={styles.linkButton} type="button" onClick={() => void signOutUser()}>
-                sair desta conta
-              </button>
-            </div>
-          </section>
-        </aside>
       </div>
-    </motion.div>
+
+      <div className={styles.acctTabs} role="tablist" aria-label="Áreas da conta">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "chaves"}
+          className={tab === "chaves" ? styles.acctTabActive : styles.tab}
+          onClick={() => setTab("chaves")}
+        >
+          Chaves de API <span className={styles.acctTabCount}>{savedCount}/{API_KEY_FIELDS.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "preferencias"}
+          className={tab === "preferencias" ? styles.acctTabActive : styles.tab}
+          onClick={() => setTab("preferencias")}
+        >
+          Preferências de busca
+        </button>
+      </div>
+
+      {tab === "chaves" ? (
+        <div role="tabpanel" aria-label="Chaves de API" className={styles.keyGroups}>
+          {KEY_GROUPS.map((group) => (
+            <section key={group.title} className={styles.keyGroup}>
+              <div className={styles.keyGroupHead}>
+                <h2 className={styles.keyGroupTitle}>{group.title}</h2>
+                <p className={styles.keyGroupText}>{group.text}</p>
+              </div>
+              <ul className={styles.keyList}>
+                {group.fields.map((field) => {
+                  const card = API_KEY_CARDS.find((c) => c.field === field)!;
+                  return (
+                    <ApiKeyCard
+                      key={field}
+                      userId={user.uid}
+                      config={card}
+                      saved={has(field)}
+                      onSavedChange={(saved) => setSavedKeys((prev) => ({ ...prev, [field]: saved }))}
+                    />
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+          <p className={styles.footnote}>
+            O contador de buscas zera todo dia. Com chave própria, o teto real é o da sua conta em cada
+            provedor — o número do plano ({plan.dailySearchLimit}/dia) é só uma referência de ritmo.
+          </p>
+        </div>
+      ) : (
+        <div role="tabpanel" aria-label="Preferências de busca">
+          <ul className={styles.toggleList}>
+            {OPTIONAL_PREFERENCES.map((p) => (
+              <li key={p.key} className={styles.toggleRow}>
+                <span className={styles.toggleText}>
+                  <span className={styles.toggleTitle}>{p.title}</span>
+                  <span className={styles.toggleSub}>{p.text}</span>
+                </span>
+                <PrefSwitch
+                  on={preferences[p.key]}
+                  onToggle={() => {
+                    const next = !preferences[p.key];
+                    // Permissão de notificação só pode ser pedida a partir de
+                    // um clique do usuário — este é o momento natural.
+                    if (p.key === "notifyOnSearchComplete" && next && "Notification" in window && Notification.permission === "default") {
+                      void Notification.requestPermission();
+                    }
+                    onUpdatePreferences({ [p.key]: next });
+                  }}
+                  label={p.title}
+                />
+              </li>
+            ))}
+          </ul>
+          <p className={styles.footnote}>
+            Aparência, tela inicial, plano e senha ficam em Configurações (ícone de engrenagem no topo).
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReadyCell({ ok, label, hint }: { ok: boolean; label: string; hint: string }) {
+  return (
+    <div className={styles.readyCell}>
+      <span className={styles.readyLabel}>{label}</span>
+      <span className={ok ? styles.readyOk : styles.readyMissing}>
+        {ok ? <Check size={14} strokeWidth={3} aria-hidden="true" /> : <Minus size={14} aria-hidden="true" />}
+        {ok ? "Funciona" : "Ainda não"}
+      </span>
+      <span className={styles.readyHint}>{hint}</span>
+    </div>
   );
 }

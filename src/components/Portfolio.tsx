@@ -14,6 +14,9 @@ import {
   ArrowUpDown,
   Clock,
   X,
+  BellRing,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import type { MarketplaceId, PlanId, Recommendation } from "../types";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
@@ -152,14 +155,9 @@ function TrendTag({ item }: { item: PortfolioItem }) {
 }
 
 /**
- * Painel "Monitorados" (Fase A — out/2026, ver docs/design-critique-log.md
- * e src/lib/watchlist.ts): lista os watches ativos com o botão "checar
- * agora" (api/check-watch.ts) — é como valido o fluxo inteiro (reler
- * preço, comparar, gravar alerta) com um clique de verdade, ANTES de
- * automatizar via cron (Fase B). Fica no topo de Meus produtos, antes da
- * tabela normal, e some sozinho se não há nenhum watch (sem seção vazia
- * ocupando espaço — mesmo raciocínio do "Como funciona" só aparecer pra
- * quem não tem catálogo, Session 4 do log).
+ * Aba "Monitorados" (Fase A — out/2026, ver src/lib/watchlist.ts): lista os
+ * watches ativos com o botão "checar agora" (api/check-watch.ts) e, no
+ * plano Pro, o liga/desliga da checagem diária automática (cron).
  */
 function WatchPanel({
   userId,
@@ -178,8 +176,6 @@ function WatchPanel({
 }) {
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [errorById, setErrorById] = useState<Record<string, string>>({});
-
-  if (watches.length === 0) return null;
 
   async function handleCheck(w: WatchItem) {
     setCheckingId(w.id);
@@ -205,60 +201,84 @@ function WatchPanel({
   }
 
   return (
-    <section className={styles.watchPanel}>
-      <div className={styles.watchPanelHeader}>
-        <h2 className={styles.watchPanelTitle}>Monitorados</h2>
-        <span className={styles.countHint}>{watches.length} produto(s)</span>
-        {autoCheckAvailable && onToggleAutoCheck ? (
-          <label
-            className={styles.autoCheck}
-            title="Checa o preço de todos os monitorados uma vez por dia, sozinho, usando a sua chave de busca (gasta 1 busca por produto por dia)."
+    <div className={styles.watchPanel}>
+      <div className={styles.watchHead}>
+        <span className={styles.watchHeadText}>
+          <span className={styles.watchHeadTitle}>Checagem automática diária</span>
+          <span className={styles.muted}>
+            {autoCheckAvailable
+              ? "Confere o preço de todos os monitorados uma vez por dia, sozinho, com a sua chave de busca (1 busca por produto por dia)."
+              : "Disponível no plano Pro. Sem ela, use “Checar agora” em cada produto."}
+          </span>
+        </span>
+        {autoCheckAvailable && onToggleAutoCheck && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoCheckOn}
+            aria-label="Checar automaticamente todo dia"
+            className={autoCheckOn ? styles.switchOn : styles.switch}
+            onClick={() => onToggleAutoCheck(!autoCheckOn)}
           >
-            <input
-              type="checkbox"
-              checked={autoCheckOn}
-              onChange={(e) => onToggleAutoCheck(e.target.checked)}
-            />
-            Checar automaticamente todo dia
-          </label>
-        ) : (
-          <span className={styles.autoCheckHint}>checagem automática diária no plano Pro</span>
+            <span className={styles.switchThumb} />
+          </button>
         )}
       </div>
-      <div className={styles.watchList}>
-        {watches.map((w) => (
-          <div key={w.id} className={styles.watchRow}>
-            <div className={styles.watchRowMain}>
-              <span className={styles.watchRowName} title={w.name}>
-                {displayProductName(w.name)}
+
+      {watches.length === 0 ? (
+        <div className={styles.empty}>
+          <BellRing size={20} aria-hidden="true" className={styles.emptyIcon} />
+          <p className={styles.emptyTitle}>Nenhum produto monitorado</p>
+          <p className={styles.muted}>
+            Clique no sininho de um produto (aqui na aba Produtos ou em Resultados) pra ser avisado quando o
+            preço mudar ou o produto esgotar.
+          </p>
+        </div>
+      ) : (
+        <ul className={styles.watchList}>
+          {watches.map((w) => (
+            <li key={w.id} className={styles.watchRow}>
+              <div className={styles.watchRowMain}>
+                <span className={styles.watchRowName} title={w.name}>
+                  {displayProductName(w.name)}
+                </span>
+                <span className={styles.watchRowMeta}>
+                  {MARKETPLACE_LABEL[w.marketplace]} · {w.sku}
+                </span>
+                {errorById[w.id] && (
+                  <span className={styles.watchRowError} role="alert">
+                    {errorById[w.id]}
+                  </span>
+                )}
+              </div>
+              <span className={styles.watchRowPrice}>
+                {brl(w.lastPrice)}
+                <span className={styles.watchRowSub}>
+                  {w.lastStatus === "esgotado" ? "esgotado" : w.lastMarginPct != null ? `${pct(w.lastMarginPct)} aprox.` : "—"}
+                </span>
               </span>
-              <span className={styles.watchRowMeta}>
-                {MARKETPLACE_LABEL[w.marketplace]} · {brl(w.lastPrice)}
-                {w.lastStatus === "esgotado" && " · esgotado"}
-                {w.lastMarginPct != null && ` · ${pct(w.lastMarginPct)} aprox.`}
+              <span className={styles.watchRowWhen} title={new Date(w.lastCheckedAt).toLocaleString("pt-BR")}>
+                checado {formatWhen(w.lastCheckedAt)}
               </span>
-              <span className={styles.watchRowWhen}>
-                última checagem: {new Date(w.lastCheckedAt).toLocaleString("pt-BR")}
+              <span className={styles.watchRowActions}>
+                <button
+                  type="button"
+                  className={styles.toolButton}
+                  onClick={() => void handleCheck(w)}
+                  disabled={checkingId === w.id}
+                >
+                  {checkingId === w.id ? <Loader2 size={13} className="spin" aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
+                  {checkingId === w.id ? "Checando…" : "Checar agora"}
+                </button>
+                <button type="button" className={styles.textButton} onClick={() => void handleStop(w)}>
+                  Parar
+                </button>
               </span>
-              {errorById[w.id] && <span className={styles.watchRowError}>{errorById[w.id]}</span>}
-            </div>
-            <div className={styles.watchRowActions}>
-              <button
-                type="button"
-                className={styles.filterButton}
-                onClick={() => void handleCheck(w)}
-                disabled={checkingId === w.id}
-              >
-                {checkingId === w.id ? "Checando…" : "Checar agora"}
-              </button>
-              <button type="button" className={styles.watchRowStop} onClick={() => void handleStop(w)}>
-                Parar
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -273,6 +293,7 @@ export default function Portfolio({
 }: Props) {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("todos");
+  const [tab, setTab] = useState<"produtos" | "monitorados">("produtos");
   const [watches, setWatches] = useState<WatchItem[]>([]);
   const reloadWatches = () => listWatches(userId).then(setWatches);
   useEffect(() => {
@@ -310,10 +331,8 @@ export default function Portfolio({
   }, [history, sheetSku]);
 
   // Aviso "faz tempo que você não busca" (out/2026) — empurrão pontual pra
-  // reprocessar, sem automação nenhuma por trás (decisão explícita do
-  // usuário: só a Fase A do monitoramento, sem cron). Olha a busca MAIS
-  // recente de todo o portfólio — se até ela já é velha, o portfólio
-  // inteiro está desatualizado. Dispensa igual DoubtToast.tsx: só nesta
+  // reprocessar. Olha a busca MAIS recente de todo o portfólio — se até ela
+  // já é velha, o portfólio inteiro está desatualizado. Dispensa só nesta
   // sessão/tela, reaparece normalmente na próxima visita.
   const STALE_DAYS = 7;
   const [staleDismissed, setStaleDismissed] = useState(false);
@@ -323,6 +342,12 @@ export default function Portfolio({
     return Math.floor((Date.now() - mostRecent) / (24 * 60 * 60 * 1000));
   }, [portfolio]);
   const showStaleNotice = !staleDismissed && daysSinceLastSearch != null && daysSinceLastSearch >= STALE_DAYS;
+
+  const filterCounts = useMemo(() => {
+    const counts = {} as Record<Filter, number>;
+    for (const f of FILTERS) counts[f.id] = portfolio.filter((item) => matchesFilter(item, f.id)).length;
+    return counts;
+  }, [portfolio]);
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -337,6 +362,13 @@ export default function Portfolio({
 
   function applyFilter(next: Filter) {
     setFilter((current) => (current === next && next !== "todos" ? "todos" : next));
+    setTab("produtos");
+    setPage(0);
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setFilter("todos");
     setPage(0);
   }
 
@@ -354,231 +386,298 @@ export default function Portfolio({
     const up = portfolio.filter((i) => i.trend === "up").length;
     const down = portfolio.filter((i) => i.trend === "down").length;
     const recomendados = portfolio.filter((i) => i.recommendation === "recomendado").length;
-    return { total: portfolio.length, up, down, recomendados };
+    const compared = portfolio.filter((i) => i.trend !== null).length;
+    return { total: portfolio.length, up, down, recomendados, compared };
   }, [portfolio]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const pageStart = currentPage * PAGE_SIZE;
   const paginated = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const isFiltered = filter !== "todos" || search.trim() !== "";
+  // Status sem produto nenhum não vira botão — só polui a barra (a não ser que seja o filtro ativo).
+  const visibleFilters = FILTERS.filter((f) => f.id === "todos" || f.id === filter || filterCounts[f.id] > 0);
 
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
-        <div className={styles.headerMain}>
-          <span className={styles.eyebrow}>Portfólio</span>
-          <h1 className={styles.title}>Meus produtos</h1>
-          <p className={styles.subtitle}>
-            Todo SKU que você já buscou, agregado por produto — não por busca isolada. A tendência
-            compara a última busca com a anterior do mesmo produto.
-          </p>
-        </div>
-      </div>
+      <header className={styles.header}>
+        <h1 className={styles.title}>Meus produtos</h1>
+        <p className={styles.lead}>
+          Todo produto que você já buscou, num lugar só. A tendência compara a última busca com a anterior
+          do mesmo produto.
+        </p>
+      </header>
 
       {showStaleNotice && (
-        <div className={styles.staleNotice}>
-          <Clock size={14} />
-          <span>
-            Já faz {daysSinceLastSearch} dias desde sua última busca — os preços podem ter mudado
-            desde então.
+        <div className={styles.staleNotice} role="status">
+          <Clock size={16} aria-hidden="true" className={styles.staleIcon} />
+          <span className={styles.staleText}>
+            <b>Já faz {daysSinceLastSearch} dias desde sua última busca.</b> Os preços podem ter mudado — rode o
+            catálogo de novo pra atualizar a tendência.
           </span>
+          <button type="button" className={styles.staleAction} onClick={onNavigateToDashboard}>
+            Nova busca
+          </button>
           <button
             type="button"
             className={styles.staleNoticeClose}
             onClick={() => setStaleDismissed(true)}
             aria-label="Fechar aviso"
           >
-            <X size={13} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       )}
 
-      <WatchPanel
-        userId={userId}
-        watches={watches}
-        onRefresh={() => void reloadWatches()}
-        autoCheckAvailable={getPlan(planId).features.autoWatchCheck}
-        autoCheckOn={autoCheckWatches}
-        onToggleAutoCheck={onToggleAutoCheckWatches}
-      />
-
       {portfolio.length === 0 ? (
         <div className={styles.empty}>
-          <Boxes size={22} className={styles.emptyIcon} />
-          <p>
-            Nenhum produto acompanhado ainda — processe um catálogo em Nova busca. A partir da
-            segunda vez que um SKU aparecer numa busca, ele ganha tendência de preço aqui.
+          <Boxes size={22} className={styles.emptyIcon} aria-hidden="true" />
+          <p className={styles.emptyTitle}>Nenhum produto acompanhado ainda</p>
+          <p className={styles.muted}>
+            Processe um catálogo em Nova busca. A partir da segunda vez que um produto aparecer numa busca, ele
+            ganha tendência de preço aqui.
           </p>
-          <button type="button" className={styles.emptyButton} onClick={onNavigateToDashboard}>
+          <button type="button" className={styles.primaryButton} onClick={onNavigateToDashboard}>
             Ir pra Nova busca
           </button>
         </div>
       ) : (
         <>
-          <div className={styles.summaryRow}>
+          <div className={styles.kpis}>
             {(
               [
-                { id: "todos", value: summary.total, label: "Produtos acompanhados", tone: "" },
-                { id: "subiu", value: summary.up, label: "Preço subiu", tone: styles.cardValueUp },
-                { id: "caiu", value: summary.down, label: "Preço caiu", tone: styles.cardValueDown },
-                { id: "recomendado", value: summary.recomendados, label: "Recomendados agora", tone: "" },
+                {
+                  id: "todos",
+                  value: summary.total,
+                  label: "Produtos acompanhados",
+                  hint: `${summary.compared} com tendência`,
+                  tone: "",
+                },
+                { id: "subiu", value: summary.up, label: "Preço subiu", hint: "mais espaço pra margem", tone: styles.toneGood },
+                { id: "caiu", value: summary.down, label: "Preço caiu", hint: "concorrência apertando", tone: styles.toneBad },
+                {
+                  id: "recomendado",
+                  value: summary.recomendados,
+                  label: "Recomendados agora",
+                  hint: `${summary.total ? Math.round((summary.recomendados / summary.total) * 100) : 0}% do portfólio`,
+                  tone: styles.toneGood,
+                },
               ] as const
             ).map((card) => (
               <button
                 key={card.id}
                 type="button"
-                className={filter === card.id && card.id !== "todos" ? styles.cardActive : styles.card}
+                className={filter === card.id && card.id !== "todos" ? styles.kpiActive : styles.kpi}
                 onClick={() => applyFilter(card.id)}
-                aria-pressed={filter === card.id}
+                aria-pressed={card.id !== "todos" ? filter === card.id : undefined}
                 title={card.id === "todos" ? "Mostrar todos" : `Filtrar a tabela: ${card.label.toLowerCase()}`}
               >
-                <span className={`${styles.cardValue} ${card.tone}`}>{card.value}</span>
-                <span className={styles.cardLabel}>{card.label}</span>
+                <span className={styles.kpiLabel}>{card.label}</span>
+                <span className={`${styles.kpiValue} ${card.value > 0 ? card.tone : ""}`}>{card.value}</span>
+                <span className={styles.kpiHint}>{card.hint}</span>
               </button>
             ))}
           </div>
 
-          <div className={styles.panel}>
-            <div className={styles.controls}>
-              <span className={styles.searchWrap}>
-                <Search size={13} />
-                <input
-                  className={styles.searchInput}
-                  placeholder="Buscar por SKU ou produto"
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setPage(0);
-                  }}
-                />
-              </span>
-              {FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  className={filter === f.id ? styles.filterButtonActive : styles.filterButton}
-                  onClick={() => applyFilter(f.id)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-
-            <p className={styles.countHint}>
-              Mostrando {filtered.length === 0 ? 0 : pageStart + 1}–
-              {Math.min(pageStart + PAGE_SIZE, filtered.length)} de {filtered.length}
-              {filtered.length !== portfolio.length && ` (filtrado de ${portfolio.length})`}
-            </p>
-
-            {filtered.length === 0 ? (
-              <p className={styles.emptyFilter}>Nenhum produto com esse filtro ou termo de busca.</p>
-            ) : (
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th className={styles.photoHeader} />
-                      <th>SKU</th>
-                      <th className={styles.productHeader}>Produto</th>
-                      <th>Marketplace</th>
-                      <SortHeader label="Preço atual" sortKey="price" active={sortKey === "price"} dir={sortDir} onSort={handleSort} />
-                      <SortHeader label="Tendência" sortKey="trend" active={sortKey === "trend"} dir={sortDir} onSort={handleSort} />
-                      <SortHeader label="Margem" sortKey="margin" active={sortKey === "margin"} dir={sortDir} onSort={handleSort} />
-                      <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={handleSort} />
-                      <SortHeader label="Última busca" sortKey="when" active={sortKey === "when"} dir={sortDir} onSort={handleSort} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paginated.map((item, i) => (
-                      <motion.tr
-                        key={item.sku}
-                        className={styles.rowClickable}
-                        onClick={(e) => openFromRow(e, item.sku)}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2, delay: Math.min(i, 12) * 0.02 }}
-                      >
-                        <td className={styles.photoCell}>
-                          <ProductThumb src={item.imageUrl} />
-                        </td>
-                        <td>{item.sku}</td>
-                        <td className={styles.productCell}>
-                          <div className={styles.productName} title={item.name}>
-                            <button
-                              type="button"
-                              className={styles.productNameButton}
-                              onClick={() => setSheetSku(item.sku)}
-                            >
-                              {displayProductName(item.name)}
-                            </button>
-                          </div>
-                          {item.link && (
-                            <a
-                              className={styles.productLink}
-                              href={item.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <ExternalLink size={11} /> Ver anúncio
-                            </a>
-                          )}
-                        </td>
-                        <td>{MARKETPLACE_LABEL[item.marketplace]}</td>
-                        <td>{brl(item.marketplacePrice)}</td>
-                        <td className={styles.trendCell}>
-                          <TrendTag item={item} />
-                          <PriceSparkline points={item.priceHistory} />
-                        </td>
-                        <td>{item.marginPct != null ? pct(item.marginPct) : "—"}</td>
-                        <td>
-                          <span className={`${styles.badge} ${BADGE_CLASS[item.recommendation]}`}>
-                            {BADGE_LABEL[item.recommendation]}
-                          </span>
-                          <CompetitionBadge
-                            competitorCount={item.competitorCount}
-                            buyBoxEligible={item.buyBoxEligible}
-                          />
-                          <WatchToggle
-                            userId={userId}
-                            planId={planId}
-                            provider={item.provider}
-                            item={item}
-                            watching={watchedKeys.has(watchId(item.sku, item.marketplace))}
-                            onChange={handleWatchChange}
-                          />
-                        </td>
-                        <td className={styles.whenCell}>{formatWhen(item.lastSearchedAt)}</td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {pageCount > 1 && (
-              <div className={styles.pagination}>
-                <button
-                  type="button"
-                  className={styles.pageButton}
-                  disabled={currentPage === 0}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                >
-                  <ChevronLeft size={14} /> Anterior
-                </button>
-                <span className={styles.pageInfo}>
-                  Página {currentPage + 1} de {pageCount}
-                </span>
-                <button
-                  type="button"
-                  className={styles.pageButton}
-                  disabled={currentPage >= pageCount - 1}
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                >
-                  Próxima <ChevronRight size={14} />
-                </button>
-              </div>
-            )}
+          <div className={styles.tabs} role="tablist" aria-label="Visão de Meus produtos">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "produtos"}
+              className={tab === "produtos" ? styles.tabActive : styles.tab}
+              onClick={() => setTab("produtos")}
+            >
+              Produtos <span className={styles.tabCount}>{portfolio.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "monitorados"}
+              className={tab === "monitorados" ? styles.tabActive : styles.tab}
+              onClick={() => setTab("monitorados")}
+            >
+              <BellRing size={14} aria-hidden="true" /> Monitorados <span className={styles.tabCount}>{watches.length}</span>
+            </button>
           </div>
+
+          {tab === "monitorados" ? (
+            <WatchPanel
+              userId={userId}
+              watches={watches}
+              onRefresh={() => void reloadWatches()}
+              autoCheckAvailable={getPlan(planId).features.autoWatchCheck}
+              autoCheckOn={autoCheckWatches}
+              onToggleAutoCheck={onToggleAutoCheckWatches}
+            />
+          ) : (
+            <div className={styles.panel}>
+              <div className={styles.controls}>
+                <span className={styles.searchWrap}>
+                  <Search size={14} aria-hidden="true" />
+                  <input
+                    className={styles.searchInput}
+                    placeholder="Buscar por SKU ou produto"
+                    aria-label="Buscar por SKU ou produto"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setPage(0);
+                    }}
+                  />
+                  {search && (
+                    <button type="button" className={styles.searchClear} onClick={() => setSearch("")} aria-label="Limpar busca">
+                      <X size={13} aria-hidden="true" />
+                    </button>
+                  )}
+                </span>
+                <div className={styles.segmented} role="group" aria-label="Filtrar produtos">
+                  {visibleFilters.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-pressed={filter === f.id}
+                      className={filter === f.id ? styles.segmentActive : styles.segment}
+                      onClick={() => applyFilter(f.id)}
+                    >
+                      {f.label}
+                      <span className={styles.segmentCount}>{filterCounts[f.id]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div className={styles.empty}>
+                  <p className={styles.emptyTitle}>Nenhum produto com esse filtro</p>
+                  <button type="button" className={styles.toolButton} onClick={clearFilters}>
+                    Limpar busca e filtro
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th className={styles.photoHeader} />
+                        <th>SKU</th>
+                        <th className={styles.productHeader}>Produto</th>
+                        <th>Marketplace</th>
+                        <SortHeader label="Preço atual" sortKey="price" active={sortKey === "price"} dir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Tendência" sortKey="trend" active={sortKey === "trend"} dir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Margem" sortKey="margin" active={sortKey === "margin"} dir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Status" sortKey="status" active={sortKey === "status"} dir={sortDir} onSort={handleSort} />
+                        <SortHeader label="Última busca" sortKey="when" active={sortKey === "when"} dir={sortDir} onSort={handleSort} />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginated.map((item, i) => (
+                        <motion.tr
+                          key={item.sku}
+                          className={item.sku === sheetSku ? `${styles.rowClickable} ${styles.rowActive}` : styles.rowClickable}
+                          onClick={(e) => openFromRow(e, item.sku)}
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.2, delay: Math.min(i, 12) * 0.02 }}
+                        >
+                          <td className={styles.photoCell}>
+                            <ProductThumb src={item.imageUrl} />
+                          </td>
+                          <td className={styles.skuCell}>{item.sku}</td>
+                          <td className={styles.productCell}>
+                            <div className={styles.productName} title={item.name}>
+                              <button
+                                type="button"
+                                className={styles.productNameButton}
+                                onClick={() => setSheetSku(item.sku)}
+                              >
+                                {displayProductName(item.name)}
+                              </button>
+                            </div>
+                            {item.link && (
+                              <a
+                                className={styles.productLink}
+                                href={item.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <ExternalLink size={11} /> Ver anúncio
+                              </a>
+                            )}
+                          </td>
+                          <td className={styles.marketCell}>{MARKETPLACE_LABEL[item.marketplace]}</td>
+                          <td className={styles.num}>{brl(item.marketplacePrice)}</td>
+                          <td>
+                            <span className={styles.trendCell}>
+                              <TrendTag item={item} />
+                              <PriceSparkline points={item.priceHistory} />
+                            </span>
+                          </td>
+                          <td className={styles.num}>{item.marginPct != null ? pct(item.marginPct) : "—"}</td>
+                          <td className={styles.statusCell}>
+                            <span className={`${styles.badge} ${BADGE_CLASS[item.recommendation]}`}>
+                              {BADGE_LABEL[item.recommendation]}
+                            </span>
+                            <CompetitionBadge
+                              competitorCount={item.competitorCount}
+                              buyBoxEligible={item.buyBoxEligible}
+                            />
+                            <WatchToggle
+                              userId={userId}
+                              planId={planId}
+                              provider={item.provider}
+                              item={item}
+                              watching={watchedKeys.has(watchId(item.sku, item.marketplace))}
+                              onChange={handleWatchChange}
+                            />
+                          </td>
+                          <td className={styles.whenCell} title={new Date(item.lastSearchedAt).toLocaleString("pt-BR")}>
+                            {formatWhen(item.lastSearchedAt)}
+                          </td>
+                        </motion.tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {filtered.length > 0 && (
+                <div className={styles.pagination}>
+                  <span className={styles.countHint}>
+                    {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filtered.length)} de {filtered.length}
+                    {filtered.length !== portfolio.length && ` · filtrado de ${portfolio.length}`}
+                    {isFiltered && (
+                      <button type="button" className={styles.inlineClear} onClick={clearFilters}>
+                        limpar filtro
+                      </button>
+                    )}
+                  </span>
+                  {pageCount > 1 && (
+                    <span className={styles.pager}>
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        disabled={currentPage === 0}
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                      >
+                        <ChevronLeft size={14} /> Anterior
+                      </button>
+                      <span className={styles.pageInfo}>
+                        Página {currentPage + 1} de {pageCount}
+                      </span>
+                      <button
+                        type="button"
+                        className={styles.pageButton}
+                        disabled={currentPage >= pageCount - 1}
+                        onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                      >
+                        Próxima <ChevronRight size={14} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
       {sheetSku && sheetOffers.length > 0 && (

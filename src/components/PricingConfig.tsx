@@ -1,5 +1,4 @@
-import { useMemo } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState } from "react";
 import {
   Percent,
   Truck,
@@ -9,11 +8,14 @@ import {
   FlaskConical,
   LineChart,
   Layers,
+  Check,
+  ArrowRight,
 } from "lucide-react";
 import type { CatalogRow, MarketplaceId, MarketplacePriceResult, PricingRules } from "../types";
 import { calculateMargin, calculateMargins, DEFAULT_PRICING_RULES, median } from "../lib/marginCalculator";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
-import { brl, marginTone, pct } from "../lib/format";
+import { brl, displayProductName, marginTone, pct } from "../lib/format";
+import { useToast } from "../lib/toast";
 import type { Recommendation } from "../types";
 import styles from "./PricingConfig.module.css";
 
@@ -92,20 +94,20 @@ function inputToPct(value: string): number {
   const n = Number(value);
   return Number.isFinite(n) ? n / 100 : 0;
 }
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
-    <label className={styles.switch}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span className={styles.switchTrack} />
-    </label>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={`${label}: ${checked ? "ligada" : "desligada"}`}
+      className={checked ? styles.switchOn : styles.switch}
+      onClick={() => onChange(!checked)}
+    >
+      <span className={styles.switchThumb} />
+    </button>
   );
 }
-
-const sections = (delay: number) => ({
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.3, delay, ease: [0.16, 1, 0.3, 1] as const },
-});
 
 export default function PricingConfig({
   rules,
@@ -118,6 +120,7 @@ export default function PricingConfig({
   showCharts = true,
   onViewResults,
 }: Props) {
+  const toast = useToast();
   function updateFee(id: string, patch: Partial<PricingRules["marketplaceFees"][number]>) {
     onChange({
       ...rules,
@@ -142,20 +145,32 @@ export default function PricingConfig({
   // Pega o primeiro produto com preço real já buscado nesta sessão; se
   // não tiver nenhum ainda, usa o exemplo ilustrativo — o preview nunca
   // fica vazio, e fica claro quando é exemplo vs dado real.
-  const { previewRow, previewPrice, isRealData } = useMemo(() => {
-    // Preview do simulador é sempre sobre CUSTO — pula produto
-    // "sem_custo" (catálogo vitrine, ver CatalogRow.supplierPrice) mesmo
-    // que seja o primeiro da lista; sem custo não há frete/margem pra
-    // simular.
-    const row = catalogRows?.find((r) => r.supplierPrice != null);
-    if (row && pricesByMarket) {
+  // Produtos que dá pra usar na prévia: com custo (sem custo não há
+  // frete/margem pra simular — catálogo "vitrine", ver
+  // CatalogRow.supplierPrice) e com preço encontrado em algum marketplace.
+  const previewOptions = useMemo(() => {
+    if (!catalogRows || !pricesByMarket) return [];
+    const options: { sku: string; name: string; row: CatalogRow; price: MarketplacePriceResult }[] = [];
+    for (const row of catalogRows) {
+      if (row.supplierPrice == null) continue;
       for (const priceMap of Object.values(pricesByMarket)) {
         const price = priceMap?.[row.sku];
-        if (price) return { previewRow: row, previewPrice: price, isRealData: true };
+        if (price) {
+          options.push({ sku: row.sku, name: row.name, row, price });
+          break;
+        }
       }
     }
-    return { previewRow: FALLBACK_ROW, previewPrice: FALLBACK_PRICE, isRealData: false };
+    return options;
   }, [catalogRows, pricesByMarket]);
+  // Escolha do usuário no seletor da prévia; sem escolha (ou se o produto
+  // sumiu ao trocar de busca), cai no primeiro da lista.
+  const [previewSku, setPreviewSku] = useState<string | null>(null);
+  const { previewRow, previewPrice, isRealData } = useMemo(() => {
+    const chosen = previewOptions.find((o) => o.sku === previewSku) ?? previewOptions[0];
+    if (chosen) return { previewRow: chosen.row, previewPrice: chosen.price, isRealData: true };
+    return { previewRow: FALLBACK_ROW, previewPrice: FALLBACK_PRICE, isRealData: false };
+  }, [previewOptions, previewSku]);
 
   // Catálogo inteiro recalculado com as regras ATUAIS — é o que alimenta
   // as stats do topo e o card "Impacto no catálogo". Mesmo cálculo que
@@ -309,36 +324,36 @@ export default function PricingConfig({
     };
   }, [preview.marketplacePrice, previewRow, previewPrice, rules]);
 
+  function handleReset() {
+    const previous = rules;
+    onChange(DEFAULT_PRICING_RULES);
+    toast.show({
+      message: "Regras voltaram pro padrão.",
+      action: { label: "Desfazer", onClick: () => onChange(previous) },
+    });
+  }
+
+  const activeFees = rules.marketplaceFees.filter((f) => f.enabled).length;
+  const activeTaxes = rules.taxRates.filter((t) => t.enabled).length;
+
   return (
     <div className={styles.container}>
-      <div className={styles.header}>
+      <header className={styles.header}>
         <div className={styles.headerMain}>
-          <span className={styles.eyebrow}>Regras de margem</span>
-          <h1 className={styles.title}>Simulador de precificação</h1>
-          <p className={styles.subtitle}>
-            Ajuste taxas, frete e impostos e veja o efeito no catálogo inteiro na hora — sem gastar
-            uma busca nova.
+          <h1 className={styles.title}>Precificação</h1>
+          <p className={styles.lead}>
+            Ajuste taxas, frete e impostos e veja o efeito no catálogo inteiro na hora — sem gastar uma busca
+            nova. Tudo é salvo sozinho.
+            <span className={styles.leadMeta}>
+              simulando <b>{results.length} produto(s)</b> · meta <b>{pctToInput(rules.targetMarginPct)}%</b>
+            </span>
           </p>
-        </div>
-        <div className={styles.headerCard}>
-          <span className={styles.headerCardRow}>
-            <span className={styles.headerCardDotSquare} />
-            simulando{" "}
-            <b className={styles.headerCardStrong}>{results.length} produto(s)</b>
-          </span>
-          <span className={styles.headerCardRow}>
-            <span className={styles.headerCardDot} />
-            meta{" "}
-            <b className={styles.headerCardStrong}>
-              {(rules.targetMarginPct * 100).toFixed(0)}%
-            </b>
-          </span>
         </div>
         {history.length > 0 && onSelectHistory && (
           <label className={styles.historySelectWrap}>
-            <span className={styles.historySelectLabel}>ver busca</span>
+            <span className={styles.historySelectLabel}>Busca simulada</span>
             <select
-              className={styles.historySelect}
+              className={styles.select}
               value={activeHistoryId ?? ""}
               onChange={(e) => e.target.value && onSelectHistory(e.target.value)}
             >
@@ -353,373 +368,365 @@ export default function PricingConfig({
             </select>
           </label>
         )}
-      </div>
+      </header>
 
-      <div className={styles.statsGrid}>
+      <div className={styles.kpis}>
         {stats.map((s) => (
-          <div key={s.label} className={styles.statCard}>
-            <span className={styles.statCardLabel}>{s.label}</span>
-            <span className={`${styles.statCardValue} ${s.tone ? TONE_CLASS[s.tone] : ""}`}>
+          <div key={s.label} className={styles.kpi}>
+            <span className={styles.kpiLabel}>{s.label}</span>
+            <span className={`${styles.kpiValue} ${s.tone ? TONE_CLASS[s.tone] : ""}`}>
               {s.value}
-              {s.of && <span className={styles.statCardValueOf}>{s.of}</span>}
+              {s.of && <span className={styles.kpiOf}>{s.of}</span>}
             </span>
-            <span className={styles.statCardFoot}>{s.foot}</span>
+            <span className={styles.kpiHint}>{s.foot}</span>
           </div>
         ))}
       </div>
 
       <div className={styles.layout}>
         <div className={styles.main}>
-          <motion.section className={styles.cardAccent} {...sections(0)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIconAccent}>
-                <Target size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Meta — o número que o sistema otimiza</h2>
+          <section className={styles.sectionAccent}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>
+                <Target size={15} aria-hidden="true" /> Meta
+              </h2>
+              <span className={styles.sectionMeta}>o número que o sistema otimiza</span>
             </div>
-            <div className={styles.cardRows}>
-              <div className={styles.row}>
+            <div className={styles.row}>
+              <span className={styles.rowText}>
                 <span className={styles.rowLabel}>Margem alvo</span>
-                <input
-                  className={styles.numberInput}
-                  type="number"
-                  step="1"
-                  value={pctToInput(rules.targetMarginPct)}
-                  onChange={(e) => onChange({ ...rules, targetMarginPct: inputToPct(e.target.value) })}
-                />
-                <span className={styles.rowUnit}>%</span>
-              </div>
-              <div className={styles.row}>
-                <span className={styles.rowLabel}>Preço mínimo (floor)</span>
-                <span className={styles.rowUnit}>R$</span>
-                <input
-                  className={styles.numberInput}
-                  type="number"
-                  step="1"
-                  value={rules.priceFloor}
-                  onChange={(e) => onChange({ ...rules, priceFloor: Number(e.target.value) || 0 })}
-                />
-              </div>
+                <span className={styles.rowHint}>Acima disso o produto vira “Recomendado”; entre 0 e a meta, “Revisar”.</span>
+              </span>
+              <NumberField
+                label="Margem alvo"
+                suffix="%"
+                step="1"
+                value={pctToInput(rules.targetMarginPct)}
+                onChange={(v) => onChange({ ...rules, targetMarginPct: inputToPct(v) })}
+              />
             </div>
-          </motion.section>
+            <div className={styles.row}>
+              <span className={styles.rowText}>
+                <span className={styles.rowLabel}>Preço mínimo</span>
+                <span className={styles.rowHint}>O preço sugerido nunca fica abaixo disso. 0 = sem piso.</span>
+              </span>
+              <NumberField
+                label="Preço mínimo"
+                prefix="R$"
+                step="1"
+                value={String(rules.priceFloor)}
+                onChange={(v) => onChange({ ...rules, priceFloor: Number(v) || 0 })}
+              />
+            </div>
+          </section>
 
-          <motion.section className={styles.card} {...sections(0.04)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Percent size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Taxas de marketplace</h2>
-              <span className={styles.cardHeaderMeta}>
-                {rules.marketplaceFees.filter((f) => f.enabled).length} de{" "}
-                {rules.marketplaceFees.length} ativas
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>
+                <Percent size={15} aria-hidden="true" /> Taxas de marketplace
+              </h2>
+              <span className={styles.sectionMeta}>
+                {activeFees} de {rules.marketplaceFees.length} ativas · valor no produto da prévia
               </span>
             </div>
-            <div className={styles.cardRows}>
-              {rules.marketplaceFees.map((fee) => (
-                <div className={fee.enabled ? styles.row : styles.rowOff} key={fee.id}>
-                  <Toggle checked={fee.enabled} onChange={(v) => updateFee(fee.id, { enabled: v })} />
-                  <span
-                    className={styles.rowLabel}
-                    title={
-                      fee.enabled
-                        ? "Ativada: entra no custo total do cálculo de margem."
-                        : "Desativada: essa taxa NÃO entra no custo total — margem fica maior do que seria na prática."
-                    }
-                  >
-                    {fee.name}
-                  </span>
-                  <span className={styles.rowComputed}>
-                    {fee.enabled ? brl(preview.marketplacePrice * fee.rate) : "—"}
-                  </span>
-                  <input
-                    className={styles.numberInput}
-                    type="number"
-                    step="0.1"
-                    value={pctToInput(fee.rate)}
-                    onChange={(e) => updateFee(fee.id, { rate: inputToPct(e.target.value) })}
-                  />
-                  <span className={styles.rowUnit}>%</span>
-                </div>
-              ))}
-            </div>
-          </motion.section>
+            {rules.marketplaceFees.map((fee) => (
+              <div className={fee.enabled ? styles.row : styles.rowOff} key={fee.id}>
+                <Toggle checked={fee.enabled} label={fee.name} onChange={(v) => updateFee(fee.id, { enabled: v })} />
+                <span className={styles.rowText}>
+                  <span className={styles.rowLabel}>{fee.name}</span>
+                  {!fee.enabled && <span className={styles.rowHint}>desligada — não entra no custo</span>}
+                </span>
+                <span className={styles.rowComputed}>{fee.enabled ? brl(preview.marketplacePrice * fee.rate) : "—"}</span>
+                <NumberField
+                  label={fee.name}
+                  suffix="%"
+                  step="0.1"
+                  value={pctToInput(fee.rate)}
+                  disabled={!fee.enabled}
+                  onChange={(v) => updateFee(fee.id, { rate: inputToPct(v) })}
+                />
+              </div>
+            ))}
+          </section>
 
-          <motion.section className={styles.card} {...sections(0.08)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Truck size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Frete por faixa de custo</h2>
-              <span className={styles.cardHeaderMeta}>faixa fixa · valor editável</span>
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>
+                <Truck size={15} aria-hidden="true" /> Frete por faixa de custo
+              </h2>
+              <span className={styles.sectionMeta}>a faixa vem do custo do produto</span>
             </div>
-            <div className={styles.cardRows}>
-              {rules.shippingTiers.map((tier) => (
-                <div className={styles.row} key={tier.id}>
+            {rules.shippingTiers.map((tier) => (
+              <div className={tier.id === appliedTierId ? styles.rowApplied : styles.row} key={tier.id}>
+                <span className={styles.rowText}>
                   <span className={styles.rowLabel}>
                     {tier.label}
-                    {tier.id === appliedTierId && (
-                      <span className={styles.rowTag}>aplicado no preview</span>
-                    )}
+                    {tier.id === appliedTierId && <span className={styles.rowTag}>usada na prévia</span>}
                   </span>
-                  <span className={styles.rowUnit}>R$</span>
-                  <input
-                    className={styles.numberInput}
-                    type="number"
-                    step="0.5"
-                    value={tier.cost}
-                    onChange={(e) => updateTier(tier.id, { cost: Number(e.target.value) || 0 })}
-                  />
-                </div>
-              ))}
-            </div>
-          </motion.section>
+                </span>
+                <NumberField
+                  label={`Frete ${tier.label}`}
+                  prefix="R$"
+                  step="0.5"
+                  value={String(tier.cost)}
+                  onChange={(v) => updateTier(tier.id, { cost: Number(v) || 0 })}
+                />
+              </div>
+            ))}
+          </section>
 
-          <motion.section className={styles.card} {...sections(0.12)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <Receipt size={14} />
+          <section className={styles.section}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>
+                <Receipt size={15} aria-hidden="true" /> Impostos
+              </h2>
+              <span className={styles.sectionMeta}>
+                {activeTaxes} de {rules.taxRates.length} ativos
               </span>
-              <h2 className={styles.cardHeaderTitle}>Impostos</h2>
-              <span className={styles.cardHeaderMeta}>
-                {rules.taxRates.filter((t) => t.enabled).length} de {rules.taxRates.length} ativos
-              </span>
             </div>
-            <div className={styles.cardRows}>
-              {rules.taxRates.map((tax) => (
-                <div className={tax.enabled ? styles.row : styles.rowOff} key={tax.id}>
-                  <Toggle checked={tax.enabled} onChange={(v) => updateTax(tax.id, { enabled: v })} />
-                  <span
-                    className={styles.rowLabel}
-                    title={
-                      tax.enabled
-                        ? "Ativado: entra no custo total do cálculo de margem."
-                        : "Desativado: esse imposto NÃO entra no custo total — margem fica maior do que seria na prática."
-                    }
-                  >
-                    {tax.label} ({tax.state})
+            {rules.taxRates.map((tax) => (
+              <div className={tax.enabled ? styles.row : styles.rowOff} key={tax.id}>
+                <Toggle checked={tax.enabled} label={tax.label} onChange={(v) => updateTax(tax.id, { enabled: v })} />
+                <span className={styles.rowText}>
+                  <span className={styles.rowLabel}>
+                    {tax.label} <span className={styles.rowState}>{tax.state}</span>
                   </span>
-                  <span className={styles.rowComputed}>
-                    {tax.enabled ? brl(preview.marketplacePrice * tax.rate) : "—"}
-                  </span>
-                  <input
-                    className={styles.numberInput}
-                    type="number"
-                    step="0.1"
-                    value={pctToInput(tax.rate)}
-                    onChange={(e) => updateTax(tax.id, { rate: inputToPct(e.target.value) })}
-                  />
-                  <span className={styles.rowUnit}>%</span>
-                </div>
-              ))}
-            </div>
-            <div className={styles.cardFooter}>
-              <p className={styles.savedHint}>Alterações são salvas automaticamente.</p>
-              <button
-                type="button"
-                className={styles.resetButton}
-                onClick={() => onChange(DEFAULT_PRICING_RULES)}
-              >
-                <RotateCcw size={13} /> Restaurar padrão
-              </button>
-            </div>
-          </motion.section>
+                  {!tax.enabled && <span className={styles.rowHint}>desligado — não entra no custo</span>}
+                </span>
+                <span className={styles.rowComputed}>{tax.enabled ? brl(preview.marketplacePrice * tax.rate) : "—"}</span>
+                <NumberField
+                  label={tax.label}
+                  suffix="%"
+                  step="0.1"
+                  value={pctToInput(tax.rate)}
+                  disabled={!tax.enabled}
+                  onChange={(v) => updateTax(tax.id, { rate: inputToPct(v) })}
+                />
+              </div>
+            ))}
+          </section>
+
+          <div className={styles.footer}>
+            <span className={styles.savedHint}>
+              <Check size={13} aria-hidden="true" /> Alterações salvas automaticamente
+            </span>
+            <button type="button" className={styles.toolButton} onClick={handleReset}>
+              <RotateCcw size={13} aria-hidden="true" /> Restaurar padrão
+            </button>
+          </div>
         </div>
 
         <aside className={styles.aside}>
-          <motion.section className={styles.card} {...sections(0.02)}>
-            <div className={styles.cardHeader}>
-              <span className={styles.cardHeaderIcon}>
-                <FlaskConical size={14} />
-              </span>
-              <h2 className={styles.cardHeaderTitle}>Preview ao vivo</h2>
+          <section className={styles.block}>
+            <div className={styles.sectionHead}>
+              <h2 className={styles.sectionTitle}>
+                <FlaskConical size={15} aria-hidden="true" /> Prévia ao vivo
+              </h2>
               {!isRealData && <span className={styles.previewTag}>exemplo</span>}
             </div>
-            <div className={styles.previewBody}>
-              <span className={styles.previewName}>{previewRow.name}</span>
-              <span className={styles.previewMeta}>
-                {/* `?? 0` defensivo (ver comentário em `profit` acima) — previewRow sempre tem custo aqui. */}
-                Custo {brl(preview.supplierPrice ?? 0)} · Venda {brl(preview.marketplacePrice)}
-              </span>
-              <div className={styles.costBar}>
-                {costSegments.map((seg) => (
-                  <div
-                    key={seg.label}
-                    className={`${styles.costSegment} ${seg.className}`}
-                    style={{
-                      width: `${Math.max(0, Math.min(100, (seg.value / marketplacePrice) * 100))}%`,
-                    }}
-                    title={`${seg.label}: ${brl(seg.value)}`}
-                  />
-                ))}
-              </div>
-              <div className={styles.legend}>
-                {costSegments.map((seg) => (
-                  <span key={seg.label} className={styles.legendItem}>
-                    <span className={`${styles.legendDot} ${seg.className}`} />
-                    {seg.label}
-                    <b className={styles.legendValue}>{brl(seg.value)}</b>
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className={styles.previewResult}>
-              <span
-                className={
-                  (preview.marginPct ?? 0) >= 0 ? styles.previewMarginUp : styles.previewMarginDown
-                }
+            {previewOptions.length > 1 ? (
+              <select
+                className={styles.select}
+                value={previewRow.sku}
+                onChange={(e) => setPreviewSku(e.target.value)}
+                aria-label="Produto da prévia"
               >
+                {previewOptions.map((o) => (
+                  <option key={o.sku} value={o.sku}>
+                    {displayProductName(o.name)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className={styles.previewName}>{displayProductName(previewRow.name)}</span>
+            )}
+            <span className={styles.previewMeta}>
+              {/* `?? 0` defensivo (ver comentário em `profit` acima) — previewRow sempre tem custo aqui. */}
+              custo {brl(preview.supplierPrice ?? 0)} · venda {brl(preview.marketplacePrice)}
+            </span>
+            <div className={styles.costBar}>
+              {costSegments.map((seg) => (
+                <div
+                  key={seg.label}
+                  className={`${styles.costSegment} ${seg.className}`}
+                  style={{ width: `${Math.max(0, Math.min(100, (seg.value / marketplacePrice) * 100))}%` }}
+                  title={`${seg.label}: ${brl(seg.value)}`}
+                />
+              ))}
+            </div>
+            <dl className={styles.ledger}>
+              {costSegments.map((seg) => (
+                <div key={seg.label} className={seg.label === "Lucro" ? styles.ledgerTotal : undefined}>
+                  <dt>
+                    <span className={`${styles.legendDot} ${seg.className}`} aria-hidden="true" />
+                    {seg.label === "Lucro" ? "Sobra" : seg.label}
+                  </dt>
+                  <dd>{seg.label === "Lucro" ? brl(profit) : brl(seg.value)}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className={styles.previewResult}>
+              <span className={`${styles.previewMargin} ${TONE_CLASS[marginTone(preview.marginPct ?? 0, rules.targetMarginPct)]}`}>
                 {pct(preview.marginPct ?? 0)}
               </span>
               <span className={styles.previewResultText}>
                 margem deste produto
-                <span className={styles.previewResultSub}>
-                  só este item · meta {(rules.targetMarginPct * 100).toFixed(0)}%
-                </span>
+                <span className={styles.previewResultSub}>meta {pctToInput(rules.targetMarginPct)}%</span>
               </span>
             </div>
-          </motion.section>
+          </section>
 
           {showCharts && (
-            <motion.section className={styles.card} {...sections(0.06)}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardHeaderIcon}>
-                  <LineChart size={14} />
-                </span>
-                <h2 className={styles.cardHeaderTitle}>Se o preço mudar</h2>
-                <span className={styles.cardHeaderMeta}>−30% a +40%</span>
+            <section className={styles.block}>
+              <div className={styles.sectionHead}>
+                <h2 className={styles.sectionTitle}>
+                  <LineChart size={15} aria-hidden="true" /> Se o preço mudar
+                </h2>
+                <span className={styles.sectionMeta}>−30% a +40%</span>
               </div>
-              <div className={styles.chartBody}>
-                <svg className={styles.curve} viewBox="0 0 100 100" preserveAspectRatio="none">
-                  <line
-                    className={styles.curveLineTarget}
-                    x1="0"
-                    x2="100"
-                    y1={sensitivity.targetY}
-                    y2={sensitivity.targetY}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <line
-                    className={styles.curveLineZero}
-                    x1="0"
-                    x2="100"
-                    y1={sensitivity.zeroY}
-                    y2={sensitivity.zeroY}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <polyline
-                    className={styles.curvePath}
-                    points={sensitivity.polyline}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </svg>
-                <div className={styles.curveAxis}>
-                  <span>−30%</span>
-                  <span>preço atual</span>
-                  <span>+40%</span>
-                </div>
-                <p className={styles.chartCaption}>
-                  {sensitivity.reachesTarget && sensitivity.breakEven !== null
-                    ? `bate a meta a partir de ${brl(sensitivity.breakEven)} de preço de venda`
-                    : "não bate a meta nem a +40% do preço atual — reveja custo, taxas ou a própria meta"}
-                </p>
+              <svg className={styles.curve} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                <line
+                  className={styles.curveLineTarget}
+                  x1="0"
+                  x2="100"
+                  y1={sensitivity.targetY}
+                  y2={sensitivity.targetY}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <line
+                  className={styles.curveLineZero}
+                  x1="0"
+                  x2="100"
+                  y1={sensitivity.zeroY}
+                  y2={sensitivity.zeroY}
+                  vectorEffect="non-scaling-stroke"
+                />
+                <polyline className={styles.curvePath} points={sensitivity.polyline} vectorEffect="non-scaling-stroke" />
+              </svg>
+              <div className={styles.curveAxis}>
+                <span>−30%</span>
+                <span>preço atual</span>
+                <span>+40%</span>
               </div>
-            </motion.section>
+              <p className={styles.chartCaption}>
+                {sensitivity.reachesTarget && sensitivity.breakEven !== null ? (
+                  <>
+                    Bate a meta a partir de <b>{brl(sensitivity.breakEven)}</b> de preço de venda.
+                  </>
+                ) : (
+                  "Não bate a meta nem a +40% do preço atual — reveja custo, taxas ou a própria meta."
+                )}
+              </p>
+            </section>
           )}
 
           {showCharts && (
-            <motion.section className={styles.card} {...sections(0.1)}>
-              <div className={styles.cardHeader}>
-                <span className={styles.cardHeaderIcon}>
-                  <Layers size={14} />
-                </span>
-                <h2 className={styles.cardHeaderTitle}>Impacto no catálogo</h2>
+            <section className={styles.block}>
+              <div className={styles.sectionHead}>
+                <h2 className={styles.sectionTitle}>
+                  <Layers size={15} aria-hidden="true" /> Impacto no catálogo
+                </h2>
               </div>
-              <div className={styles.chartBody}>
-                {impact.total === 0 ? (
-                  <p className={styles.chartCaption}>
-                    Nenhum catálogo processado nesta sessão — envie um arquivo no Dashboard pra ver a
-                    distribuição de margem com estas regras.
-                  </p>
-                ) : (
-                  <>
-                    <div className={styles.stackBar}>
-                      <span
-                        className={styles.stackRecomendado}
-                        style={{ width: `${(impact.counts.recomendado / impact.total) * 100}%` }}
-                      />
-                      <span
-                        className={styles.stackRevisar}
-                        style={{ width: `${(impact.counts.revisar / impact.total) * 100}%` }}
-                      />
-                      <span
-                        className={styles.stackEvitar}
-                        style={{ width: `${(impact.counts.evitar / impact.total) * 100}%` }}
-                      />
-                    </div>
-                    <div className={styles.legend}>
-                      {(
-                        [
-                          { id: "recomendado", label: "Recomendado", dot: styles.segProfit },
-                          { id: "revisar", label: "Revisar", dot: styles.segShipping },
-                          { id: "evitar", label: "Evitar", dot: styles.segTaxes },
-                        ] as const
-                      ).map((item) =>
-                        onViewResults && impact.counts[item.id] > 0 ? (
+              {impact.total === 0 ? (
+                <p className={styles.chartCaption}>
+                  Nenhum catálogo processado nesta sessão — rode uma Nova busca pra ver a distribuição de margem com
+                  estas regras.
+                </p>
+              ) : (
+                <>
+                  <div className={styles.stackBar}>
+                    <span className={styles.stackRecomendado} style={{ width: `${(impact.counts.recomendado / impact.total) * 100}%` }} />
+                    <span className={styles.stackRevisar} style={{ width: `${(impact.counts.revisar / impact.total) * 100}%` }} />
+                    <span className={styles.stackEvitar} style={{ width: `${(impact.counts.evitar / impact.total) * 100}%` }} />
+                  </div>
+                  <ul className={styles.impactList}>
+                    {(
+                      [
+                        { id: "recomendado", label: "Recomendado", dot: styles.segProfit },
+                        { id: "revisar", label: "Revisar", dot: styles.segShipping },
+                        { id: "evitar", label: "Evitar", dot: styles.segTaxes },
+                      ] as const
+                    ).map((item) => (
+                      <li key={item.id}>
+                        {onViewResults && impact.counts[item.id] > 0 ? (
                           <button
-                            key={item.id}
                             type="button"
-                            className={styles.legendButton}
+                            className={styles.impactButton}
                             onClick={() => onViewResults(item.id)}
                             title={`Ver os produtos em "${item.label}" na tela de Resultados`}
                           >
-                            <span className={`${styles.legendDot} ${item.dot}`} />
+                            <span className={`${styles.legendDot} ${item.dot}`} aria-hidden="true" />
                             {item.label}
-                            <b className={styles.legendValue}>{impact.counts[item.id]}</b>
+                            <b>{impact.counts[item.id]}</b>
+                            <ArrowRight size={13} aria-hidden="true" className={styles.impactArrow} />
                           </button>
                         ) : (
-                          <span key={item.id} className={styles.legendItem}>
-                            <span className={`${styles.legendDot} ${item.dot}`} />
+                          <span className={styles.impactStatic}>
+                            <span className={`${styles.legendDot} ${item.dot}`} aria-hidden="true" />
                             {item.label}
-                            <b className={styles.legendValue}>{impact.counts[item.id]}</b>
+                            <b>{impact.counts[item.id]}</b>
                           </span>
-                        )
-                      )}
-                    </div>
-                    {onViewResults && impact.counts.evitar > 0 && (
-                      <button
-                        type="button"
-                        className={styles.impactLink}
-                        onClick={() => onViewResults("evitar")}
-                      >
-                        Ver os {impact.counts.evitar} produto(s) em "Evitar" →
-                      </button>
-                    )}
-                    <div className={styles.histogram}>
-                      {impact.buckets.map((b) => (
-                        <div key={b.label} className={styles.histCol}>
-                          <span className={styles.histValue}>{b.count}</span>
-                          <span className={styles.histTrack}>
-                            <span
-                              className={b.isNegative ? styles.histFillNegative : styles.histFill}
-                              style={{
-                                height: `${Math.max(2, Math.round((b.count / impact.maxBucket) * 100))}%`,
-                              }}
-                            />
-                          </span>
-                          <span className={styles.histLabel}>{b.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className={styles.chartCaption}>
-                      produtos por faixa de margem, com as regras atuais
-                    </p>
-                  </>
-                )}
-              </div>
-            </motion.section>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className={styles.histogram}>
+                    {impact.buckets.map((b) => (
+                      <div key={b.label} className={styles.histCol}>
+                        <span className={styles.histValue}>{b.count}</span>
+                        <span className={styles.histTrack}>
+                          <span
+                            className={b.isNegative ? styles.histFillNegative : styles.histFill}
+                            style={{ height: b.count === 0 ? 0 : `${Math.max(4, Math.round((b.count / impact.maxBucket) * 100))}%` }}
+                          />
+                        </span>
+                        <span className={styles.histLabel}>{b.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className={styles.chartCaption}>Produtos por faixa de margem, com as regras atuais.</p>
+                </>
+              )}
+            </section>
           )}
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Campo numérico com unidade dentro da caixa (R$ antes, % depois) — padrão "input group" do shadcn. */
+function NumberField({
+  label,
+  value,
+  onChange,
+  prefix,
+  suffix,
+  step,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  prefix?: string;
+  suffix?: string;
+  step: string;
+  disabled?: boolean;
+}) {
+  return (
+    <span className={disabled ? styles.numberFieldOff : styles.numberField}>
+      {prefix && <span className={styles.numberAffix}>{prefix}</span>}
+      <input
+        className={styles.numberInput}
+        type="number"
+        inputMode="decimal"
+        step={step}
+        value={value}
+        aria-label={label}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {suffix && <span className={styles.numberAffix}>{suffix}</span>}
+    </span>
   );
 }
