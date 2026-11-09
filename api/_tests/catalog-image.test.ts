@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import type { ApiRequest, ApiResponse } from "../_lib/httpTypes.js";
 
 /**
  * /api/catalog-image é PÚBLICA (o crawler do Google Lens não manda
@@ -24,11 +24,11 @@ function docRef(path: string) {
   };
 }
 
-vi.mock("./_lib/firestoreAdmin.js", () => ({
+vi.mock("../_lib/firestoreAdmin.js", () => ({
   getAdminDb: () => ({ collection: (name: string) => ({ doc: (id: string) => docRef(`${name}/${id}`) }) }),
 }));
 
-import handler from "./catalog-image.js";
+import handler from "../catalog-image.js";
 
 function makeRes() {
   const out = { status: 0, body: undefined as unknown, headers: {} as Record<string, string>, sent: undefined as unknown };

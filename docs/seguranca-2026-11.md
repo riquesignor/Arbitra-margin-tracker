@@ -25,7 +25,7 @@ contrário.
 | `cron-check-watches` | `Authorization: Bearer $CRON_SECRET`, comparação em tempo constante; sem a variável recusa tudo | ok |
 | `catalog-image` | **pública de propósito** (o crawler do Google Lens não manda token); o "segredo" é o `id` não adivinhável + validade de 30 dias | corrigida, ver abaixo |
 
-`api/auth-gates.test.ts` cobre isso: sem token, cada rota responde 401 sem tocar
+`api/_tests/auth-gates.test.ts` cobre isso: sem token, cada rota responde 401 sem tocar
 no banco nem em provedor; o cron recusa token de usuário; o admin exige
 `isAdmin`. Rota nova entra nesse arquivo.
 
@@ -108,7 +108,7 @@ chamada da mesma origem. Não havia nada a restringir.
 Já estavam todos presentes: `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, `X-Frame-Options: DENY`,
 `Permissions-Policy` restritiva e `Strict-Transport-Security`.
-`api/vercel-headers.test.ts` trava isso contra regressão.
+`api/_tests/vercel-headers.test.ts` trava isso contra regressão.
 
 > **Decisão registrada — CSP.** O pedido era deixar a CSP só como
 > `Content-Security-Policy-Report-Only`. Mas o `vercel.json` já a publica em

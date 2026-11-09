@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import type { ApiRequest, ApiResponse } from "../_lib/httpTypes.js";
 
 /**
  * Portões de autenticação de TODAS as rotas de api/ (revisão de segurança,
@@ -11,7 +11,7 @@ const auth = vi.hoisted(() => ({ verifyIdToken: vi.fn() }));
 const db = vi.hoisted(() => ({ touched: 0, isAdmin: false, watches: [] as unknown[] }));
 
 vi.mock("firebase-admin/auth", () => ({ getAuth: () => ({ verifyIdToken: auth.verifyIdToken, getUser: vi.fn() }) }));
-vi.mock("./_lib/firestoreAdmin.js", () => ({
+vi.mock("../_lib/firestoreAdmin.js", () => ({
   getAdminApp: () => ({}),
   getAdminDb: () => {
     db.touched++;
@@ -26,24 +26,24 @@ vi.mock("./_lib/firestoreAdmin.js", () => ({
     };
   },
 }));
-vi.mock("./_lib/fetchPricesCore.js", () => ({
+vi.mock("../_lib/fetchPricesCore.js", () => ({
   fetchPricesCore: vi.fn(),
   FetchPricesValidationError: class FetchPricesValidationError extends Error {},
 }));
-vi.mock("./_lib/mercadoPago.js", () => ({
+vi.mock("../_lib/mercadoPago.js", () => ({
   createPreapproval: vi.fn(),
   getPreapproval: vi.fn(),
   verifyWebhookSignature: vi.fn(() => false),
   isActiveSubscriptionStatus: vi.fn(),
 }));
 
-import fetchPrices from "./fetch-prices.js";
-import checkWatch from "./check-watch.js";
-import productAssistant from "./product-assistant.js";
-import adminDiagnostics from "./admin-diagnostics.js";
-import billingCreate from "./billing-create-subscription.js";
-import billingWebhook from "./billing-webhook.js";
-import cron from "./cron-check-watches.js";
+import fetchPrices from "../fetch-prices.js";
+import checkWatch from "../check-watch.js";
+import productAssistant from "../product-assistant.js";
+import adminDiagnostics from "../admin-diagnostics.js";
+import billingCreate from "../billing-create-subscription.js";
+import billingWebhook from "../billing-webhook.js";
+import cron from "../cron-check-watches.js";
 
 function makeRes() {
   const out = { status: 0, body: undefined as unknown };

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import type { ApiRequest, ApiResponse } from "../_lib/httpTypes.js";
 
 /**
  * Elegibilidade e teto do cron de checagem automática. O portão de segredo
@@ -13,7 +13,7 @@ const state = vi.hoisted(() => ({
 const quota = vi.hoisted(() => ({ consumeSearchQuota: vi.fn() }));
 const check = vi.hoisted(() => ({ checkAndPersistWatch: vi.fn() }));
 
-vi.mock("./_lib/firestoreAdmin.js", () => ({
+vi.mock("../_lib/firestoreAdmin.js", () => ({
   getAdminDb: () => ({
     collectionGroup: () => ({
       where: () => ({
@@ -33,14 +33,14 @@ vi.mock("./_lib/firestoreAdmin.js", () => ({
     }),
   }),
 }));
-vi.mock("./_lib/searchQuota.js", async () => {
-  const actual = await vi.importActual<typeof import("./_lib/searchQuota.js")>("./_lib/searchQuota.js");
+vi.mock("../_lib/searchQuota.js", async () => {
+  const actual = await vi.importActual<typeof import("../_lib/searchQuota.js")>("../_lib/searchQuota.js");
   return { ...actual, consumeSearchQuota: quota.consumeSearchQuota };
 });
-vi.mock("./_lib/watchCheck.js", () => ({ checkAndPersistWatch: check.checkAndPersistWatch }));
+vi.mock("../_lib/watchCheck.js", () => ({ checkAndPersistWatch: check.checkAndPersistWatch }));
 
-import handler from "./cron-check-watches.js";
-import { QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
+import handler from "../cron-check-watches.js";
+import { QuotaExceededError, QuotaUnavailableError } from "../_lib/searchQuota.js";
 
 function makeRes() {
   const out = { status: 0, body: undefined as unknown };
