@@ -31,6 +31,12 @@
  * host hostil poderia devolver um stream infinito e derrubar a function
  * por memória.
  *
+ * Reforços de nov/2026 (revisão de segurança, ver docs/seguranca-2026-11.md):
+ * a foto do catálogo também tem que estar no PRÓPRIO host do app
+ * (`isCatalogImageFromThisApp`), o download segue redirecionamento na mão
+ * validando cada salto ANTES de requisitá-lo, e a lista de hosts internos
+ * cobre CGNAT, TEST-NET, multicast, IPv6 embutido/NAT64 e "localhost.".
+ *
  * O que esta guarda NÃO cobre (aceito conscientemente): DNS rebinding
  * (host público que resolve pra IP privado no momento da conexão). Fechar
  * isso exigiria resolver o DNS na mão e conectar por IP, o que quebra SNI/
@@ -96,23 +102,57 @@ const CATALOG_IMAGE_PATH = "/api/catalog-image";
  */
 const PRIVATE_HOST_PATTERNS: RegExp[] = [
   /^localhost$/i,
-  /^127\./,
-  /^0\./,
-  /^10\./,
-  /^192\.168\./,
-  /^172\.(1[6-9]|2\d|3[01])\./,
-  /^169\.254\./, // link-local — inclui 169.254.169.254 (metadata AWS/GCP/Azure)
-  /^\[?::1\]?$/,
+  /\.localhost$/i,
+  /^\[?::1?\]?$/, // loopback (::1) e o endereço não especificado (::)
   /^\[?fc[0-9a-f]{2}:/i, // IPv6 unique local
   /^\[?fd[0-9a-f]{2}:/i,
-  /^\[?fe80:/i, // IPv6 link-local
+  /^\[?fe[89ab][0-9a-f]:/i, // IPv6 link-local (fe80::/10)
+  /^\[?fe[c-f][0-9a-f]:/i, // IPv6 site-local (descontinuado) e afins
+  /^\[?ff[0-9a-f]{2}:/i, // IPv6 multicast
+  /^\[?::ffff:/i, // IPv4 embutido em IPv6 (::ffff:127.0.0.1 vira [::ffff:7f00:1] depois de normalizado)
+  /^\[?64:ff9b:/i, // NAT64 — também embute IPv4
   /\.internal$/i,
   /\.local$/i,
+  /\.lan$/i,
+  /\.intranet$/i,
+  /\.home\.arpa$/i,
   /^metadata\./i,
 ];
 
-function isPrivateHost(hostname: string): boolean {
-  return PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(hostname));
+/**
+ * Faixas IPv4 que nunca são destino legítimo de um download de imagem
+ * (RFC 1122/1918/3927/5737/6598/2544/5771): "isto", rede privada,
+ * CGNAT, loopback, link-local (metadata de nuvem), protocolo, documentação,
+ * benchmarking, multicast e reservado.
+ */
+const PRIVATE_IPV4_RANGES: [number, number, number][] = [
+  // [primeiro octeto, segundo octeto mínimo, segundo octeto máximo]
+  [0, 0, 255],
+  [10, 0, 255],
+  [100, 64, 127], // CGNAT 100.64.0.0/10
+  [127, 0, 255],
+  [169, 254, 254], // link-local — inclui 169.254.169.254
+  [172, 16, 31],
+  [192, 168, 168],
+  [198, 18, 19], // benchmarking 198.18.0.0/15
+];
+
+function isPrivateIPv4(hostname: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return false;
+  const [a, b, c] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  if (a >= 224) return true; // multicast (224/4) e reservado (240/4)
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true; // 192.0.0.0/24 e TEST-NET-1
+  if ((a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)) return true; // TEST-NET-2/3
+  return PRIVATE_IPV4_RANGES.some(([first, min, max]) => a === first && b >= min && b <= max);
+}
+
+function isPrivateHost(rawHostname: string): boolean {
+  // "localhost." (ponto final) é o MESMO host que "localhost" — sem tirar o
+  // ponto, os padrões acima não pegariam. `URL` já normaliza IPv4 em
+  // decimal/hex/octal (2130706433, 0x7f.1) pra forma pontuada.
+  const hostname = rawHostname.replace(/\.$/, "");
+  return isPrivateIPv4(hostname) || PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(hostname));
 }
 
 /**
@@ -142,6 +182,12 @@ export function assertFetchableImageUrl(rawUrl: string): URL {
   const httpAllowed = url.protocol === "http:" && isLocalDevelopment();
   if (url.protocol !== "https:" && !httpAllowed) {
     throw new UnsafeImageUrlError("URL de imagem precisa ser HTTPS.");
+  }
+
+  // `https://usuario@host/` não tem uso legítimo aqui e é truque clássico pra
+  // fazer um host parecer outro numa checagem feita só no texto da URL.
+  if (url.username || url.password) {
+    throw new UnsafeImageUrlError("URL de imagem não pode ter usuário ou senha.");
   }
 
   if (isPrivateHost(url.hostname) && !isLocalDevelopment()) {
@@ -177,6 +223,50 @@ export function isSafeCatalogImageUrl(rawUrl: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Hosts (com porta, em minúsculas) que são do PRÓPRIO app, pra travar a foto
+ * do catálogo nele (ver `isCatalogImageFromThisApp`): o `Host` que o
+ * navegador usou na requisição (é o mesmo `window.location.origin` com que
+ * `uploadCatalogImage` monta a URL), o repassado pelo proxy da Vercel e os
+ * domínios que a própria Vercel/o dono declaram em variáveis de ambiente.
+ */
+export function appHostsFromRequest(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  env: Record<string, string | undefined> = process.env
+): Set<string> {
+  const hosts = new Set<string>();
+  const add = (value: string | undefined) => {
+    const trimmed = value?.trim().toLowerCase();
+    if (trimmed) hosts.add(trimmed);
+  };
+  const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
+
+  add(first(headers?.host));
+  add(first(headers?.["x-forwarded-host"])?.split(",")[0]);
+  for (const key of ["VERCEL_URL", "VERCEL_BRANCH_URL", "VERCEL_PROJECT_PRODUCTION_URL"]) add(env[key]);
+  const base = env.APP_BASE_URL?.trim();
+  if (base) {
+    try {
+      add(new URL(base).host);
+    } catch {
+      // APP_BASE_URL malformada: ignora, não derruba a validação
+    }
+  }
+  return hosts;
+}
+
+/**
+ * Além de ser a rota certa (`isSafeCatalogImageUrl`), a foto do catálogo
+ * tem que estar hospedada NO PRÓPRIO app. Só checar o caminho deixava o
+ * cliente apontar `https://qualquer-host-publico/api/catalog-image` e fazer
+ * o servidor baixar de lá — um SSRF pra hosts públicos (e porta de entrada
+ * pra DNS rebinding). Lista vazia = não dá pra decidir, então recusa.
+ */
+export function isCatalogImageFromThisApp(rawUrl: unknown, appHosts: Set<string>): boolean {
+  if (!isSafeCatalogImageUrl(rawUrl)) return false;
+  return appHosts.has(new URL(rawUrl as string).host.toLowerCase());
 }
 
 /**
@@ -236,6 +326,36 @@ export async function fetchImageWithLimit(
   }
 }
 
+/** Máximo de redirecionamentos seguidos no download — cada salto é revalidado ANTES de ser requisitado. */
+const MAX_REDIRECTS = 3;
+
+/**
+ * Faz o `fetch` seguindo redirecionamento NA MÃO: cada `Location` passa
+ * pela mesma guarda de host/esquema antes de ser requisitado. Deixar o
+ * `fetch` seguir sozinho só deixava revalidar o destino FINAL
+ * (`response.url`), depois da requisição já ter sido feita — o servidor
+ * já teria batido no host interno, mesmo sem devolver o corpo.
+ */
+async function fetchFollowingSafeRedirects(startUrl: string, signal: AbortSignal): Promise<Response> {
+  let current = startUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    assertFetchableImageUrl(current);
+    const response = await fetch(current, { signal, redirect: "manual" });
+    const isRedirect = response.status >= 300 && response.status < 400 && response.status !== 304;
+    if (!isRedirect) return response;
+
+    await response.body?.cancel?.().catch(() => {});
+    const location = response.headers?.get("location");
+    if (!location) throw new UnsafeImageUrlError("Não consegui baixar a imagem.");
+    try {
+      current = new URL(location, current).toString();
+    } catch {
+      throw new UnsafeImageUrlError("Não consegui baixar a imagem.");
+    }
+  }
+  throw new UnsafeImageUrlError("Não consegui baixar a imagem.");
+}
+
 /**
  * Uma tentativa de download, com todas as guardas. Separada de
  * `fetchImageWithLimit` só pra permitir a 2ª tentativa por proxy sem
@@ -247,7 +367,7 @@ async function downloadImage(
 ): Promise<{ buffer: Buffer; mimeType: string }> {
   assertFetchableImageUrl(rawUrl);
 
-  const response = await fetch(rawUrl, { signal });
+  const response = await fetchFollowingSafeRedirects(rawUrl, signal);
 
   if (!response.ok) {
     // Instrumentação (set/2026): o status e o HOST ficam no log do
@@ -267,9 +387,9 @@ async function downloadImage(
     throw new UnsafeImageUrlError("Não consegui baixar a imagem.");
   }
 
-  // Redirecionamento é seguido por padrão pelo fetch — então revalida o
-  // host de DESTINO, senão um `https://host-publico/redir?to=…` levaria
-  // o download pra rede interna mesmo com a checagem inicial passando.
+  // Os redirecionamentos já foram seguidos e validados um a um em
+  // `fetchFollowingSafeRedirects`; esta checagem do destino final fica como
+  // cinto-e-suspensório (e cobre runtimes que devolvem `response.url`).
   if (response.url) {
     assertFetchableImageUrl(response.url);
   }

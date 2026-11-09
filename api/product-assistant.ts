@@ -1,7 +1,8 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { MarketplaceId, SearchProviderId } from "./_lib/types.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
-import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
+import { publicErrorDetail } from "./_lib/safeError.js";
+import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { fetchPricesCore, FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 import { getUserApiKeyForProvider } from "./_lib/userSecrets.js";
 import { getUserPlanFeatures } from "./_lib/planFeatures.js";
@@ -107,7 +108,7 @@ function parseContext(raw: unknown): AssistantContext | null {
       marketplace: o.marketplace === "amazon" ? "amazon" : "mercadolivre",
       price: o.price,
       title: typeof o.title === "string" ? o.title.slice(0, 200) : undefined,
-      link: typeof o.link === "string" ? o.link : undefined,
+      link: typeof o.link === "string" ? o.link.slice(0, 2000) : undefined,
       competitorCount: typeof o.competitorCount === "number" ? o.competitorCount : 0,
       approximate: o.approximate === true,
     }));
@@ -188,6 +189,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
           res.status(429).json({ error: err.message });
           return;
         }
+        if (err instanceof QuotaUnavailableError) {
+          res.status(503).json({ error: err.message });
+          return;
+        }
         console.error("[product-assistant] falha ao reservar cota (seguindo sem bloquear):", err);
       }
 
@@ -227,12 +232,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       return;
     }
     if (err instanceof GeminiVisionError) {
-      res.status(502).json({ error: err.message });
+      res.status(502).json({ error: publicErrorDetail(err) });
       return;
     }
     res.status(502).json({
       error: "Assistente indisponível agora.",
-      detail: err instanceof Error ? err.message : String(err),
+      detail: publicErrorDetail(err),
     });
   }
 }

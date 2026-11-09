@@ -1,8 +1,10 @@
 import { getAuth } from "firebase-admin/auth";
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "./_lib/billingMode.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 import { getAdminApp, getAdminDb } from "./_lib/firestoreAdmin.js";
 import { createPreapproval } from "./_lib/mercadoPago.js";
+import { publicErrorDetail } from "./_lib/safeError.js";
 
 /**
  * Cria (ou recria) a assinatura recorrente do usuário logado no Mercado
@@ -19,6 +21,13 @@ import { createPreapproval } from "./_lib/mercadoPago.js";
  * `status: "cancelled"`).
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  // Cobrança dormente (ver api/_lib/billingMode.ts): nem autentica, nem fala
+  // com o Mercado Pago — responde 503 curto, sem pista de como ligar.
+  if (!isBillingEnabled()) {
+    res.status(503).json({ error: BILLING_DISABLED_MESSAGE });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido" });
     return;
@@ -58,9 +67,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
 
     res.status(200).json({ initPoint: preapproval.initPoint, preapprovalId: preapproval.id });
   } catch (err) {
-    res.status(502).json({
-      error: "Não consegui criar a assinatura no Mercado Pago",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    // Sem `detail`: a mensagem do erro pode carregar nome de variável de
+    // ambiente ou resposta bruta do Mercado Pago — fica só no log.
+    console.error("[billing] falha ao criar assinatura:", publicErrorDetail(err));
+    res.status(502).json({ error: "Não consegui criar a assinatura agora. Tente de novo em instantes." });
   }
 }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, FileText, Loader2, Minus, ShieldCheck, X } from "lucide-react";
 import type { PlanId } from "../types";
-import { PLANS, getPlan } from "../config/plans";
+import { PLANS, getEffectivePlan } from "../config/plans";
+import { BILLING_ENABLED } from "../config/billing";
 import type { UserProfile } from "../lib/userProfile";
 import { getTodayUsage } from "../lib/usageQuota";
 import { listCatalogUploads, type CatalogUploadRecord } from "../lib/catalogHistory";
@@ -31,7 +32,7 @@ export default function AdminUserSheet({ user, isSelf, onChangePlan, onToggleAdm
   const [loading, setLoading] = useState(true);
   const [usage, setUsage] = useState(0);
   const [catalogs, setCatalogs] = useState<CatalogUploadRecord[]>([]);
-  const plan = getPlan(user.plan);
+  const plan = getEffectivePlan(user.plan);
   const keys = new Set(user.apiKeyProviders ?? []);
 
   useEffect(() => {
@@ -144,7 +145,8 @@ export default function AdminUserSheet({ user, isSelf, onChangePlan, onToggleAdm
               <div className={styles.usageLine}>
                 <span className={styles.usageValue}>{usage.toLocaleString("pt-BR")}</span>
                 <span className={styles.muted}>
-                  de {plan.dailySearchLimit.toLocaleString("pt-BR")} buscas (referência do plano {plan.name})
+                  de {plan.dailySearchLimit.toLocaleString("pt-BR")} buscas{" "}
+                  {BILLING_ENABLED ? `(referência do plano ${plan.name})` : "(limite diário do projeto gratuito)"}
                 </span>
               </div>
               <span className={styles.usageTrack} aria-hidden="true">

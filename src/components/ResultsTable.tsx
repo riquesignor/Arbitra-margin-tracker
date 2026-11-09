@@ -29,7 +29,7 @@ import { brl, displayProductName, pct } from "../lib/format";
 import type { CatalogUploadRecord } from "../lib/catalogHistory";
 import { listWatches, watchId } from "../lib/watchlist";
 import { openPrintableReport } from "../lib/printReport";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
 import MarginBar from "./MarginBar";
 import WatchToggle from "./WatchToggle";
 import RollingNumber from "./RollingNumber";
@@ -944,7 +944,7 @@ export default function ResultsTable({
     URL.revokeObjectURL(url);
   }
 
-  const canPrintReport = getPlan(planId).features.printableReport;
+  const canPrintReport = getEffectivePlan(planId).features.printableReport;
   const [printBlocked, setPrintBlocked] = useState(false);
   function handlePrintReport() {
     const margins = filtered.map((r) => r.marginPct).filter((v): v is number => v != null);

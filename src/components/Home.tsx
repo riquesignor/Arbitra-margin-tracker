@@ -8,6 +8,7 @@ import { getUserApiKeys } from "../lib/userSecrets";
 import { median } from "../lib/marginCalculator";
 import { marginTone, pct } from "../lib/format";
 import { getPlan } from "../config/plans";
+import { BILLING_ENABLED } from "../config/billing";
 import {
   MARKETPLACE_NAME,
   joinPt,
@@ -386,19 +387,21 @@ export default function Home({
             <p className={styles.caption}>Carregando biblioteca…</p>
           ) : libraryCatalogs.length === 0 ? (
             <>
-              <p className={styles.caption}>Biblioteca do plano {plan.name}</p>
+              <p className={styles.caption}>{BILLING_ENABLED ? `Biblioteca do plano ${plan.name}` : "Biblioteca de catálogos"}</p>
               <div className={styles.listEmpty}>
                 <p className={styles.emptyText}>
-                  Nenhum catálogo liberado pro plano {plan.name} ainda. A Nova busca funciona com
-                  qualquer catálogo seu.
+                  {BILLING_ENABLED ? `Nenhum catálogo liberado pro plano ${plan.name} ainda.` : "Nenhum catálogo na biblioteca ainda."}{" "}
+                  A Nova busca funciona com qualquer catálogo seu.
                 </p>
                 <div className={styles.inlineActions}>
                   <button type="button" className={styles.inlineLink} onClick={() => onNavigate("dashboard")}>
                     Subir meu catálogo
                   </button>
-                  <button type="button" className={styles.inlineLink} onClick={onOpenPlans}>
-                    Ver planos
-                  </button>
+                  {BILLING_ENABLED && (
+                    <button type="button" className={styles.inlineLink} onClick={onOpenPlans}>
+                      Ver planos
+                    </button>
+                  )}
                 </div>
               </div>
             </>

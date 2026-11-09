@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { DocumentReference } from "firebase-admin/firestore";
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
-import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
+import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { featuresForPlan } from "./_lib/planFeatures.js";
 import { checkAndPersistWatch, type WatchDoc } from "./_lib/watchCheck.js";
 import { mapWithConcurrency } from "./_lib/concurrency.js";
@@ -24,6 +24,16 @@ import { mapWithConcurrency } from "./_lib/concurrency.js";
 const TIME_BUDGET_MS = 240_000;
 const RECHECK_AFTER_MS = 20 * 60 * 60 * 1000;
 const CONCURRENCY = 4;
+
+/**
+ * Teto de watches checados por usuário numa execução. O limite de monitorados
+ * é do lado do app (`maxWatches`, src/config/plans.ts — o maior valor, do
+ * plano pro, é 200) e as regras do Firestore deixam o dono criar documentos
+ * à vontade: sem este teto, quem gravasse milhares de watches direto no
+ * banco faria o cron varrer tudo todo dia. O excesso simplesmente não é
+ * checado (os mais antigos primeiro).
+ */
+const MAX_WATCHES_PER_USER = 200;
 
 function authorized(req: ApiRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -70,7 +80,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     ]);
     if (!featuresForPlan(profileSnap.data()?.plan as string | undefined).autoWatchCheck) continue;
     if (prefsSnap.data()?.autoCheckWatches !== true) continue;
-    for (const item of items) eligible.push({ uid, ...item });
+    items.sort((a, b) => (a.watch.lastCheckedAt ?? 0) - (b.watch.lastCheckedAt ?? 0));
+    for (const item of items.slice(0, MAX_WATCHES_PER_USER)) eligible.push({ uid, ...item });
   }
   eligible.sort((a, b) => (a.watch.lastCheckedAt ?? 0) - (b.watch.lastCheckedAt ?? 0));
 
@@ -93,6 +104,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         quotaBlocked.add(uid);
         return;
       }
+      // Modo gratuito: sem conseguir reservar, não checa (falha fechada) —
+      // o watch fica pra execução do dia seguinte.
+      if (err instanceof QuotaUnavailableError) return;
       console.error(`[cron-check-watches] falha ao reservar cota de ${uid} (seguindo):`, err);
     }
     try {

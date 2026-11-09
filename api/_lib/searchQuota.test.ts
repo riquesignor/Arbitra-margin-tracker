@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // `vi.mock` é içado pra cima dos imports pelo vitest, então o import
 // estático abaixo já pega o módulo mockado — sem precisar de `await
 // import(...)` no topo (que o tsconfig.api.json, em CommonJS, recusa).
@@ -41,10 +41,21 @@ vi.mock("./firestoreAdmin.js", () => ({
   }),
 }));
 
+// Estes testes descrevem o comportamento ORIGINAL (cobrança ligada: teto
+// anti-abuso de 25.000 pra BYOK). O modo gratuito — cobrança desligada, que
+// é o padrão — tem os próprios testes em searchQuota.freeMode.test.ts.
+const ORIGINAL_BILLING = process.env.BILLING_ENABLED;
+
 beforeEach(() => {
+  process.env.BILLING_ENABLED = "true";
   state.plan = "free";
   state.currentCount = 0;
   state.written = null;
+});
+
+afterEach(() => {
+  if (ORIGINAL_BILLING === undefined) delete process.env.BILLING_ENABLED;
+  else process.env.BILLING_ENABLED = ORIGINAL_BILLING;
 });
 
 // Todo provider é BYOK desde que a chave ScraperAPI passou a ser do usuário

@@ -48,7 +48,7 @@ import {
 } from "../lib/catalogHistory";
 import { getTodayUsage } from "../lib/usageQuota";
 import { getUserApiKeys, type UserApiKeys } from "../lib/userSecrets";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import type { SharedCatalog } from "../lib/sharedCatalogs";
 import { getSpeedSummary, recordSample, type ProviderSpeedSummary } from "../lib/providerSpeedStats";
@@ -999,7 +999,7 @@ export default function Dashboard({
     .map((m) => m.label)
     .join(" + ");
 
-  const plan = getPlan(profile?.plan);
+  const plan = getEffectivePlan(profile?.plan);
 
   const activeProvider = SEARCH_PROVIDERS.find((p) => p.id === searchProvider)!;
   // Chave exigida pelo provider ativo — "mercadolivre_direct" não pede

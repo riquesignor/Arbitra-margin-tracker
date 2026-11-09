@@ -2,6 +2,23 @@ import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 
 const SUBCOLLECTION = "catalog_images";
+
+/**
+ * Formato aceito pra `id` e `uid` (ids do Firestore/Firebase Auth: letras,
+ * números, `-` e `_`). Qualquer outra coisa — barra, ponto, espaço, texto
+ * enorme — nem vira consulta: `.doc("a/b")` montaria um caminho diferente do
+ * pretendido, e entrada sem formato não tem por que ir ao banco.
+ */
+const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Só estes tipos de imagem são servidos. O doc é escrito pelo próprio
+ * cliente (a regra do Firestore deixa o dono criar qualquer campo), então
+ * `contentType` NÃO é confiável: sem esta lista, quem criasse um doc com
+ * `text/html` + HTML em `base64` hospedaria uma página nossa, na origem do
+ * app (XSS armazenado). SVG fica de fora de propósito — executa script.
+ */
+const SERVABLE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 /** Ver IMAGE_INDEX_COLLECTION em src/lib/catalogImages.ts — `imageId -> { uid, expiresAt }`. */
 const IMAGE_INDEX_COLLECTION = "catalog_image_index";
 
@@ -34,6 +51,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     res.status(400).json({ error: "Parâmetro id ausente" });
     return;
   }
+  if (!SAFE_ID.test(id) || (legacyUid !== undefined && !SAFE_ID.test(legacyUid))) {
+    res.status(400).json({ error: "Parâmetro inválido" });
+    return;
+  }
 
   try {
     const db = getAdminDb();
@@ -62,14 +83,24 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       return;
     }
 
-    const buffer = Buffer.from(data.base64 as string, "base64");
-    res.setHeader("Content-Type", (data.contentType as string) || "image/jpeg");
+    const declaredType = typeof data.contentType === "string" ? data.contentType.split(";")[0].trim().toLowerCase() : "";
+    const contentType = declaredType || "image/jpeg";
+    if (!SERVABLE_IMAGE_TYPES.has(contentType) || typeof data.base64 !== "string") {
+      res.status(404).json({ error: "Imagem não encontrada ou expirada" });
+      return;
+    }
+
+    const buffer = Buffer.from(data.base64, "base64");
+    res.setHeader("Content-Type", contentType);
+    // Defesa em profundidade: mesmo que algo escape da lista acima, o
+    // navegador não "adivinha" outro tipo (nosniff) nem executa nada
+    // (CSP restritiva + sandbox) se a URL for aberta direto numa aba.
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
     res.setHeader("Cache-Control", "public, max-age=3600");
     res.send(buffer);
   } catch (err) {
-    res.status(502).json({
-      error: "Falha ao servir imagem",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    console.error("[catalog-image] falha ao servir imagem:", err instanceof Error ? err.message : String(err));
+    res.status(502).json({ error: "Falha ao servir imagem" });
   }
 }

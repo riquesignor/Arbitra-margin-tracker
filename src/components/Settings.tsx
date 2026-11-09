@@ -8,6 +8,7 @@ import {
   Check,
   AlertTriangle,
   Loader2,
+  HeartHandshake,
   Workflow,
   Home,
   Search,
@@ -20,11 +21,13 @@ import {
 import type { AuthUser } from "../lib/auth";
 import { changeEmail, changePassword, deleteAccount, signOutUser } from "../lib/auth";
 import { getPlan, PLANS } from "../config/plans";
+import { BILLING_ENABLED } from "../config/billing";
 import type { UserProfile } from "../lib/userProfile";
 import { createSubscriptionCheckout } from "../lib/billingApi";
 import { brl, pct } from "../lib/format";
 import type { Recommendation } from "../types";
 import MarginBar from "./MarginBar";
+import DonationCard from "./DonationCard";
 import { BADGE_CLASS, BADGE_LABEL } from "./ResultsTable";
 import type {
   AccentPalette,
@@ -44,13 +47,14 @@ interface Props {
   initialSection?: Section;
 }
 
-export type Section = "aparencia" | "fluxo" | "personalizacao" | "pagamento" | "conta";
+export type Section = "aparencia" | "fluxo" | "personalizacao" | "pagamento" | "apoio" | "conta";
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette; isNew?: boolean }[] = [
   { id: "aparencia", label: "Aparência", hint: "modo, cor e tamanho do texto", icon: Palette },
   { id: "fluxo", label: "Fluxo de trabalho", hint: "onde o app abre e densidade", icon: Workflow, isNew: true },
   { id: "personalizacao", label: "Tabelas e gráficos", hint: "o que aparece em cada tela", icon: SlidersHorizontal },
   { id: "pagamento", label: "Plano e pagamento", hint: "assinatura e limites", icon: CreditCard },
+  { id: "apoio", label: "Apoie o projeto", hint: "contribuição voluntária", icon: HeartHandshake },
   { id: "conta", label: "Conta", hint: "email, senha e acesso", icon: UserCog },
 ];
 
@@ -158,9 +162,15 @@ export default function Settings({
   profile,
   initialSection = "aparencia",
 }: Props) {
-  const [section, setSection] = useState<Section>(initialSection);
+  // Cobrança desligada (src/config/billing.ts): sem seção de plano/pagamento
+  // nem botão "Assinar" — o código segue aqui pra poder ser religado.
+  // No lugar de "Assinar", o cartão de contribuição voluntária ("Apoie o projeto").
+  const sections = SECTIONS.filter((s) => (s.id === "pagamento" ? BILLING_ENABLED : s.id === "apoio" ? !BILLING_ENABLED : true));
+  const [section, setSection] = useState<Section>(
+    sections.some((s) => s.id === initialSection) ? initialSection : "aparencia"
+  );
   const plan = getPlan(profile?.plan);
-  const current = SECTIONS.find((s) => s.id === section)!;
+  const current = sections.find((s) => s.id === section) ?? sections[0];
 
   return (
     <div className={styles.container}>
@@ -173,7 +183,7 @@ export default function Settings({
 
       <div className={styles.layout}>
         <nav className={styles.nav} aria-label="Seções das configurações">
-          {SECTIONS.map((s) => {
+          {sections.map((s) => {
             const Icon = s.icon;
             const active = section === s.id;
             return (
@@ -195,15 +205,17 @@ export default function Settings({
               </button>
             );
           })}
-          <div className={styles.navPlan}>
-            <span className={styles.navPlanLabel}>Seu plano</span>
-            <span className={styles.navPlanName}>{plan.name}</span>
-            {section !== "pagamento" && (
-              <button type="button" className={styles.inlineLink} onClick={() => setSection("pagamento")}>
-                ver detalhes
-              </button>
-            )}
-          </div>
+          {BILLING_ENABLED && (
+            <div className={styles.navPlan}>
+              <span className={styles.navPlanLabel}>Seu plano</span>
+              <span className={styles.navPlanName}>{plan.name}</span>
+              {section !== "pagamento" && (
+                <button type="button" className={styles.inlineLink} onClick={() => setSection("pagamento")}>
+                  ver detalhes
+                </button>
+              )}
+            </div>
+          )}
         </nav>
 
         <motion.div
@@ -223,7 +235,8 @@ export default function Settings({
           {section === "personalizacao" && (
             <PersonalizacaoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
-          {section === "pagamento" && (
+          {section === "apoio" && <DonationCard />}
+          {BILLING_ENABLED && section === "pagamento" && (
             <PagamentoSection planId={plan.id} subscriptionStatus={profile?.mpSubscriptionStatus} />
           )}
           {section === "conta" && <ContaSection user={user} />}

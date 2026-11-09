@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  appHostsFromRequest,
   assertFetchableImageUrl,
   fetchImageWithLimit,
+  isCatalogImageFromThisApp,
   isSafeCatalogImageUrl,
   MAX_IMAGE_BYTES,
   UnsafeImageUrlError,
@@ -289,5 +291,208 @@ describe("modo desenvolvimento local (sem VERCEL_ENV)", () => {
     expect(isSafeCatalogImageUrl("http://localhost:3000/api/catalog-image?uid=a&id=b")).toBe(true);
     // A rota continua obrigatória mesmo em dev.
     expect(isSafeCatalogImageUrl("http://localhost:3000/qualquer-outra")).toBe(false);
+  });
+});
+
+
+describe("assertFetchableImageUrl — formas de esconder um host interno", () => {
+  const blocked = [
+    // IPv4 em outras notações (o `URL` normaliza tudo pra forma pontuada)
+    "https://2130706433/foto.jpg", // 127.0.0.1 em decimal
+    "https://0x7f.1/foto.jpg",
+    "https://017700000001/foto.jpg", // octal
+    "https://127.1/foto.jpg",
+    // faixas que a lista antiga não cobria
+    "https://100.64.0.1/foto.jpg", // CGNAT
+    "https://100.127.255.254/foto.jpg",
+    "https://198.18.0.1/foto.jpg", // benchmarking
+    "https://192.0.0.8/foto.jpg",
+    "https://192.0.2.10/foto.jpg", // TEST-NET-1
+    "https://224.0.0.1/foto.jpg", // multicast
+    "https://255.255.255.255/foto.jpg",
+    "https://0.0.0.0/foto.jpg",
+    // IPv6
+    "https://[::1]/foto.jpg",
+    "https://[0:0:0:0:0:0:0:1]/foto.jpg",
+    "https://[::]/foto.jpg",
+    "https://[::ffff:127.0.0.1]/foto.jpg", // IPv4 embutido
+    "https://[::ffff:169.254.169.254]/foto.jpg",
+    "https://[64:ff9b::7f00:1]/foto.jpg", // NAT64
+    "https://[fe80::1]/foto.jpg",
+    "https://[fec0::1]/foto.jpg",
+    "https://[fc00::1]/foto.jpg",
+    "https://[ff02::1]/foto.jpg",
+    // nomes que apontam pra dentro
+    "https://localhost./foto.jpg", // ponto final = mesmo host
+    "https://a.localhost/foto.jpg",
+    "https://impressora.lan/foto.jpg",
+    "https://wiki.intranet/foto.jpg",
+    "https://roteador.home.arpa/foto.jpg",
+  ];
+
+  it.each(blocked)("recusa %s", (url) => {
+    expect(() => assertFetchableImageUrl(url)).toThrow(UnsafeImageUrlError);
+  });
+
+  it("não recusa IP público nem faixa vizinha das privadas (sem falso positivo)", () => {
+    for (const url of [
+      "https://8.8.8.8/foto.jpg",
+      "https://172.15.0.1/foto.jpg", // logo antes de 172.16/12
+      "https://172.32.0.1/foto.jpg", // logo depois
+      "https://100.63.255.255/foto.jpg", // logo antes do CGNAT
+      "https://100.128.0.1/foto.jpg", // logo depois
+      "https://198.20.0.1/foto.jpg",
+      "https://192.169.0.1/foto.jpg",
+      "https://223.255.255.254/foto.jpg",
+    ]) {
+      expect(() => assertFetchableImageUrl(url)).not.toThrow();
+    }
+  });
+});
+
+describe("fetchImageWithLimit — redirecionamento é validado A CADA SALTO, antes de requisitar", () => {
+  function redirect(status: number, location: string | null): Response {
+    return {
+      ok: false,
+      status,
+      url: "",
+      headers: { get: (h: string) => (h.toLowerCase() === "location" ? location : null) },
+      body: null,
+    } as unknown as Response;
+  }
+  function image(): Response {
+    return {
+      ok: true,
+      status: 200,
+      url: "",
+      headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "image/jpeg" : null) },
+      arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer,
+      body: null,
+    } as unknown as Response;
+  }
+
+  it("pede ao fetch pra NÃO seguir sozinho (redirect: manual)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(image());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchImageWithLimit("https://http2.mlstatic.com/foto.jpg", new AbortController().signal);
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("redirecionamento pra metadata da nuvem é recusado SEM nunca requisitar o destino", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(redirect(302, "http://169.254.169.254/latest/meta-data/"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://encurtador.exemplo/abc", new AbortController().signal)
+    ).rejects.toThrow(UnsafeImageUrlError);
+    // Só a 1ª requisição (ao host público) saiu; o destino interno nunca foi tocado.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("segue um redirecionamento legítimo (inclusive Location relativo) até a imagem", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(301, "https://cdn.exemplo.com/foto.jpg"))
+      .mockResolvedValueOnce(redirect(302, "/final.jpg"))
+      .mockResolvedValueOnce(image());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { buffer } = await fetchImageWithLimit("https://exemplo.com/foto", new AbortController().signal);
+
+    expect(buffer.byteLength).toBe(4);
+    expect(String(fetchMock.mock.calls[1][0])).toBe("https://cdn.exemplo.com/foto.jpg");
+    expect(String(fetchMock.mock.calls[2][0])).toBe("https://cdn.exemplo.com/final.jpg");
+  });
+
+  it("redirecionamento de https pra http puro é recusado num deploy", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(redirect(302, "http://exemplo.com/foto.jpg"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://exemplo.com/foto", new AbortController().signal)
+    ).rejects.toThrow(UnsafeImageUrlError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("laço de redirecionamentos para depois do limite, sem baixar nada", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(redirect(302, "https://exemplo.com/de-novo"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      fetchImageWithLimit("https://exemplo.com/inicio", new AbortController().signal)
+    ).rejects.toThrow(UnsafeImageUrlError);
+    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it("redirecionamento sem Location é erro genérico", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(redirect(302, null)));
+
+    await expect(
+      fetchImageWithLimit("https://exemplo.com/foto", new AbortController().signal)
+    ).rejects.toThrow(/^Não consegui baixar a imagem\.$/);
+  });
+});
+
+describe("isCatalogImageFromThisApp — a foto do catálogo tem que estar hospedada no PRÓPRIO app", () => {
+  const hosts = appHostsFromRequest({ host: "app-arbitra.vercel.app" }, {});
+
+  it("aceita a URL que o app gera, no host da própria requisição", () => {
+    expect(isCatalogImageFromThisApp("https://app-arbitra.vercel.app/api/catalog-image?id=abc", hosts)).toBe(true);
+    expect(isCatalogImageFromThisApp("https://APP-ARBITRA.vercel.app/api/catalog-image?id=abc", hosts)).toBe(true);
+  });
+
+  it("recusa a rota certa em OUTRO host público — era o SSRF que o teste só do caminho deixava passar", () => {
+    expect(isCatalogImageFromThisApp("https://evil.example.com/api/catalog-image?id=abc", hosts)).toBe(false);
+    expect(isCatalogImageFromThisApp("https://app-arbitra.vercel.app.evil.com/api/catalog-image?id=abc", hosts)).toBe(false);
+    // usuário/senha na URL é truque pra um host parecer outro — recusado de cara
+    expect(isCatalogImageFromThisApp("https://evil.com@app-arbitra.vercel.app/api/catalog-image", hosts)).toBe(false);
+  });
+
+  it("a porta faz parte do host", () => {
+    expect(isCatalogImageFromThisApp("https://app-arbitra.vercel.app:8443/api/catalog-image?id=a", hosts)).toBe(false);
+  });
+
+  it("sem nenhum host conhecido, recusa (não dá pra decidir)", () => {
+    expect(isCatalogImageFromThisApp("https://app-arbitra.vercel.app/api/catalog-image?id=a", new Set())).toBe(false);
+  });
+
+  it("continua exigindo a rota e as demais guardas", () => {
+    expect(isCatalogImageFromThisApp("https://app-arbitra.vercel.app/outra-rota", hosts)).toBe(false);
+    expect(isCatalogImageFromThisApp(undefined, hosts)).toBe(false);
+    expect(isCatalogImageFromThisApp(42, hosts)).toBe(false);
+  });
+});
+
+describe("appHostsFromRequest", () => {
+  it("junta o Host da requisição, o repassado pelo proxy e os domínios declarados em variáveis de ambiente", () => {
+    const hosts = appHostsFromRequest(
+      { host: "App.Exemplo.com.br", "x-forwarded-host": "outro.exemplo.com, intermediario.com" },
+      {
+        VERCEL_URL: "projeto-abc123.vercel.app",
+        VERCEL_PROJECT_PRODUCTION_URL: "app-arbitra.vercel.app",
+        APP_BASE_URL: "https://arbitra.exemplo.com.br/",
+      }
+    );
+
+    expect([...hosts].sort()).toEqual(
+      [
+        "app.exemplo.com.br",
+        "outro.exemplo.com",
+        "projeto-abc123.vercel.app",
+        "app-arbitra.vercel.app",
+        "arbitra.exemplo.com.br",
+      ].sort()
+    );
+  });
+
+  it("aceita cabeçalho como array e APP_BASE_URL malformada sem lançar", () => {
+    const hosts = appHostsFromRequest({ host: ["a.com", "b.com"] }, { APP_BASE_URL: "isso não é url" });
+    expect([...hosts]).toEqual(["a.com"]);
+  });
+
+  it("sem cabeçalhos nem variáveis, devolve vazio", () => {
+    expect(appHostsFromRequest(undefined, {}).size).toBe(0);
   });
 });

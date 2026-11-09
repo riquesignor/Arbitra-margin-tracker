@@ -33,7 +33,7 @@ import {
 import WatchToggle from "./WatchToggle";
 import PriceSparkline from "./PriceSparkline";
 import ProductSheet from "./ProductSheet";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
 import styles from "./Portfolio.module.css";
 
 interface Props {
@@ -505,7 +505,7 @@ export default function Portfolio({
               userId={userId}
               watches={watches}
               onRefresh={() => void reloadWatches()}
-              autoCheckAvailable={getPlan(planId).features.autoWatchCheck}
+              autoCheckAvailable={getEffectivePlan(planId).features.autoWatchCheck}
               autoCheckOn={autoCheckWatches}
               onToggleAutoCheck={onToggleAutoCheckWatches}
             />

@@ -29,7 +29,7 @@ import PricingConfig from "./components/PricingConfig";
 import ResultsTable, { type FilterOption } from "./components/ResultsTable";
 import Portfolio from "./components/Portfolio";
 import ProductAssistant from "./components/ProductAssistant";
-import { getPlan } from "./config/plans";
+import { getEffectivePlan } from "./config/plans";
 import SupplierCompare from "./components/SupplierCompare";
 import Account from "./components/Account";
 import Settings, { type Section as SettingsSection } from "./components/Settings";
@@ -344,7 +344,7 @@ export default function App() {
   // em config/plans.ts). Efeito separado do restauro acima de propósito:
   // o perfil chega depois do histórico inicial, e o restauro não deve
   // rodar de novo só porque a lista cresceu.
-  const historyLimit = getPlan(profile?.plan).features.historyLimit;
+  const historyLimit = getEffectivePlan(profile?.plan).features.historyLimit;
   useEffect(() => {
     if (!user || historyLimit <= 50) return;
     void listCatalogUploads(user.uid, historyLimit).then(setHistory);

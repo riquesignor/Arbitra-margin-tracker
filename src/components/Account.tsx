@@ -6,8 +6,9 @@ import { signIn, signInWithGoogle, signOutUser, signUp, type AuthUser } from "..
 import { API_KEY_FIELDS, getUserApiKeys, type ApiKeyField } from "../lib/userSecrets";
 import ApiKeyCard, { type ApiKeyCardConfig } from "./ApiKeyCard";
 import CopyButton from "./CopyButton";
+import { BILLING_ENABLED } from "../config/billing";
 import { getTodayUsage } from "../lib/usageQuota";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
 import type { UserProfile } from "../lib/userProfile";
 import type { UserPreferences } from "../lib/userPreferences";
 import styles from "./Account.module.css";
@@ -543,7 +544,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
     );
   }
 
-  const plan = getPlan(profile?.plan);
+  const plan = getEffectivePlan(profile?.plan);
   // `usage_daily` (ver usageQuota.ts) só guarda o contador do DIA ATUAL —
   // sem histórico por dia no back-end, então aqui só aparece dado real:
   // uso de hoje contra o teto do plano.
@@ -573,7 +574,7 @@ export default function Account({ user, profile, preferences, onUpdatePreference
           <span className={styles.identityText}>
             <span className={styles.identityEmail}>{user.email}</span>
             <span className={styles.identityMeta}>
-              plano {plan.name}
+              {BILLING_ENABLED ? `plano ${plan.name}` : "uso gratuito"}
               {profile?.isAdmin ? " · administrador" : ""} · ID {user.uid.slice(0, 8)}
               <CopyButton text={user.uid} label="Copiar ID de suporte" />
             </span>
@@ -661,8 +662,18 @@ export default function Account({ user, profile, preferences, onUpdatePreference
             </section>
           ))}
           <p className={styles.footnote}>
-            O contador de buscas zera todo dia. Com chave própria, o teto real é o da sua conta em cada
-            provedor — o número do plano ({plan.dailySearchLimit}/dia) é só uma referência de ritmo.
+            {BILLING_ENABLED ? (
+              <>
+                O contador de buscas zera todo dia. Com chave própria, o teto real é o da sua conta em cada
+                provedor — o número do plano ({plan.dailySearchLimit}/dia) é só uma referência de ritmo.
+              </>
+            ) : (
+              <>
+                Projeto gratuito: o limite é de {plan.dailySearchLimit} buscas por dia, igual pra todo mundo, e zera à
+                meia-noite (horário de Brasília). Cada busca conta um produto em um marketplace. Além disso, cada
+                provedor tem a cota da sua própria conta.
+              </>
+            )}
           </p>
         </div>
       ) : (

@@ -2,8 +2,14 @@ import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { CatalogItemQuery, MarketplaceId, SearchProviderId, VisionCandidateSource } from "./_lib/types.js";
 import { fetchPricesCore, FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
-import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
-import { consumeSearchQuota, QuotaExceededError, type QuotaConsumption } from "./_lib/searchQuota.js";
+import { publicErrorDetail } from "./_lib/safeError.js";
+import { appHostsFromRequest, isCatalogImageFromThisApp } from "./_lib/safeImageUrl.js";
+import {
+  consumeSearchQuota,
+  QuotaExceededError,
+  QuotaUnavailableError,
+  type QuotaConsumption,
+} from "./_lib/searchQuota.js";
 
 /**
  * Teto de produtos por requisição (set/2026, ver docs/auditoria-2026-09.md
@@ -62,11 +68,28 @@ function isValidMarketplaces(value: unknown): value is MarketplaceId[] {
   );
 }
 
+/**
+ * Tamanhos máximos dos campos de texto de cada item. Generosos de propósito
+ * (um nome extraído de PDF pode ser longo e sujo) — o objetivo é só não
+ * aceitar megabytes num campo que vira consulta de busca e chave de cache.
+ */
+const MAX_SKU_CHARS = 300;
+const MAX_NAME_CHARS = 2000;
+const MAX_IMAGE_URL_CHARS = 2048;
+
 function isValidItems(value: unknown): value is CatalogItemQuery[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
-    value.every((v) => typeof v?.sku === "string" && typeof v?.name === "string")
+    value.every(
+      (v) =>
+        typeof v?.sku === "string" &&
+        v.sku.length <= MAX_SKU_CHARS &&
+        typeof v?.name === "string" &&
+        v.name.length <= MAX_NAME_CHARS &&
+        (v.imageUrl === undefined || (typeof v.imageUrl === "string" && v.imageUrl.length <= MAX_IMAGE_URL_CHARS)) &&
+        (v.supplierPrice == null || (typeof v.supplierPrice === "number" && Number.isFinite(v.supplierPrice)))
+    )
   );
 }
 
@@ -84,8 +107,8 @@ function isValidItems(value: unknown): value is CatalogItemQuery[] {
  * continua válido — busca por texto não precisa de foto, e os providers
  * de imagem já pulam item sem foto em silêncio.
  */
-function findInvalidImageUrlItem(items: CatalogItemQuery[]): CatalogItemQuery | undefined {
-  return items.find((item) => item.imageUrl !== undefined && !isSafeCatalogImageUrl(item.imageUrl));
+function findInvalidImageUrlItem(items: CatalogItemQuery[], appHosts: Set<string>): CatalogItemQuery | undefined {
+  return items.find((item) => item.imageUrl !== undefined && !isCatalogImageFromThisApp(item.imageUrl, appHosts));
 }
 
 function isValidProvider(value: unknown): value is SearchProviderId {
@@ -162,7 +185,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     return;
   }
   if (!isValidItems(body.items)) {
-    res.status(400).json({ error: "items deve ser um array não vazio de {sku, name}" });
+    res.status(400).json({
+      error: `items deve ser um array não vazio de {sku (até ${MAX_SKU_CHARS} caracteres), name (até ${MAX_NAME_CHARS})}`,
+    });
     return;
   }
   if (body.items.length > MAX_ITEMS_PER_REQUEST) {
@@ -173,7 +198,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     });
     return;
   }
-  const invalidImageItem = findInvalidImageUrlItem(body.items);
+  const invalidImageItem = findInvalidImageUrlItem(body.items, appHostsFromRequest(req.headers));
   if (invalidImageItem) {
     res.status(400).json({
       error:
@@ -221,6 +246,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       res.status(429).json({ error: err.message, used: err.used, limit: err.limit });
       return;
     }
+    // Modo gratuito: o limite diário vale pra todos, então sem conseguir
+    // reservar a busca não segue (falha fechada — ver QuotaUnavailableError).
+    if (err instanceof QuotaUnavailableError) {
+      res.status(503).json({ error: err.message });
+      return;
+    }
     // Falha de infraestrutura no contador (rede/Firestore) não pode
     // derrubar a busca do usuário — segue sem reservar, e o log fica
     // pra investigar. Falha ABERTA aqui é deliberada: o teto existe
@@ -264,7 +295,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     }
     res.status(502).json({
       error: "Busca de preço indisponível",
-      detail: err instanceof Error ? err.message : String(err),
+      detail: publicErrorDetail(err),
     });
   }
 }
