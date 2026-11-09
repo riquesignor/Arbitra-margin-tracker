@@ -1,4 +1,5 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "./_lib/billingMode.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 import { getPreapproval, isActiveSubscriptionStatus, verifyWebhookSignature } from "./_lib/mercadoPago.js";
 
@@ -30,6 +31,13 @@ function firstHeader(value: string | string[] | undefined): string | undefined {
  * de expor em produção.
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  // Cobrança dormente (ver api/_lib/billingMode.ts): nem autentica, nem fala
+  // com o Mercado Pago — responde 503 curto, sem pista de como ligar.
+  if (!isBillingEnabled()) {
+    res.status(503).json({ error: BILLING_DISABLED_MESSAGE });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido" });
     return;

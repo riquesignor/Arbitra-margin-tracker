@@ -1,5 +1,6 @@
 import { getAuth } from "firebase-admin/auth";
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "./_lib/billingMode.js";
 import { requireAuth, UnauthorizedError } from "./_lib/verifyAuth.js";
 import { getAdminApp, getAdminDb } from "./_lib/firestoreAdmin.js";
 import { createPreapproval } from "./_lib/mercadoPago.js";
@@ -19,6 +20,13 @@ import { createPreapproval } from "./_lib/mercadoPago.js";
  * `status: "cancelled"`).
  */
 export default async function handler(req: ApiRequest, res: ApiResponse): Promise<void> {
+  // Cobrança dormente (ver api/_lib/billingMode.ts): nem autentica, nem fala
+  // com o Mercado Pago — responde 503 curto, sem pista de como ligar.
+  if (!isBillingEnabled()) {
+    res.status(503).json({ error: BILLING_DISABLED_MESSAGE });
+    return;
+  }
+
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido" });
     return;

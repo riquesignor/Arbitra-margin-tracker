@@ -20,6 +20,7 @@ import {
 import type { AuthUser } from "../lib/auth";
 import { changeEmail, changePassword, deleteAccount, signOutUser } from "../lib/auth";
 import { getPlan, PLANS } from "../config/plans";
+import { BILLING_ENABLED } from "../config/billing";
 import type { UserProfile } from "../lib/userProfile";
 import { createSubscriptionCheckout } from "../lib/billingApi";
 import { brl, pct } from "../lib/format";
@@ -158,9 +159,14 @@ export default function Settings({
   profile,
   initialSection = "aparencia",
 }: Props) {
-  const [section, setSection] = useState<Section>(initialSection);
+  // Cobrança desligada (src/config/billing.ts): sem seção de plano/pagamento
+  // nem botão "Assinar" — o código segue aqui pra poder ser religado.
+  const sections = SECTIONS.filter((s) => BILLING_ENABLED || s.id !== "pagamento");
+  const [section, setSection] = useState<Section>(
+    sections.some((s) => s.id === initialSection) ? initialSection : "aparencia"
+  );
   const plan = getPlan(profile?.plan);
-  const current = SECTIONS.find((s) => s.id === section)!;
+  const current = sections.find((s) => s.id === section) ?? sections[0];
 
   return (
     <div className={styles.container}>
@@ -173,7 +179,7 @@ export default function Settings({
 
       <div className={styles.layout}>
         <nav className={styles.nav} aria-label="Seções das configurações">
-          {SECTIONS.map((s) => {
+          {sections.map((s) => {
             const Icon = s.icon;
             const active = section === s.id;
             return (
@@ -195,15 +201,17 @@ export default function Settings({
               </button>
             );
           })}
-          <div className={styles.navPlan}>
-            <span className={styles.navPlanLabel}>Seu plano</span>
-            <span className={styles.navPlanName}>{plan.name}</span>
-            {section !== "pagamento" && (
-              <button type="button" className={styles.inlineLink} onClick={() => setSection("pagamento")}>
-                ver detalhes
-              </button>
-            )}
-          </div>
+          {BILLING_ENABLED && (
+            <div className={styles.navPlan}>
+              <span className={styles.navPlanLabel}>Seu plano</span>
+              <span className={styles.navPlanName}>{plan.name}</span>
+              {section !== "pagamento" && (
+                <button type="button" className={styles.inlineLink} onClick={() => setSection("pagamento")}>
+                  ver detalhes
+                </button>
+              )}
+            </div>
+          )}
         </nav>
 
         <motion.div
@@ -223,7 +231,7 @@ export default function Settings({
           {section === "personalizacao" && (
             <PersonalizacaoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
-          {section === "pagamento" && (
+          {BILLING_ENABLED && section === "pagamento" && (
             <PagamentoSection planId={plan.id} subscriptionStatus={profile?.mpSubscriptionStatus} />
           )}
           {section === "conta" && <ContaSection user={user} />}
