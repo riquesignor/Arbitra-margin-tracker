@@ -1,5 +1,12 @@
 # Billing — Mercado Pago (assinatura recorrente)
 
+> **Desde nov/2026 a cobrança está DESLIGADA por padrão** (o Arbitra roda como
+> projeto gratuito). O código segue aqui, dormente: com `BILLING_ENABLED` fora
+> do ar as duas rotas respondem 503 sem falar com o Mercado Pago, e sem
+> `VITE_BILLING_ENABLED` a interface esconde "Assinar" e o painel de planos.
+> Pra religar, defina **as duas** como `true` (a `VITE_*` é lida no **build**, então
+> exige um novo deploy) e siga o checklist abaixo.
+
 Status: **MVP implementado, NÃO testado contra a API real do Mercado Pago
 nesta sessão** (sem acesso a ambiente de build/execução aqui — ver rodapé).
 Antes de expor a qualquer cliente pagador, siga o checklist deste documento
