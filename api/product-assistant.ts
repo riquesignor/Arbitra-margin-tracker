@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { MarketplaceId, SearchProviderId } from "./_lib/types.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
-import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
+import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { fetchPricesCore, FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 import { getUserApiKeyForProvider } from "./_lib/userSecrets.js";
 import { getUserPlanFeatures } from "./_lib/planFeatures.js";
@@ -186,6 +186,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
       } catch (err) {
         if (err instanceof QuotaExceededError) {
           res.status(429).json({ error: err.message });
+          return;
+        }
+        if (err instanceof QuotaUnavailableError) {
+          res.status(503).json({ error: err.message });
           return;
         }
         console.error("[product-assistant] falha ao reservar cota (seguindo sem bloquear):", err);

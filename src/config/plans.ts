@@ -1,4 +1,6 @@
 import type { PlanId } from "../types";
+import { BILLING_ENABLED } from "./billing";
+import { DAILY_SEARCH_LIMIT } from "./limits";
 
 export interface PlanDefinition {
   id: PlanId;
@@ -89,4 +91,36 @@ export const PLANS: PlanDefinition[] = [
 
 export function getPlan(id: PlanId | null | undefined): PlanDefinition {
   return PLANS.find((p) => p.id === id) ?? PLANS[0];
+}
+
+/**
+ * Plano EFETIVO — é este que a interface (e, no servidor, as rotas) deve
+ * consultar pra saber o que o usuário pode fazer. Com a cobrança ligada é
+ * o plano salvo, igual sempre foi. Com a cobrança desligada (modo
+ * gratuito, nov/2026) todo mundo tem TODOS os recursos: recursos, teto de
+ * monitorados e de histórico do plano "pro" (nada ilimitado) e o limite
+ * diário único de buscas.
+ *
+ * Só resolve na hora: NÃO grava nada e NÃO mexe no plano salvo, então
+ * religar a cobrança devolve o comportamento original pra todo mundo.
+ * `id` segue sendo o do plano salvo (a biblioteca de catálogos continua
+ * liberada por ele). Espelho no servidor: api/_lib/planFeatures.ts +
+ * api/_lib/freeMode.ts.
+ */
+export function getEffectivePlan(
+  id: PlanId | null | undefined,
+  billingEnabled: boolean = BILLING_ENABLED,
+  dailySearchLimit: number = DAILY_SEARCH_LIMIT
+): PlanDefinition {
+  const saved = getPlan(id);
+  if (billingEnabled) return saved;
+  const pro = PLANS.find((p) => p.id === "pro")!;
+  return {
+    ...pro,
+    id: saved.id,
+    name: "Gratuito",
+    priceLabel: "Grátis",
+    description: "Projeto gratuito: todos os recursos, com um limite diário de buscas igual pra todo mundo.",
+    dailySearchLimit,
+  };
 }

@@ -1,4 +1,5 @@
 import { getAdminDb } from "./firestoreAdmin.js";
+import { isBillingEnabled } from "./billingMode.js";
 
 /**
  * Espelho server-side de `features` em src/config/plans.ts — MANTER EM
@@ -18,13 +19,24 @@ const PLAN_FEATURES: Record<string, ServerPlanFeatures> = {
   pro: { productAssistant: true, autoWatchCheck: true },
 };
 
-export function featuresForPlan(plan: string | undefined): ServerPlanFeatures {
+/**
+ * Plano EFETIVO: com a cobrança desligada (modo gratuito, ver freeMode.ts)
+ * todo mundo tem os recursos do plano "pro" — sem gravar nada e sem olhar o
+ * plano salvo, então religar a cobrança devolve o comportamento original.
+ */
+export function featuresForPlan(
+  plan: string | undefined,
+  billingEnabled: boolean = isBillingEnabled()
+): ServerPlanFeatures {
+  if (!billingEnabled) return PLAN_FEATURES.pro;
   return PLAN_FEATURES[plan ?? ""] ?? PLAN_FEATURES.free;
 }
 
 export async function getUserPlanFeatures(uid: string): Promise<ServerPlanFeatures> {
+  // Sem cobrança o plano salvo é irrelevante — nem lê o perfil.
+  if (!isBillingEnabled()) return featuresForPlan(undefined, false);
   const snap = await getAdminDb().collection("users").doc(uid).get();
-  return featuresForPlan(snap.data()?.plan as string | undefined);
+  return featuresForPlan(snap.data()?.plan as string | undefined, true);
 }
 
 export class FeatureNotInPlanError extends Error {}

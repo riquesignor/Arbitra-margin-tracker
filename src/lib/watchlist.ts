@@ -1,5 +1,6 @@
 import type { MarginResult, MarketplaceId, PlanId, Recommendation, SearchProviderId } from "../types";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
+import { BILLING_ENABLED } from "../config/billing";
 import { firebaseConfigured, getFirebaseDb } from "./firebase";
 import { getCurrentIdToken } from "./auth";
 
@@ -117,9 +118,12 @@ export async function startWatching(
   );
   const id = watchId(item.sku, item.marketplace);
   const alreadyWatchingThis = existing.docs.some((d) => d.id === id);
-  if (!alreadyWatchingThis && existing.size >= getPlan(planId).maxWatches) {
+  if (!alreadyWatchingThis && existing.size >= getEffectivePlan(planId).maxWatches) {
+    const max = getEffectivePlan(planId).maxWatches;
     throw new WatchLimitError(
-      `Seu plano permite monitorar até ${getPlan(planId).maxWatches} produto(s) ao mesmo tempo. ` +
+      (BILLING_ENABLED
+        ? `Seu plano permite monitorar até ${max} produto(s) ao mesmo tempo. `
+        : `Dá pra monitorar até ${max} produtos ao mesmo tempo. `) +
         "Pare de monitorar algum produto antes de adicionar um novo."
     );
   }

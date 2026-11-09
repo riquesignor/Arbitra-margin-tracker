@@ -14,7 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type { PlanId, SearchProviderId } from "../types";
-import { getPlan } from "../config/plans";
+import { getEffectivePlan } from "../config/plans";
 import { brl } from "../lib/format";
 import { safeExternalUrl } from "../lib/safeExternalUrl";
 import {
@@ -95,7 +95,7 @@ function writeLastChat(userId: string | null, chatId: string | null) {
 }
 
 export default function ProductAssistant({ userId, planId, onOpenAccount }: Props) {
-  const plan = getPlan(planId);
+  const plan = getEffectivePlan(planId);
   const toast = useToast();
   const [photo, setPhoto] = useState<{
     base64: string;

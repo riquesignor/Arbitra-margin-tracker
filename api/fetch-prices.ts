@@ -3,7 +3,12 @@ import type { CatalogItemQuery, MarketplaceId, SearchProviderId, VisionCandidate
 import { fetchPricesCore, FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
 import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
-import { consumeSearchQuota, QuotaExceededError, type QuotaConsumption } from "./_lib/searchQuota.js";
+import {
+  consumeSearchQuota,
+  QuotaExceededError,
+  QuotaUnavailableError,
+  type QuotaConsumption,
+} from "./_lib/searchQuota.js";
 
 /**
  * Teto de produtos por requisição (set/2026, ver docs/auditoria-2026-09.md
@@ -219,6 +224,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   } catch (err) {
     if (err instanceof QuotaExceededError) {
       res.status(429).json({ error: err.message, used: err.used, limit: err.limit });
+      return;
+    }
+    // Modo gratuito: o limite diário vale pra todos, então sem conseguir
+    // reservar a busca não segue (falha fechada — ver QuotaUnavailableError).
+    if (err instanceof QuotaUnavailableError) {
+      res.status(503).json({ error: err.message });
       return;
     }
     // Falha de infraestrutura no contador (rede/Firestore) não pode

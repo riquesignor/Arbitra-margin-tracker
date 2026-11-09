@@ -1,5 +1,7 @@
 import { getAdminDb } from "./firestoreAdmin.js";
 import type { SearchProviderId } from "./types.js";
+import { isBillingEnabled } from "./billingMode.js";
+import { dailyLimitMessage, getDailySearchLimit } from "./freeMode.js";
 
 /**
  * ══════════════════════════════════════════════════════════════════════
@@ -29,6 +31,19 @@ import type { SearchProviderId } from "./types.js";
  * escreve é o servidor, dentro de uma transaction, e o cliente parou de
  * incrementar (senão contaria em dobro).
  */
+
+/**
+ * Só no modo gratuito (cobrança desligada): o contador não pôde ser
+ * lido/gravado (rede/Firestore). Com o limite diário valendo pra todos, a
+ * busca NÃO segue sem reservar — falha FECHADA. Com a cobrança ligada
+ * (comportamento original) o erro de infraestrutura sobe cru e os
+ * chamadores seguem sem bloquear.
+ */
+export class QuotaUnavailableError extends Error {
+  constructor() {
+    super("Não consegui verificar o seu limite diário agora. Tente de novo em instantes.");
+  }
+}
 
 export class QuotaExceededError extends Error {
   constructor(
@@ -88,6 +103,10 @@ export function todayKeyBrazil(now = new Date()): string {
 }
 
 async function getPlanLimit(uid: string, provider: SearchProviderId): Promise<number> {
+  // Modo gratuito (cobrança desligada): UM limite, igual pra todos os
+  // usuários e todos os mecanismos — o plano salvo nem é consultado.
+  if (!isBillingEnabled()) return getDailySearchLimit();
+
   if (!PLATFORM_COST_PROVIDERS.has(provider)) return BYOK_DAILY_LIMIT;
 
   try {
@@ -125,27 +144,40 @@ export async function consumeSearchQuota(
   provider: SearchProviderId,
   amount: number
 ): Promise<QuotaConsumption> {
-  const limit = await getPlanLimit(uid, provider);
-  const db = getAdminDb();
-  const ref = db.collection("users").doc(uid).collection("usage_daily").doc(todayKeyBrazil());
+  const freeMode = !isBillingEnabled();
+  try {
+    const limit = await getPlanLimit(uid, provider);
+    const db = getAdminDb();
+    const ref = db.collection("users").doc(uid).collection("usage_daily").doc(todayKeyBrazil());
 
-  return db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    const current = (snap.data()?.searchCount as number | undefined) ?? 0;
-    const next = current + amount;
+    return await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const current = (snap.data()?.searchCount as number | undefined) ?? 0;
+      const next = current + amount;
 
-    if (next > limit) {
-      throw new QuotaExceededError(
-        `Cota diária de buscas atingida (${current}/${limit}). ` +
-          (PLATFORM_COST_PROVIDERS.has(provider)
-            ? "Este mecanismo é pago pela plataforma — troque pra um mecanismo com chave própria (SerpApi/SearchApi.io em Conta) ou tente de novo amanhã."
-            : "Tente de novo amanhã ou processe um intervalo menor do catálogo."),
-        current,
-        limit
-      );
+      if (next > limit) {
+        throw new QuotaExceededError(
+          freeMode
+            ? dailyLimitMessage(limit) +
+                (current < limit ? ` Restam ${limit - current} hoje; esta busca precisa de ${amount}.` : "")
+            : `Cota diária de buscas atingida (${current}/${limit}). ` +
+                (PLATFORM_COST_PROVIDERS.has(provider)
+                  ? "Este mecanismo é pago pela plataforma — troque pra um mecanismo com chave própria (SerpApi/SearchApi.io em Conta) ou tente de novo amanhã."
+                  : "Tente de novo amanhã ou processe um intervalo menor do catálogo."),
+          current,
+          limit
+        );
+      }
+
+      tx.set(ref, { searchCount: next, updatedAt: Date.now() }, { merge: true });
+      return { used: next, limit };
+    });
+  } catch (err) {
+    if (err instanceof QuotaExceededError) throw err;
+    if (freeMode) {
+      console.error("[quota] falha ao reservar cota (modo gratuito, bloqueando):", err);
+      throw new QuotaUnavailableError();
     }
-
-    tx.set(ref, { searchCount: next, updatedAt: Date.now() }, { merge: true });
-    return { used: next, limit };
-  });
+    throw err;
+  }
 }

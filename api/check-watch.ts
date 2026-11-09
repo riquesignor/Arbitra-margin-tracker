@@ -1,7 +1,7 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { MarketplaceId } from "./_lib/types.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
-import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
+import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 import { checkAndPersistWatch, watchId, type WatchDoc } from "./_lib/watchCheck.js";
 import { FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
@@ -80,6 +80,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   } catch (err) {
     if (err instanceof QuotaExceededError) {
       res.status(429).json({ error: err.message, used: err.used, limit: err.limit });
+      return;
+    }
+    if (err instanceof QuotaUnavailableError) {
+      res.status(503).json({ error: err.message });
       return;
     }
     // Mesma filosofia de fetch-prices.ts: falha ABERTA no contador (não

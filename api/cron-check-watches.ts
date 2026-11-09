@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { DocumentReference } from "firebase-admin/firestore";
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
-import { consumeSearchQuota, QuotaExceededError } from "./_lib/searchQuota.js";
+import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { featuresForPlan } from "./_lib/planFeatures.js";
 import { checkAndPersistWatch, type WatchDoc } from "./_lib/watchCheck.js";
 import { mapWithConcurrency } from "./_lib/concurrency.js";
@@ -93,6 +93,9 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
         quotaBlocked.add(uid);
         return;
       }
+      // Modo gratuito: sem conseguir reservar, não checa (falha fechada) —
+      // o watch fica pra execução do dia seguinte.
+      if (err instanceof QuotaUnavailableError) return;
       console.error(`[cron-check-watches] falha ao reservar cota de ${uid} (seguindo):`, err);
     }
     try {
