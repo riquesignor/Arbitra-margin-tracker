@@ -1,0 +1,112 @@
+/*
+ * "Apoie o projeto" (nov/2026) — mesma linguagem do resto do app (papel,
+ * fio de tinta no topo, botão de tinta). Só tokens: acompanha o tema
+ * claro/escuro e o tamanho de fonte escolhidos em Configurações.
+ */
+
+.card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-text);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.text {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  max-width: 56ch;
+}
+
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: calc(16px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.description {
+  margin: 0;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.note {
+  margin: 0;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.copyRow {
+  display: flex;
+}
+
+.copyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-text);
+  font-family: inherit;
+  font-size: calc(14px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-bg);
+  cursor: pointer;
+}
+
+.copyButton:hover {
+  opacity: 0.86;
+}
+
+.copyButton:focus-visible,
+.manual:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+
+.live {
+  min-height: 1.4em;
+  margin: 0;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.manual {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--font-scale));
+  color: var(--color-text);
+  resize: vertical;
+}
+
+/* Fundo branco fixo: QR Code precisa de contraste claro/escuro próprio pra ser lido pelo app do banco, em qualquer tema. */
+.qr {
+  flex-shrink: 0;
+  width: 168px;
+  height: 168px;
+  padding: 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: #ffffff;
+  object-fit: contain;
+}

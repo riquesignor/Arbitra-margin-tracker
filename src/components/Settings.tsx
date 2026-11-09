@@ -8,6 +8,7 @@ import {
   Check,
   AlertTriangle,
   Loader2,
+  HeartHandshake,
   Workflow,
   Home,
   Search,
@@ -26,6 +27,7 @@ import { createSubscriptionCheckout } from "../lib/billingApi";
 import { brl, pct } from "../lib/format";
 import type { Recommendation } from "../types";
 import MarginBar from "./MarginBar";
+import DonationCard from "./DonationCard";
 import { BADGE_CLASS, BADGE_LABEL } from "./ResultsTable";
 import type {
   AccentPalette,
@@ -45,13 +47,14 @@ interface Props {
   initialSection?: Section;
 }
 
-export type Section = "aparencia" | "fluxo" | "personalizacao" | "pagamento" | "conta";
+export type Section = "aparencia" | "fluxo" | "personalizacao" | "pagamento" | "apoio" | "conta";
 
 const SECTIONS: { id: Section; label: string; hint: string; icon: typeof Palette; isNew?: boolean }[] = [
   { id: "aparencia", label: "Aparência", hint: "modo, cor e tamanho do texto", icon: Palette },
   { id: "fluxo", label: "Fluxo de trabalho", hint: "onde o app abre e densidade", icon: Workflow, isNew: true },
   { id: "personalizacao", label: "Tabelas e gráficos", hint: "o que aparece em cada tela", icon: SlidersHorizontal },
   { id: "pagamento", label: "Plano e pagamento", hint: "assinatura e limites", icon: CreditCard },
+  { id: "apoio", label: "Apoie o projeto", hint: "contribuição voluntária", icon: HeartHandshake },
   { id: "conta", label: "Conta", hint: "email, senha e acesso", icon: UserCog },
 ];
 
@@ -161,7 +164,8 @@ export default function Settings({
 }: Props) {
   // Cobrança desligada (src/config/billing.ts): sem seção de plano/pagamento
   // nem botão "Assinar" — o código segue aqui pra poder ser religado.
-  const sections = SECTIONS.filter((s) => BILLING_ENABLED || s.id !== "pagamento");
+  // No lugar de "Assinar", o cartão de contribuição voluntária ("Apoie o projeto").
+  const sections = SECTIONS.filter((s) => (s.id === "pagamento" ? BILLING_ENABLED : s.id === "apoio" ? !BILLING_ENABLED : true));
   const [section, setSection] = useState<Section>(
     sections.some((s) => s.id === initialSection) ? initialSection : "aparencia"
   );
@@ -231,6 +235,7 @@ export default function Settings({
           {section === "personalizacao" && (
             <PersonalizacaoSection preferences={preferences} onUpdatePreferences={onUpdatePreferences} />
           )}
+          {section === "apoio" && <DonationCard />}
           {BILLING_ENABLED && section === "pagamento" && (
             <PagamentoSection planId={plan.id} subscriptionStatus={profile?.mpSubscriptionStatus} />
           )}
