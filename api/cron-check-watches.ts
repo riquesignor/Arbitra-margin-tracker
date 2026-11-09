@@ -25,6 +25,16 @@ const TIME_BUDGET_MS = 240_000;
 const RECHECK_AFTER_MS = 20 * 60 * 60 * 1000;
 const CONCURRENCY = 4;
 
+/**
+ * Teto de watches checados por usuário numa execução. O limite de monitorados
+ * é do lado do app (`maxWatches`, src/config/plans.ts — o maior valor, do
+ * plano pro, é 200) e as regras do Firestore deixam o dono criar documentos
+ * à vontade: sem este teto, quem gravasse milhares de watches direto no
+ * banco faria o cron varrer tudo todo dia. O excesso simplesmente não é
+ * checado (os mais antigos primeiro).
+ */
+const MAX_WATCHES_PER_USER = 200;
+
 function authorized(req: ApiRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -70,7 +80,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     ]);
     if (!featuresForPlan(profileSnap.data()?.plan as string | undefined).autoWatchCheck) continue;
     if (prefsSnap.data()?.autoCheckWatches !== true) continue;
-    for (const item of items) eligible.push({ uid, ...item });
+    items.sort((a, b) => (a.watch.lastCheckedAt ?? 0) - (b.watch.lastCheckedAt ?? 0));
+    for (const item of items.slice(0, MAX_WATCHES_PER_USER)) eligible.push({ uid, ...item });
   }
   eligible.sort((a, b) => (a.watch.lastCheckedAt ?? 0) - (b.watch.lastCheckedAt ?? 0));
 
