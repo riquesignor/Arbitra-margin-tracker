@@ -112,3 +112,23 @@ describe("cobrança ligada — o código dormente continua funcionando", () => {
     expect(mp.getPreapproval).not.toHaveBeenCalled();
   });
 });
+
+describe("cobrança ligada — erro não vaza detalhe técnico", () => {
+  beforeEach(() => {
+    process.env.BILLING_ENABLED = "true";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("webhook: falha ao consultar o Mercado Pago devolve 502 genérico, sem nome de variável", async () => {
+    mp.verifyWebhookSignature.mockReturnValue(true);
+    mp.getPreapproval.mockRejectedValue(new Error("MERCADOPAGO_ACCESS_TOKEN ausente — configure a credencial"));
+    const { res, out } = makeRes();
+    await webhook(
+      { method: "POST", headers: {}, body: { type: "subscription_preapproval", data: { id: "abc" } } } as ApiRequest,
+      res
+    );
+
+    expect(out.status).toBe(502);
+    expect(JSON.stringify(out.body)).not.toMatch(/MERCADOPAGO|detail|token/i);
+  });
+});

@@ -2,6 +2,7 @@ import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import { BILLING_DISABLED_MESSAGE, isBillingEnabled } from "./_lib/billingMode.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 import { getPreapproval, isActiveSubscriptionStatus, verifyWebhookSignature } from "./_lib/mercadoPago.js";
+import { publicErrorDetail } from "./_lib/safeError.js";
 
 /** Plano atribuído automaticamente enquanto a assinatura estiver ativa — sobrescrevível sem deploy. */
 function getPaidPlanId(): string {
@@ -93,9 +94,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   } catch (err) {
     // 502, não 200: queremos que o Mercado Pago RETENTE se a nossa
     // consulta/gravação falhar por instabilidade transitória.
-    res.status(502).json({
-      error: "Falha ao processar notificação de assinatura",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    console.error("[billing] falha ao processar notificação:", publicErrorDetail(err));
+    res.status(502).json({ error: "Falha ao processar notificação de assinatura" });
   }
 }

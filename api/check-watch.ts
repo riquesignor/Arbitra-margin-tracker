@@ -1,6 +1,7 @@
 import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { MarketplaceId } from "./_lib/types.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
+import { publicErrorDetail } from "./_lib/safeError.js";
 import { consumeSearchQuota, QuotaExceededError, QuotaUnavailableError } from "./_lib/searchQuota.js";
 import { getAdminDb } from "./_lib/firestoreAdmin.js";
 import { checkAndPersistWatch, watchId, type WatchDoc } from "./_lib/watchCheck.js";
@@ -55,8 +56,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
   }
 
   const body = req.body as RequestBody;
-  if (typeof body?.sku !== "string" || !body.sku.trim()) {
-    res.status(400).json({ error: "sku é obrigatório" });
+  if (typeof body?.sku !== "string" || !body.sku.trim() || body.sku.length > 300) {
+    res.status(400).json({ error: "sku é obrigatório (até 300 caracteres)" });
     return;
   }
   if (!isValidMarketplace(body.marketplace)) {
@@ -108,7 +109,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     }
     res.status(502).json({
       error: "Checagem indisponível",
-      detail: err instanceof Error ? err.message : String(err),
+      detail: publicErrorDetail(err),
     });
   }
 }

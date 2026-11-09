@@ -28,9 +28,10 @@ async function verifyToken(req: ApiRequest) {
   try {
     return await getAuth(getAdminApp()).verifyIdToken(token);
   } catch (err) {
-    throw new UnauthorizedError(
-      `Token inválido ou expirado: ${err instanceof Error ? err.message : String(err)}`
-    );
+    // O detalhe da falha (assinatura, projeto, expiração, ou até credencial
+    // do Admin SDK ausente) fica só no log — a resposta é a mesma pra tudo.
+    console.warn("[auth] token recusado:", err instanceof Error ? err.message : String(err));
+    throw new UnauthorizedError("Sessão inválida ou expirada. Entre de novo.");
   }
 }
 
