@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import type { ApiRequest, ApiResponse } from "../_lib/httpTypes.js";
 
 /**
  * Validação de entrada e vazamento de erro em POST /api/fetch-prices.
@@ -8,21 +8,21 @@ const core = vi.hoisted(() => ({ fetchPricesCore: vi.fn() }));
 const quota = vi.hoisted(() => ({ consumeSearchQuota: vi.fn() }));
 const auth = vi.hoisted(() => ({ requireVerifiedAuth: vi.fn() }));
 
-vi.mock("./_lib/verifyAuth.js", async () => {
-  const actual = await vi.importActual<typeof import("./_lib/verifyAuth.js")>("./_lib/verifyAuth.js");
+vi.mock("../_lib/verifyAuth.js", async () => {
+  const actual = await vi.importActual<typeof import("../_lib/verifyAuth.js")>("../_lib/verifyAuth.js");
   return { ...actual, requireVerifiedAuth: auth.requireVerifiedAuth };
 });
-vi.mock("./_lib/searchQuota.js", async () => {
-  const actual = await vi.importActual<typeof import("./_lib/searchQuota.js")>("./_lib/searchQuota.js");
+vi.mock("../_lib/searchQuota.js", async () => {
+  const actual = await vi.importActual<typeof import("../_lib/searchQuota.js")>("../_lib/searchQuota.js");
   return { ...actual, consumeSearchQuota: quota.consumeSearchQuota };
 });
-vi.mock("./_lib/fetchPricesCore.js", () => ({
+vi.mock("../_lib/fetchPricesCore.js", () => ({
   fetchPricesCore: core.fetchPricesCore,
   FetchPricesValidationError: class FetchPricesValidationError extends Error {},
 }));
 
-import handler from "./fetch-prices.js";
-import { EmailNotVerifiedError, UnauthorizedError } from "./_lib/verifyAuth.js";
+import handler from "../fetch-prices.js";
+import { EmailNotVerifiedError, UnauthorizedError } from "../_lib/verifyAuth.js";
 
 function makeRes() {
   const out = { status: 0, body: undefined as unknown };

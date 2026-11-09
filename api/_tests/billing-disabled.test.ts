@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
+import type { ApiRequest, ApiResponse } from "../_lib/httpTypes.js";
 
 /**
  * Com a cobrança desligada (padrão), as duas rotas de assinatura precisam
@@ -15,11 +15,11 @@ const mp = vi.hoisted(() => ({
 }));
 const admin = vi.hoisted(() => ({ getAdminDb: vi.fn(), getAdminApp: vi.fn() }));
 
-vi.mock("./_lib/mercadoPago.js", () => mp);
-vi.mock("./_lib/firestoreAdmin.js", () => admin);
+vi.mock("../_lib/mercadoPago.js", () => mp);
+vi.mock("../_lib/firestoreAdmin.js", () => admin);
 
-import createSubscription from "./billing-create-subscription.js";
-import webhook from "./billing-webhook.js";
+import createSubscription from "../billing-create-subscription.js";
+import webhook from "../billing-webhook.js";
 
 function makeRes() {
   const out = { status: 0, body: undefined as unknown };
