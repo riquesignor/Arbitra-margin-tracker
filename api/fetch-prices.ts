@@ -2,7 +2,7 @@ import type { ApiRequest, ApiResponse } from "./_lib/httpTypes.js";
 import type { CatalogItemQuery, MarketplaceId, SearchProviderId, VisionCandidateSource } from "./_lib/types.js";
 import { fetchPricesCore, FetchPricesValidationError } from "./_lib/fetchPricesCore.js";
 import { requireVerifiedAuth, UnauthorizedError, EmailNotVerifiedError } from "./_lib/verifyAuth.js";
-import { isSafeCatalogImageUrl } from "./_lib/safeImageUrl.js";
+import { appHostsFromRequest, isCatalogImageFromThisApp } from "./_lib/safeImageUrl.js";
 import {
   consumeSearchQuota,
   QuotaExceededError,
@@ -89,8 +89,8 @@ function isValidItems(value: unknown): value is CatalogItemQuery[] {
  * continua válido — busca por texto não precisa de foto, e os providers
  * de imagem já pulam item sem foto em silêncio.
  */
-function findInvalidImageUrlItem(items: CatalogItemQuery[]): CatalogItemQuery | undefined {
-  return items.find((item) => item.imageUrl !== undefined && !isSafeCatalogImageUrl(item.imageUrl));
+function findInvalidImageUrlItem(items: CatalogItemQuery[], appHosts: Set<string>): CatalogItemQuery | undefined {
+  return items.find((item) => item.imageUrl !== undefined && !isCatalogImageFromThisApp(item.imageUrl, appHosts));
 }
 
 function isValidProvider(value: unknown): value is SearchProviderId {
@@ -178,7 +178,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse): Promis
     });
     return;
   }
-  const invalidImageItem = findInvalidImageUrlItem(body.items);
+  const invalidImageItem = findInvalidImageUrlItem(body.items, appHostsFromRequest(req.headers));
   if (invalidImageItem) {
     res.status(400).json({
       error:
